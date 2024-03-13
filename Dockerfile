@@ -57,6 +57,7 @@ COPY .bingo .bingo
 COPY pkg/util/xorm/go.* pkg/util/xorm/
 COPY pkg/apiserver/go.* pkg/apiserver/
 COPY pkg/apimachinery/go.* pkg/apimachinery/
+COPY pkg/promlib/go.* pkg/promlib/
 
 RUN go mod download
 RUN if [[ "$BINGO" = "true" ]]; then \
@@ -86,12 +87,9 @@ FROM ${BASE_IMAGE} as tgz-builder
 
 WORKDIR /tmp/grafana
 
-ARG GRAFANA_TGZ="grafana-latest.linux-x64-musl.tar.gz"
-
-COPY ${GRAFANA_TGZ} /tmp/grafana.tar.gz
-
-# add -v to make tar print every file it extracts
-RUN tar x -z -f /tmp/grafana.tar.gz --strip-components=1
+COPY ./public ./public
+COPY ./scripts ./scripts
+COPY ./plugins-bundled ./plugins-bundled
 
 # helpers for COPY --from
 FROM ${GO_SRC} as go-src
