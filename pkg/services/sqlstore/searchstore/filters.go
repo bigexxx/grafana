@@ -48,7 +48,7 @@ type TitleFilter struct {
 
 func (f TitleFilter) Where() (string, []any) {
 	return fmt.Sprintf("(dashboard.title %s ? or dashboard.data %s ?)", f.Dialect.LikeStr(), f.Dialect.LikeStr()), []any{
-		"%" + f.Title + "%", "%" + f.Title + "{%",
+		"%" + f.Title + "%", "%" + f.Title + "%",
 	}
 }
 
