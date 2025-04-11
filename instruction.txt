@@ -1,0 +1,3 @@
+for build grafana docker image:
+- keep fixes in Dockerfile during future merges
+- run in root: docker build -t <your local grafana image name> --platform linux/amd64 .
