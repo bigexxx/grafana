@@ -19,7 +19,7 @@ For detailed information about particular features and how they operate, refer t
 ## Manage feature toggles
 
 In the **Administration** page, the **Feature Management** section enables authorized users to view and edit the various features that are active in their Grafana environment.
-Authorized users include administrators, and users with the [fixed roles]({{< relref "../roles-and-permissions/access-control#fixed-roles" >}}) `featuremgmt.read` and `featuremgmt.write`.
+Authorized users include administrators, and users with the [fixed roles](../roles-and-permissions/access-control/#fixed-roles) `featuremgmt.read` and `featuremgmt.write`.
 
 There are different options for visibility and customization depending on the development stage of the feature.
 
@@ -50,6 +50,8 @@ To edit a feature toggle, follow these steps:
 1. Navigate to the list of feature toggles and select your feature state overrides.
 1. Click **Save changes** and wait for your Grafana instance to restart with the updated feature toggles.
 
-{{% admonition type="note" %}}
+{{< admonition type="note" >}}
+If you don't have the feature toggle management page, enable the `featureToggleAdminPage` feature toggle.
+
 Editing feature toggles with the feature toggle management page is available now in all tiers of [Grafana Cloud](/docs/grafana-cloud/).
-{{% /admonition %}}
+{{< /admonition >}}

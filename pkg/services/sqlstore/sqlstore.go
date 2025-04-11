@@ -16,6 +16,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	"xorm.io/core"
+
 	"xorm.io/xorm"
 
 	"github.com/grafana/grafana/pkg/bus"
@@ -37,7 +38,7 @@ import (
 type ContextSessionKey struct{}
 
 type SQLStore struct {
-	Cfg         *setting.Cfg
+	cfg         *setting.Cfg
 	features    featuremgmt.FeatureToggles
 	sqlxsession *session.SessionDB
 
@@ -45,7 +46,7 @@ type SQLStore struct {
 	dbCfg                        *DatabaseConfig
 	engine                       *xorm.Engine
 	log                          log.Logger
-	Dialect                      migrator.Dialect
+	dialect                      migrator.Dialect
 	skipEnsureDefaultOrgAndUser  bool
 	migrations                   registry.DatabaseMigrator
 	tracer                       tracing.Tracer
@@ -61,13 +62,12 @@ func ProvideService(cfg *setting.Cfg,
 	// by that mimic the functionality of how it was functioning before
 	// xorm's changes above.
 	xorm.DefaultPostgresSchema = ""
-	s, err := newSQLStore(cfg, nil, migrations, bus, tracer)
+	s, err := newStore(cfg, nil, features, migrations, bus, tracer, false)
 	if err != nil {
 		return nil, err
 	}
-	s.features = features
 
-	if err := s.Migrate(features.IsEnabledGlobally(featuremgmt.FlagMigrationLocking)); err != nil {
+	if err := s.Migrate(s.dbCfg.MigrationLock); err != nil {
 		return nil, err
 	}
 
@@ -75,18 +75,6 @@ func ProvideService(cfg *setting.Cfg,
 		return nil, err
 	}
 	s.tracer = tracer
-
-	// initialize and register metrics wrapper around the *sql.DB
-	db := s.engine.DB().DB
-
-	// register the go_sql_stats_connections_* metrics
-	if err := prometheus.Register(sqlstats.NewStatsCollector("grafana", db)); err != nil {
-		s.log.Warn("Failed to register sqlstore stats collector", "error", err)
-	}
-	// TODO: deprecate/remove these metrics
-	if err := prometheus.Register(newSQLStoreMetrics(db)); err != nil {
-		s.log.Warn("Failed to register sqlstore metrics", "error", err)
-	}
 
 	return s, nil
 }
@@ -100,38 +88,27 @@ func ProvideServiceForTests(t sqlutil.ITestDB, cfg *setting.Cfg, features featur
 func NewSQLStoreWithoutSideEffects(cfg *setting.Cfg,
 	features featuremgmt.FeatureToggles,
 	bus bus.Bus, tracer tracing.Tracer) (*SQLStore, error) {
-	s, err := newSQLStore(cfg, nil, nil, bus, tracer)
-	if err != nil {
-		return nil, err
-	}
-
-	s.features = features
-	s.tracer = tracer
-
-	return s, nil
+	return newStore(cfg, nil, features, nil, bus, tracer, true)
 }
 
-func newSQLStore(cfg *setting.Cfg, engine *xorm.Engine,
-	migrations registry.DatabaseMigrator, bus bus.Bus, tracer tracing.Tracer, opts ...InitTestDBOpt) (*SQLStore, error) {
+func newStore(cfg *setting.Cfg, engine *xorm.Engine, features featuremgmt.FeatureToggles,
+	migrations registry.DatabaseMigrator, bus bus.Bus, tracer tracing.Tracer,
+	skipEnsureDefaultOrgAndUser bool) (*SQLStore, error) {
 	ss := &SQLStore{
-		Cfg:                         cfg,
+		cfg:                         cfg,
 		log:                         log.New("sqlstore"),
-		skipEnsureDefaultOrgAndUser: false,
+		skipEnsureDefaultOrgAndUser: skipEnsureDefaultOrgAndUser,
 		migrations:                  migrations,
 		bus:                         bus,
 		tracer:                      tracer,
-	}
-	for _, opt := range opts {
-		if !opt.EnsureDefaultOrgAndUser {
-			ss.skipEnsureDefaultOrgAndUser = true
-		}
+		features:                    features,
 	}
 
 	if err := ss.initEngine(engine); err != nil {
 		return nil, fmt.Errorf("%v: %w", "failed to connect to database", err)
 	}
 
-	ss.Dialect = migrator.NewDialect(ss.engine.DriverName())
+	ss.dialect = migrator.NewDialect(ss.engine.DriverName())
 
 	// if err := ss.Reset(); err != nil {
 	// 	return nil, err
@@ -151,14 +128,21 @@ func newSQLStore(cfg *setting.Cfg, engine *xorm.Engine,
 // Has to be done in a second phase (after initialization), since other services can register migrations during
 // the initialization phase.
 func (ss *SQLStore) Migrate(isDatabaseLockingEnabled bool) error {
-	if ss.dbCfg.SkipMigrations {
+	if ss.dbCfg.SkipMigrations || ss.migrations == nil {
 		return nil
 	}
 
-	migrator := migrator.NewMigrator(ss.engine, ss.Cfg)
+	migrator := migrator.NewMigrator(ss.engine, ss.cfg)
 	ss.migrations.AddMigration(migrator)
 
-	return migrator.Start(isDatabaseLockingEnabled, ss.dbCfg.MigrationLockAttemptTimeout)
+	if err := prometheus.Register(migrator); err != nil {
+		ss.log.Warn("Failed to register migrator metrics", "error", err)
+	}
+
+	ctx, span := ss.tracer.Start(context.Background(), "SQLStore.Migrate")
+	defer span.End()
+
+	return migrator.RunMigrations(ctx, isDatabaseLockingEnabled, ss.dbCfg.MigrationLockAttemptTimeout)
 }
 
 // Reset resets database state.
@@ -178,7 +162,7 @@ func (ss *SQLStore) Quote(value string) string {
 
 // GetDialect return the dialect
 func (ss *SQLStore) GetDialect() migrator.Dialect {
-	return ss.Dialect
+	return ss.dialect
 }
 
 func (ss *SQLStore) GetDBType() core.DbType {
@@ -210,7 +194,7 @@ func (ss *SQLStore) ensureMainOrgAndAdminUser(test bool) error {
 			var stats stats.SystemUserCountStats
 			// TODO: Should be able to rename "Count" to "count", for more standard SQL style
 			// Just have to make sure it gets deserialized properly into models.SystemUserCountStats
-			rawSQL := `SELECT COUNT(id) AS Count FROM ` + ss.Dialect.Quote("user")
+			rawSQL := `SELECT COUNT(id) AS Count FROM ` + ss.dialect.Quote("user")
 			if _, err := sess.SQL(rawSQL).Get(&stats); err != nil {
 				return fmt.Errorf("could not determine if admin user exists: %w", err)
 			}
@@ -220,19 +204,19 @@ func (ss *SQLStore) ensureMainOrgAndAdminUser(test bool) error {
 		}
 
 		// ensure admin user
-		if !ss.Cfg.DisableInitAdminCreation {
+		if !ss.cfg.DisableInitAdminCreation {
 			ss.log.Debug("Creating default admin user")
 
 			if _, err := ss.createUser(ctx, sess, user.CreateUserCommand{
-				Login:    ss.Cfg.AdminUser,
-				Email:    ss.Cfg.AdminEmail,
-				Password: user.Password(ss.Cfg.AdminPassword),
+				Login:    ss.cfg.AdminUser,
+				Email:    ss.cfg.AdminEmail,
+				Password: user.Password(ss.cfg.AdminPassword),
 				IsAdmin:  true,
 			}); err != nil {
 				return fmt.Errorf("failed to create admin user: %s", err)
 			}
 
-			ss.log.Info("Created default admin", "user", ss.Cfg.AdminUser)
+			ss.log.Info("Created default admin", "user", ss.cfg.AdminUser)
 		}
 
 		ss.log.Debug("Creating default org", "name", mainOrgName)
@@ -254,14 +238,14 @@ func (ss *SQLStore) initEngine(engine *xorm.Engine) error {
 		return nil
 	}
 
-	dbCfg, err := NewDatabaseConfig(ss.Cfg, ss.features)
+	dbCfg, err := NewDatabaseConfig(ss.cfg, ss.features)
 	if err != nil {
 		return err
 	}
 
 	ss.dbCfg = dbCfg
 
-	if ss.Cfg.DatabaseInstrumentQueries {
+	if ss.cfg.DatabaseInstrumentQueries {
 		ss.dbCfg.Type = WrapDatabaseDriverWithHooks(ss.dbCfg.Type, ss.tracer)
 	}
 
@@ -296,6 +280,15 @@ func (ss *SQLStore) initEngine(engine *xorm.Engine) error {
 		}
 	}
 	if engine == nil {
+		// Ensure that parseTime is enabled for MySQL
+		if strings.Contains(ss.dbCfg.Type, migrator.MySQL) && !strings.Contains(ss.dbCfg.ConnectionString, "parseTime=") {
+			if strings.Contains(ss.dbCfg.ConnectionString, "?") {
+				ss.dbCfg.ConnectionString += "&parseTime=true"
+			} else {
+				ss.dbCfg.ConnectionString += "?parseTime=true"
+			}
+		}
+
 		var err error
 		engine, err = xorm.NewEngine(ss.dbCfg.Type, ss.dbCfg.ConnectionString)
 		if err != nil {
@@ -316,7 +309,7 @@ func (ss *SQLStore) initEngine(engine *xorm.Engine) error {
 	engine.SetConnMaxLifetime(time.Second * time.Duration(ss.dbCfg.ConnMaxLifetime))
 
 	// configure sql logging
-	debugSQL := ss.Cfg.Raw.Section("database").Key("log_queries").MustBool(false)
+	debugSQL := ss.cfg.Raw.Section("database").Key("log_queries").MustBool(false)
 	if !debugSQL {
 		engine.SetLogger(&xorm.DiscardLogger{})
 	} else {
@@ -324,6 +317,19 @@ func (ss *SQLStore) initEngine(engine *xorm.Engine) error {
 		engine.SetLogger(NewXormLogger(log.LvlInfo, log.WithSuffix(log.New("sqlstore.xorm"), log.CallerContextKey, log.StackCaller(log.DefaultCallerDepth))))
 		engine.ShowSQL(true)
 		engine.ShowExecTime(true)
+	}
+
+	// initialize and register metrics wrapper around the *sql.DB
+	db := engine.DB().DB
+
+	// register the go_sql_stats_connections_* metrics
+	if err := prometheus.Register(sqlstats.NewStatsCollector("grafana", db)); err != nil {
+		ss.log.Warn("Failed to register sqlstore stats collector", "error", err)
+	}
+
+	// TODO: deprecate/remove these metrics
+	if err := prometheus.Register(newSQLStoreMetrics(db)); err != nil {
+		ss.log.Warn("Failed to register sqlstore metrics", "error", err)
 	}
 
 	ss.engine = engine
@@ -342,7 +348,7 @@ func (ss *SQLStore) ensureTransactionIsolationCompatibility(engine *xorm.Engine,
 		if strings.Contains(mysqlError.Message, "Unknown system variable 'transaction_isolation'") {
 			ss.log.Debug("transaction_isolation system var is unknown, overriding in connection string with tx_isolation instead")
 			// replace with compatible system var for transaction isolation
-			connectionString = strings.Replace(connectionString, "&transaction_isolation", "&tx_isolation", -1)
+			connectionString = strings.ReplaceAll(connectionString, "&transaction_isolation", "&tx_isolation")
 			// recreate the xorm engine with new connection string that is compatible
 			engine, err = xorm.NewEngine(ss.dbCfg.Type, connectionString)
 			if err != nil {
@@ -367,6 +373,11 @@ func (ss *SQLStore) RecursiveQueriesAreSupported() (bool, error) {
 		return *ss.recursiveQueriesAreSupported, nil
 	}
 	recursiveQueriesAreSupported := func() (bool, error) {
+		if ss.GetDBType() == migrator.Spanner {
+			// no need to try...
+			return false, nil
+		}
+
 		var result []int
 		if err := ss.WithDbSession(context.Background(), func(sess *DBSession) error {
 			recQry := `WITH RECURSIVE cte (n) AS
@@ -382,7 +393,7 @@ func (ss *SQLStore) RecursiveQueriesAreSupported() (bool, error) {
 		}); err != nil {
 			var driverErr *mysql.MySQLError
 			if errors.As(err, &driverErr) {
-				if driverErr.Number == mysqlerr.ER_PARSE_ERROR {
+				if driverErr.Number == mysqlerr.ER_PARSE_ERROR || driverErr.Number == mysqlerr.ER_NOT_SUPPORTED_YET {
 					return false, nil
 				}
 			}
@@ -403,19 +414,22 @@ var testSQLStoreSetup = false
 var testSQLStore *SQLStore
 var testSQLStoreMutex sync.Mutex
 var testSQLStoreCleanup []func()
+var testSQLStoreSkipTestsOnBackend string // When not empty and matches DB type, test is skipped.
 
 // InitTestDBOpt contains options for InitTestDB.
 type InitTestDBOpt struct {
 	// EnsureDefaultOrgAndUser flags whether to ensure that default org and user exist.
 	EnsureDefaultOrgAndUser bool
 	FeatureFlags            []string
+	Cfg                     *setting.Cfg
 }
 
 // InitTestDBWithMigration initializes the test DB given custom migrations.
 func InitTestDBWithMigration(t sqlutil.ITestDB, migration registry.DatabaseMigrator, opts ...InitTestDBOpt) *SQLStore {
 	t.Helper()
 	features := getFeaturesForTesting(opts...)
-	store, err := initTestDB(t, setting.NewCfg(), features, migration, opts...)
+	cfg := getCfgForTesting(opts...)
+	store, err := initTestDB(t, cfg, features, migration, opts...)
 	if err != nil {
 		t.Fatalf("failed to initialize sql store: %s", err)
 	}
@@ -423,15 +437,16 @@ func InitTestDBWithMigration(t sqlutil.ITestDB, migration registry.DatabaseMigra
 }
 
 // InitTestDB initializes the test DB.
-func InitTestDB(t sqlutil.ITestDB, opts ...InitTestDBOpt) *SQLStore {
+func InitTestDB(t sqlutil.ITestDB, opts ...InitTestDBOpt) (*SQLStore, *setting.Cfg) {
 	t.Helper()
 	features := getFeaturesForTesting(opts...)
+	cfg := getCfgForTesting(opts...)
 
-	store, err := initTestDB(t, setting.NewCfg(), features, migrations.ProvideOSSMigrations(features), opts...)
+	store, err := initTestDB(t, cfg, features, migrations.ProvideOSSMigrations(features), opts...)
 	if err != nil {
 		t.Fatalf("failed to initialize sql store: %s", err)
 	}
-	return store
+	return store, store.cfg
 }
 
 func SetupTestDB() {
@@ -442,6 +457,12 @@ func SetupTestDB() {
 		os.Exit(1)
 	}
 	testSQLStoreSetup = true
+}
+
+func SkipTestsOnSpanner() {
+	testSQLStoreMutex.Lock()
+	defer testSQLStoreMutex.Unlock()
+	testSQLStoreSkipTestsOnBackend = "spanner"
 }
 
 func CleanupTestDB() {
@@ -465,10 +486,19 @@ func CleanupTestDB() {
 	}
 }
 
+func getCfgForTesting(opts ...InitTestDBOpt) *setting.Cfg {
+	cfg := setting.NewCfg()
+	for _, opt := range opts {
+		if len(opt.FeatureFlags) > 0 {
+			cfg = opt.Cfg
+		}
+	}
+	return cfg
+}
+
 func getFeaturesForTesting(opts ...InitTestDBOpt) featuremgmt.FeatureToggles {
 	featureKeys := []any{
 		featuremgmt.FlagPanelTitleSearch,
-		featuremgmt.FlagUnifiedStorage,
 	}
 	for _, opt := range opts {
 		if len(opt.FeatureFlags) > 0 {
@@ -518,6 +548,10 @@ func TestMain(m *testing.M) {
 
 	if testSQLStore == nil {
 		dbType := sqlutil.GetTestDBType()
+
+		if testSQLStoreSkipTestsOnBackend != "" && testSQLStoreSkipTestsOnBackend == dbType {
+			t.Skipf("test skipped when using DB type %s", testSQLStoreSkipTestsOnBackend)
+		}
 
 		// set test db config
 		cfg := setting.NewCfg()
@@ -579,9 +613,17 @@ func TestMain(m *testing.M) {
 		engine.DatabaseTZ = time.UTC
 		engine.TZLocation = time.UTC
 
+		skipEnsureDefaultOrgAndUser := false
+		for _, opt := range opts {
+			if !opt.EnsureDefaultOrgAndUser {
+				skipEnsureDefaultOrgAndUser = true
+				break
+			}
+		}
+
 		tracer := tracing.InitializeTracerForTest()
 		bus := bus.ProvideBus(tracer)
-		testSQLStore, err = newSQLStore(cfg, engine, migration, bus, tracer, opts...)
+		testSQLStore, err = newStore(cfg, engine, features, migration, bus, tracer, skipEnsureDefaultOrgAndUser)
 		if err != nil {
 			return nil, err
 		}
@@ -592,11 +634,13 @@ func TestMain(m *testing.M) {
 	}
 
 	// nolint:staticcheck
-	testSQLStore.Cfg.IsFeatureToggleEnabled = features.IsEnabledGlobally
+	testSQLStore.cfg.IsFeatureToggleEnabled = features.IsEnabledGlobally
 
-	if err := testSQLStore.Dialect.TruncateDBTables(testSQLStore.GetEngine()); err != nil {
+	if err := testSQLStore.dialect.TruncateDBTables(testSQLStore.GetEngine()); err != nil {
 		return nil, err
 	}
+	testSQLStore.engine.ResetSequenceGenerator()
+
 	if err := testSQLStore.Reset(); err != nil {
 		return nil, err
 	}

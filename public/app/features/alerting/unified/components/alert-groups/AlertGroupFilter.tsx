@@ -1,10 +1,11 @@
 import { css } from '@emotion/css';
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { Button, useStyles2 } from '@grafana/ui';
 import { useQueryParams } from 'app/core/hooks/useQueryParams';
-import { AlertmanagerGroup, AlertState } from 'app/plugins/datasource/alertmanager/types';
+import { Trans } from 'app/core/internationalization';
+import { AlertState, AlertmanagerGroup } from 'app/plugins/datasource/alertmanager/types';
 
 import { getFiltersFromUrlParams } from '../../utils/misc';
 
@@ -29,6 +30,7 @@ export const AlertGroupFilter = ({ groups }: Props) => {
       groupBy: null,
       queryString: null,
       alertState: null,
+      contactPoint: null,
     });
     setTimeout(() => setFilterKey(filterKey + 1), 100);
   };
@@ -54,7 +56,7 @@ export const AlertGroupFilter = ({ groups }: Props) => {
         />
         {showClearButton && (
           <Button className={styles.clearButton} variant={'secondary'} icon="times" onClick={clearFilters}>
-            Clear filters
+            <Trans i18nKey="alerting.alert-group-filter.clear-filters">Clear filters</Trans>
           </Button>
         )}
       </div>
@@ -63,18 +65,18 @@ export const AlertGroupFilter = ({ groups }: Props) => {
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  wrapper: css`
-    border-bottom: 1px solid ${theme.colors.border.medium};
-    margin-bottom: ${theme.spacing(3)};
-  `,
-  filterSection: css`
-    display: flex;
-    flex-direction: row;
-    margin-bottom: ${theme.spacing(3)};
-    gap: ${theme.spacing(1)};
-  `,
-  clearButton: css`
-    margin-left: ${theme.spacing(1)};
-    margin-top: 19px;
-  `,
+  wrapper: css({
+    borderBottom: `1px solid ${theme.colors.border.medium}`,
+    marginBottom: theme.spacing(3),
+  }),
+  filterSection: css({
+    display: 'flex',
+    flexDirection: 'row',
+    marginBottom: theme.spacing(3),
+    gap: theme.spacing(1),
+  }),
+  clearButton: css({
+    marginLeft: theme.spacing(1),
+    marginTop: '19px',
+  }),
 });

@@ -1,10 +1,10 @@
 import { AnyAction } from 'redux';
 
-import { LoadingState } from '@grafana/data';
+import { ConstantVariableModel, LoadingState, VariableRefresh } from '@grafana/data';
 import * as runtime from '@grafana/runtime';
 import { DataSourceSrv, LocationService } from '@grafana/runtime';
 import { BackendSrv } from 'app/core/services/backend_srv';
-import { DashboardModel } from 'app/features/dashboard/state';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
 
 import { reduxTester } from '../../../../test/core/redux/reduxTester';
 import { toAsyncOfResult } from '../../query/state/DashboardQueryRunner/testHelpers';
@@ -27,7 +27,6 @@ import {
   textboxBuilder,
 } from '../shared/testing/builders';
 import { createTextBoxVariableAdapter } from '../textbox/adapter';
-import { ConstantVariableModel, VariableRefresh } from '../types';
 import { toKeyedVariableIdentifier, toVariablePayload } from '../utils';
 
 import {

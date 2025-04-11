@@ -6,10 +6,10 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"time"
 
+	alertingHttp "github.com/grafana/alerting/http"
 	alertingNotify "github.com/grafana/alerting/notify"
 	"github.com/grafana/alerting/receivers"
 	alertingTemplates "github.com/grafana/alerting/templates"
@@ -17,8 +17,8 @@ import (
 
 	amv2 "github.com/prometheus/alertmanager/api/v2/models"
 
-	"github.com/grafana/grafana/pkg/infra/kvstore"
 	"github.com/grafana/grafana/pkg/infra/log"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	"github.com/grafana/grafana/pkg/services/ngalert/metrics"
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
@@ -28,22 +28,24 @@ import (
 )
 
 const (
-	NotificationLogFilename = "notifications"
-	SilencesFilename        = "silences"
+	// How often we flush and garbage collect notifications and silences.
+	maintenanceInterval = 15 * time.Minute
 
-	workingDir = "alerting"
-	// maintenanceNotificationAndSilences how often should we flush and garbage collect notifications
-	notificationLogMaintenanceInterval = 15 * time.Minute
+	// How long we keep silences in the kvstore after they've expired.
+	silenceRetention = 5 * 24 * time.Hour
 )
-
-// How long should we keep silences and notification entries on-disk after they've served their purpose.
-var retentionNotificationsAndSilences = 5 * 24 * time.Hour
-var silenceMaintenanceInterval = 15 * time.Minute
 
 type AlertingStore interface {
 	store.AlertingStore
 	store.ImageStore
 	autogenRuleStore
+}
+
+type stateStore interface {
+	SaveSilences(ctx context.Context, st alertingNotify.State) (int64, error)
+	SaveNotificationLog(ctx context.Context, st alertingNotify.State) (int64, error)
+	GetSilences(ctx context.Context) (string, error)
+	GetNotificationLog(ctx context.Context) (string, error)
 }
 
 type alertmanager struct {
@@ -53,7 +55,7 @@ type alertmanager struct {
 	ConfigMetrics       *metrics.AlertmanagerConfigMetrics
 	Settings            *setting.Cfg
 	Store               AlertingStore
-	fileStore           *FileStore
+	stateStore          stateStore
 	NotificationService notifications.Service
 
 	decryptFn alertingNotify.GetDecryptedValueFn
@@ -65,14 +67,16 @@ type alertmanager struct {
 // maintenanceOptions represent the options for components that need maintenance on a frequency within the Alertmanager.
 // It implements the alerting.MaintenanceOptions interface.
 type maintenanceOptions struct {
-	filepath             string
+	initialState         string
 	retention            time.Duration
 	maintenanceFrequency time.Duration
 	maintenanceFunc      func(alertingNotify.State) (int64, error)
 }
 
-func (m maintenanceOptions) Filepath() string {
-	return m.filepath
+var _ alertingNotify.MaintenanceOptions = maintenanceOptions{}
+
+func (m maintenanceOptions) InitialState() string {
+	return m.initialState
 }
 
 func (m maintenanceOptions) Retention() time.Duration {
@@ -87,40 +91,39 @@ func (m maintenanceOptions) MaintenanceFunc(state alertingNotify.State) (int64, 
 	return m.maintenanceFunc(state)
 }
 
-func NewAlertmanager(ctx context.Context, orgID int64, cfg *setting.Cfg, store AlertingStore, kvStore kvstore.KVStore,
+func NewAlertmanager(ctx context.Context, orgID int64, cfg *setting.Cfg, store AlertingStore, stateStore stateStore,
 	peer alertingNotify.ClusterPeer, decryptFn alertingNotify.GetDecryptedValueFn, ns notifications.Service,
-	m *metrics.Alertmanager, withAutogen bool) (*alertmanager, error) {
-	workingPath := filepath.Join(cfg.DataPath, workingDir, strconv.Itoa(int(orgID)))
-	fileStore := NewFileStore(orgID, kvStore, workingPath)
-
-	nflogFilepath, err := fileStore.FilepathFor(ctx, NotificationLogFilename)
+	m *metrics.Alertmanager, featureToggles featuremgmt.FeatureToggles,
+) (*alertmanager, error) {
+	nflog, err := stateStore.GetNotificationLog(ctx)
 	if err != nil {
 		return nil, err
 	}
-	silencesFilepath, err := fileStore.FilepathFor(ctx, SilencesFilename)
+	silences, err := stateStore.GetSilences(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	silencesOptions := maintenanceOptions{
-		filepath:             silencesFilepath,
-		retention:            retentionNotificationsAndSilences,
-		maintenanceFrequency: silenceMaintenanceInterval,
+		initialState:         silences,
+		retention:            silenceRetention,
+		maintenanceFrequency: maintenanceInterval,
 		maintenanceFunc: func(state alertingNotify.State) (int64, error) {
 			// Detached context here is to make sure that when the service is shut down the persist operation is executed.
-			return fileStore.Persist(context.Background(), SilencesFilename, state)
+			return stateStore.SaveSilences(context.Background(), state)
 		},
 	}
 
 	nflogOptions := maintenanceOptions{
-		filepath:             nflogFilepath,
-		retention:            retentionNotificationsAndSilences,
-		maintenanceFrequency: notificationLogMaintenanceInterval,
+		initialState:         nflog,
+		retention:            cfg.UnifiedAlerting.NotificationLogRetention,
+		maintenanceFrequency: maintenanceInterval,
 		maintenanceFunc: func(state alertingNotify.State) (int64, error) {
 			// Detached context here is to make sure that when the service is shut down the persist operation is executed.
-			return fileStore.Persist(context.Background(), NotificationLogFilename, state)
+			return stateStore.SaveNotificationLog(context.Background(), state)
 		},
 	}
+	l := log.New("ngalert.notifier.alertmanager", "org", orgID)
 
 	amcfg := &alertingNotify.GrafanaAlertmanagerConfig{
 		ExternalURL:        cfg.AppURL,
@@ -128,10 +131,13 @@ func NewAlertmanager(ctx context.Context, orgID int64, cfg *setting.Cfg, store A
 		PeerTimeout:        cfg.UnifiedAlerting.HAPeerTimeout,
 		Silences:           silencesOptions,
 		Nflog:              nflogOptions,
+		Limits: alertingNotify.Limits{
+			MaxSilences:         cfg.UnifiedAlerting.AlertmanagerMaxSilencesCount,
+			MaxSilenceSizeBytes: cfg.UnifiedAlerting.AlertmanagerMaxSilenceSizeBytes,
+		},
 	}
 
-	l := log.New("ngalert.notifier.alertmanager", "org", orgID)
-	gam, err := alertingNotify.NewGrafanaAlertmanager("orgID", orgID, amcfg, peer, l, alertingNotify.NewGrafanaAlertmanagerMetrics(m.Registerer))
+	gam, err := alertingNotify.NewGrafanaAlertmanager("orgID", orgID, amcfg, peer, l, alertingNotify.NewGrafanaAlertmanagerMetrics(m.Registerer, l))
 	if err != nil {
 		return nil, err
 	}
@@ -144,11 +150,11 @@ func NewAlertmanager(ctx context.Context, orgID int64, cfg *setting.Cfg, store A
 		NotificationService: ns,
 		orgID:               orgID,
 		decryptFn:           decryptFn,
-		fileStore:           fileStore,
+		stateStore:          stateStore,
 		logger:              l,
 
 		// TODO: Preferably, logic around autogen would be outside of the specific alertmanager implementation so that remote alertmanager will get it for free.
-		withAutogen: withAutogen,
+		withAutogen: featureToggles.IsEnabled(ctx, featuremgmt.FlagAlertingSimplifiedRouting),
 	}
 
 	return am, nil
@@ -280,7 +286,7 @@ type AggregateMatchersUsage struct {
 	ObjectMatchers int
 }
 
-func (am *alertmanager) updateConfigMetrics(cfg *apimodels.PostableUserConfig) {
+func (am *alertmanager) updateConfigMetrics(cfg *apimodels.PostableUserConfig, cfgSize int) {
 	var amu AggregateMatchersUsage
 	am.aggregateRouteMatchers(cfg.AlertmanagerConfig.Route, &amu)
 	am.aggregateInhibitMatchers(cfg.AlertmanagerConfig.InhibitRules, &amu)
@@ -292,6 +298,10 @@ func (am *alertmanager) updateConfigMetrics(cfg *apimodels.PostableUserConfig) {
 	am.ConfigMetrics.ConfigHash.
 		WithLabelValues(strconv.FormatInt(am.orgID, 10)).
 		Set(hashAsMetricValue(am.Base.ConfigHash()))
+
+	am.ConfigMetrics.ConfigSizeBytes.
+		WithLabelValues(strconv.FormatInt(am.orgID, 10)).
+		Set(float64(cfgSize))
 }
 
 func (am *alertmanager) aggregateRouteMatchers(r *apimodels.Route, amu *AggregateMatchersUsage) {
@@ -349,7 +359,7 @@ func (am *alertmanager) applyConfig(cfg *apimodels.PostableUserConfig) (bool, er
 		return false, err
 	}
 
-	am.updateConfigMetrics(cfg)
+	am.updateConfigMetrics(cfg, len(rawConfig))
 	return true, nil
 }
 
@@ -377,7 +387,7 @@ func (am *alertmanager) AppURL() string {
 
 // buildReceiverIntegrations builds a list of integration notifiers off of a receiver config.
 func (am *alertmanager) buildReceiverIntegrations(receiver *alertingNotify.APIReceiver, tmpl *alertingTemplates.Template) ([]*alertingNotify.Integration, error) {
-	receiverCfg, err := alertingNotify.BuildReceiverConfiguration(context.Background(), receiver, am.decryptFn)
+	receiverCfg, err := alertingNotify.BuildReceiverConfiguration(context.Background(), receiver, alertingNotify.DecodeSecretsFromBase64, am.decryptFn)
 	if err != nil {
 		return nil, err
 	}
@@ -388,11 +398,12 @@ func (am *alertmanager) buildReceiverIntegrations(receiver *alertingNotify.APIRe
 		tmpl,
 		img,
 		LoggerFactory,
-		func(n receivers.Metadata) (receivers.WebhookSender, error) {
-			return s, nil
-		},
+		alertingHttp.DefaultClientConfiguration,
 		func(n receivers.Metadata) (receivers.EmailSender, error) {
 			return s, nil
+		},
+		func(_ string, n alertingNotify.Notifier) alertingNotify.Notifier {
+			return n
 		},
 		am.orgID,
 		setting.BuildVersion,
@@ -418,9 +429,9 @@ func (am *alertmanager) PutAlerts(_ context.Context, postableAlerts apimodels.Po
 	return am.Base.PutAlerts(alerts)
 }
 
-// CleanUp removes the directory containing the alertmanager files from disk.
-func (am *alertmanager) CleanUp() {
-	am.fileStore.CleanUp()
+// SilenceState returns the current internal state of silences.
+func (am *alertmanager) SilenceState(_ context.Context) (alertingNotify.SilenceState, error) {
+	return am.Base.SilenceState()
 }
 
 // AlertValidationError is the error capturing the validation errors

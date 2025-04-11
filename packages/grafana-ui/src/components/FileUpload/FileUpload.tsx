@@ -1,5 +1,6 @@
 import { css, cx } from '@emotion/css';
-import React, { FormEvent, useCallback, useState } from 'react';
+import { FormEvent, useCallback, useState } from 'react';
+import * as React from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GrafanaTheme2 } from '@grafana/data';
@@ -9,6 +10,7 @@ import { useStyles2 } from '../../themes';
 import { getFocusStyles } from '../../themes/mixins';
 import { ComponentSize } from '../../types/size';
 import { trimFileName } from '../../utils/file';
+import { t } from '../../utils/i18n';
 import { getButtonStyles } from '../Button';
 import { Icon } from '../Icon/Icon';
 
@@ -66,7 +68,7 @@ export const FileUpload = ({
 
       {showFileName && fileName && (
         <span
-          aria-label="File name"
+          aria-label={t('grafana-ui.file-upload.file-name', 'File name')}
           className={style.fileName}
           data-testid={selectors.components.FileUpload.fileNameSpan}
         >

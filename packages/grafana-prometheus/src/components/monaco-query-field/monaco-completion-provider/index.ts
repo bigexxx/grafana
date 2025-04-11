@@ -1,6 +1,9 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/components/monaco-query-field/monaco-completion-provider/index.ts
+import { TimeRange } from '@grafana/data';
 import type { Monaco, monacoTypes } from '@grafana/ui';
 
-import { CompletionType, DataProvider, getCompletions } from './completions';
+import { CompletionType, getCompletions } from './completions';
+import { DataProvider } from './data_provider';
 import { getSituation } from './situation';
 import { NeverCaseError } from './util';
 
@@ -46,7 +49,8 @@ function getMonacoCompletionItemKind(type: CompletionType, monaco: Monaco): mona
 
 export function getCompletionProvider(
   monaco: Monaco,
-  dataProvider: DataProvider
+  dataProvider: DataProvider,
+  timeRange: TimeRange
 ): monacoTypes.languages.CompletionItemProvider {
   const provideCompletionItems = (
     model: monacoTypes.editor.ITextModel,
@@ -69,6 +73,7 @@ export function getCompletionProvider(
       column: position.column,
       lineNumber: position.lineNumber,
     };
+    dataProvider.monacoSettings.setInputInRange(model.getValueInRange(range));
 
     // Check to see if the browser supports window.getSelection()
     if (window.getSelection) {
@@ -81,7 +86,9 @@ export function getCompletionProvider(
 
     const offset = model.getOffsetAt(positionClone);
     const situation = getSituation(model.getValue(), offset);
-    const completionsPromise = situation != null ? getCompletions(situation, dataProvider) : Promise.resolve([]);
+    const completionsPromise =
+      situation != null ? getCompletions(situation, dataProvider, timeRange) : Promise.resolve([]);
+
     return completionsPromise.then((items) => {
       // monaco by-default alphabetically orders the items.
       // to stop it, we use a number-as-string sortkey,
@@ -91,6 +98,7 @@ export function getCompletionProvider(
         kind: getMonacoCompletionItemKind(item.type, monaco),
         label: item.label,
         insertText: item.insertText,
+        insertTextRules: item.insertTextRules,
         detail: item.detail,
         documentation: item.documentation,
         sortText: index.toString().padStart(maxIndexDigits, '0'), // to force the order we have
@@ -102,7 +110,7 @@ export function getCompletionProvider(
             }
           : undefined,
       }));
-      return { suggestions };
+      return { suggestions, incomplete: dataProvider.monacoSettings.suggestionsIncomplete };
     });
   };
 

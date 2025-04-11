@@ -12,13 +12,16 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/grafana/grafana/pkg/expr/mathexp"
+	"github.com/grafana/grafana/pkg/expr/metrics"
+
 	"github.com/grafana/grafana/pkg/infra/tracing"
 )
 
 // Command is an interface for all expression commands.
 type Command interface {
 	NeedsVars() []string
-	Execute(ctx context.Context, now time.Time, vars mathexp.Vars, tracer tracing.Tracer) (mathexp.Results, error)
+	Execute(ctx context.Context, now time.Time, vars mathexp.Vars, tracer tracing.Tracer, metrics *metrics.ExprMetrics) (mathexp.Results, error)
+	Type() string
 }
 
 // MathCommand is a command for a math expression such as "1 + $GA / 2"
@@ -68,11 +71,15 @@ func (gm *MathCommand) NeedsVars() []string {
 
 // Execute runs the command and returns the results or an error if the command
 // failed to execute.
-func (gm *MathCommand) Execute(ctx context.Context, _ time.Time, vars mathexp.Vars, tracer tracing.Tracer) (mathexp.Results, error) {
+func (gm *MathCommand) Execute(ctx context.Context, _ time.Time, vars mathexp.Vars, tracer tracing.Tracer, _ *metrics.ExprMetrics) (mathexp.Results, error) {
 	_, span := tracer.Start(ctx, "SSE.ExecuteMath")
 	span.SetAttributes(attribute.String("expression", gm.RawExpression))
 	defer span.End()
 	return gm.Expression.Execute(gm.refID, vars, tracer)
+}
+
+func (gm *MathCommand) Type() string {
+	return TypeMath.String()
 }
 
 // ReduceCommand is an expression command for reduction of a timeseries such as a min, mean, or max.
@@ -160,7 +167,7 @@ func (gr *ReduceCommand) NeedsVars() []string {
 
 // Execute runs the command and returns the results or an error if the command
 // failed to execute.
-func (gr *ReduceCommand) Execute(ctx context.Context, _ time.Time, vars mathexp.Vars, tracer tracing.Tracer) (mathexp.Results, error) {
+func (gr *ReduceCommand) Execute(ctx context.Context, _ time.Time, vars mathexp.Vars, tracer tracing.Tracer, _ *metrics.ExprMetrics) (mathexp.Results, error) {
 	_, span := tracer.Start(ctx, "SSE.ExecuteReduce")
 	defer span.End()
 
@@ -199,6 +206,10 @@ func (gr *ReduceCommand) Execute(ctx context.Context, _ time.Time, vars mathexp.
 		}
 	}
 	return newRes, nil
+}
+
+func (gr *ReduceCommand) Type() string {
+	return TypeReduce.String()
 }
 
 // ResampleCommand is an expression command for resampling of a timeseries.
@@ -286,7 +297,7 @@ func (gr *ResampleCommand) NeedsVars() []string {
 
 // Execute runs the command and returns the results or an error if the command
 // failed to execute.
-func (gr *ResampleCommand) Execute(ctx context.Context, now time.Time, vars mathexp.Vars, tracer tracing.Tracer) (mathexp.Results, error) {
+func (gr *ResampleCommand) Execute(ctx context.Context, now time.Time, vars mathexp.Vars, tracer tracing.Tracer, _ *metrics.ExprMetrics) (mathexp.Results, error) {
 	_, span := tracer.Start(ctx, "SSE.ExecuteResample")
 	defer span.End()
 	newRes := mathexp.Results{}
@@ -310,6 +321,10 @@ func (gr *ResampleCommand) Execute(ctx context.Context, now time.Time, vars math
 		}
 	}
 	return newRes, nil
+}
+
+func (gr *ResampleCommand) Type() string {
+	return TypeResample.String()
 }
 
 // CommandType is the type of the expression command.
@@ -342,6 +357,8 @@ func (gt CommandType) String() string {
 		return "resample"
 	case TypeClassicConditions:
 		return "classic_conditions"
+	case TypeThreshold:
+		return "threshold"
 	case TypeSQL:
 		return "sql"
 	default:

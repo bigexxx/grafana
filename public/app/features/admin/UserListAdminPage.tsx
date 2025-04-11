@@ -1,12 +1,13 @@
 import { css } from '@emotion/css';
-import React, { ComponentType, useEffect } from 'react';
+import { ComponentType, useEffect } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { selectors as e2eSelectors } from '@grafana/e2e-selectors/src';
-import { LinkButton, RadioButtonGroup, useStyles2, FilterInput } from '@grafana/ui';
+import { LinkButton, RadioButtonGroup, useStyles2, FilterInput, EmptyState } from '@grafana/ui';
 import { Page } from 'app/core/components/Page/Page';
 import { contextSrv } from 'app/core/core';
+import { t, Trans } from 'app/core/internationalization';
 
 import { AccessControlAction, StoreState, UserFilter } from '../../types';
 
@@ -40,6 +41,7 @@ const mapStateToProps = (state: StoreState) => ({
   totalPages: state.userListAdmin.totalPages,
   page: state.userListAdmin.page,
   filters: state.userListAdmin.filters,
+  isLoading: state.userListAdmin.isLoading,
 });
 
 const connector = connect(mapStateToProps, mapDispatchToProps);
@@ -60,6 +62,7 @@ const UserListAdminPageUnConnected = ({
   page,
   changePage,
   changeSort,
+  isLoading,
 }: Props) => {
   const styles = useStyles2(getStyles);
 
@@ -72,10 +75,14 @@ const UserListAdminPageUnConnected = ({
       <div className={styles.actionBar} data-testid={selectors.container}>
         <div className={styles.row}>
           <FilterInput
-            placeholder="Search user by login, email, or name."
+            placeholder={t(
+              'admin.user-list-admin-page-un-connected.placeholder-search-login-email',
+              'Search user by login, email, or name.'
+            )}
             autoFocus={true}
             value={query}
             onChange={changeQuery}
+            escapeRegex={false}
           />
           <RadioButtonGroup
             options={[
@@ -91,19 +98,23 @@ const UserListAdminPageUnConnected = ({
           ))}
           {contextSrv.hasPermission(AccessControlAction.UsersCreate) && (
             <LinkButton href="admin/users/create" variant="primary">
-              New user
+              <Trans i18nKey="admin.users-list.create-button">New user</Trans>
             </LinkButton>
           )}
         </div>
       </div>
-      <UsersTable
-        users={users}
-        showPaging={showPaging}
-        totalPages={totalPages}
-        onChangePage={changePage}
-        currentPage={page}
-        fetchData={changeSort}
-      />
+      {!isLoading && users.length === 0 ? (
+        <EmptyState message={t('users.empty-state.message', 'No users found')} variant="not-found" />
+      ) : (
+        <UsersTable
+          users={users}
+          showPaging={showPaging}
+          totalPages={totalPages}
+          onChangePage={changePage}
+          currentPage={page}
+          fetchData={changeSort}
+        />
+      )}
     </Page.Contents>
   );
 };

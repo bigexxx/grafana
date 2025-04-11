@@ -6,15 +6,23 @@ distributor:
     jaeger:                            # the receives all come from the OpenTelemetry collector.  more configuration information can
       protocols:                       # be found there: https://github.com/open-telemetry/opentelemetry-collector/tree/main/receiver
         thrift_http:                   #
-        grpc:                          # for a production deployment you should only enable the receivers you need!
+          endpoint: "tempo:14268"      # for a production deployment you should only enable the receivers you need!
+        grpc:
+          endpoint: "tempo:14250"
         thrift_binary:
+          endpoint: "tempo:6832"
         thrift_compact:
+          endpoint: "tempo:6831"
     zipkin:
+      endpoint: "tempo:9411"
     otlp:
       protocols:
-        http:
         grpc:
+          endpoint: "tempo:4317"
+        http:
+          endpoint: "tempo:4318"
     opencensus:
+      endpoint: "tempo:55678"
 
 compactor:
   compaction:
@@ -44,7 +52,7 @@ storage:
       v2_index_downsample_bytes: 1000     # number of bytes per index record
       v2_encoding: zstd                   # block encoding/compression.  options: none, gzip, lz4-64k, lz4-256k, lz4-1M, lz4, snappy, zstd, s2
     wal:
-      path: /tmp/tempo/wal             # where to store the the wal locally
+      path: /tmp/tempo/wal             # where to store the wal locally
       v2_encoding: snappy              # wal encoding/compression.  options: none, gzip, lz4-64k, lz4-256k, lz4-1M, lz4, snappy, zstd, s2
     local:
       path: /tmp/tempo/blocks

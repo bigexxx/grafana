@@ -1,6 +1,4 @@
-import React from 'react';
-
-import { Alert } from '@grafana/ui/src';
+import { Alert } from '@grafana/ui';
 import { t } from 'app/core/internationalization';
 
 export const SaveDashboardChangesAlert = () => (

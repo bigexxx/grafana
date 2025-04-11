@@ -25,6 +25,7 @@
   "unicons/bell-slash",
   "unicons/bolt",
   "unicons/book",
+  "unicons/bookmark",
   "unicons/book-open",
   "unicons/brackets-curly",
   "unicons/bug",
@@ -37,6 +38,7 @@
   "unicons/chart-line",
   "unicons/check",
   "unicons/check-circle",
+  "unicons/times-circle",
   "unicons/circle",
   "unicons/clipboard-alt",
   "unicons/clock-nine",
@@ -140,6 +142,7 @@
   "unicons/hourglass",
   "unicons/layer-group",
   "unicons/layers-alt",
+  "unicons/layers-slash",
   "unicons/line-alt",
   "unicons/list-ui-alt",
   "unicons/message",
@@ -170,5 +173,10 @@
   "mono/heart-break",
   "mono/panel-add",
   "mono/library-panel",
-  "unicons/record-audio"
+  "unicons/record-audio",
+  "solid/bookmark",
+  "unicons/ai-sparkle",
+  "unicons/dollar-alt",
+  "unicons/window-grid",
+  "unicons/ban"
 ]

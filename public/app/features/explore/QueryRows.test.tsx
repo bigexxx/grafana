@@ -1,5 +1,4 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import React from 'react';
 import { Provider } from 'react-redux';
 
 import { DataSourceApi } from '@grafana/data';
@@ -10,6 +9,7 @@ import { ExploreState } from 'app/types';
 
 import { UserState } from '../profile/state/reducers';
 
+import { QueryLibraryContextProviderMock } from './QueryLibrary/mocks';
 import { QueryRows } from './QueryRows';
 import { makeExplorePaneState } from './state/utils';
 
@@ -51,10 +51,10 @@ function setup(queries: DataQuery[]) {
 
   const leftState = makeExplorePaneState();
   const initialState: ExploreState = {
+    richHistory: [],
     panes: {
       left: {
         ...leftState,
-        richHistory: [],
         datasourceInstance: datasources['someDs-uid'],
         queries,
         correlations: [],
@@ -92,5 +92,38 @@ describe('Explore QueryRows', () => {
 
     // We should have another row with refId B
     expect(await screen.findByLabelText('Query editor row title B')).toBeInTheDocument();
+  });
+
+  it('Should contain a select query from library button when query library is enabled', async () => {
+    const { store } = setup([{ refId: 'A' }]);
+
+    render(
+      <Provider store={store}>
+        <QueryLibraryContextProviderMock queryLibraryEnabled={true}>
+          <QueryRows exploreId={'left'} />
+        </QueryLibraryContextProviderMock>
+      </Provider>
+    );
+
+    // waiting for the component to fully render.
+    await screen.findAllByText('someDs query editor');
+
+    expect(screen.getByLabelText(/Replace with query from library/i)).toBeInTheDocument();
+  });
+
+  it('Should not contain a select query from library button when query library is disabled', async () => {
+    const { store } = setup([{ refId: 'A' }]);
+
+    render(
+      <Provider store={store}>
+        <QueryLibraryContextProviderMock queryLibraryEnabled={false}>
+          <QueryRows exploreId={'left'} />
+        </QueryLibraryContextProviderMock>
+      </Provider>
+    );
+
+    await screen.findAllByText('someDs query editor');
+
+    expect(screen.queryByLabelText(/Replace with query from library/i)).not.toBeInTheDocument();
   });
 });

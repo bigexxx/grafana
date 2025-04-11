@@ -1,4 +1,4 @@
-import { DataFrame, FieldType } from '../../../types';
+import { DataFrame, FieldType } from '../../../types/dataFrame';
 
 type InsertMode = (prev: number, next: number, threshold: number) => number;
 
@@ -50,9 +50,9 @@ export function applyNullInsertThreshold(opts: NullInsertOptions): DataFrame {
 
   const thresholds = frame.fields.map((field) => field.config.custom?.insertNulls || refField.config.interval || null);
 
-  const uniqueThresholds = new Set<number>(thresholds);
+  const uniqueThresholds = new Set<number | null>(thresholds);
 
-  uniqueThresholds.delete(null as any);
+  uniqueThresholds.delete(null);
 
   if (uniqueThresholds.size === 0) {
     return frame;
@@ -61,7 +61,7 @@ export function applyNullInsertThreshold(opts: NullInsertOptions): DataFrame {
   if (uniqueThresholds.size === 1) {
     const threshold = uniqueThresholds.values().next().value;
 
-    if (threshold <= 0) {
+    if (!threshold || threshold <= 0) {
       return frame;
     }
 

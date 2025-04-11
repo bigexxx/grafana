@@ -1,7 +1,8 @@
 import { difference } from 'lodash';
 
 import { createDataFrame, guessFieldTypeFromValue } from '../dataframe/processDataFrame';
-import { Field, FieldType, NullValueMode } from '../types/index';
+import { NullValueMode } from '../types/data';
+import { Field, FieldType } from '../types/dataFrame';
 
 import { fieldReducers, ReducerID, reduceField, defaultCalcs } from './fieldReducer';
 
@@ -54,13 +55,14 @@ describe('Stats Calculators', () => {
   it('should calculate basic stats', () => {
     const stats = reduceField({
       field: basicTable.fields[0],
-      reducers: [ReducerID.first, ReducerID.last, ReducerID.mean, ReducerID.count],
+      reducers: [ReducerID.first, ReducerID.last, ReducerID.mean, ReducerID.count, ReducerID.diffperc],
     });
 
     expect(stats.first).toEqual(10);
     expect(stats.last).toEqual(20);
     expect(stats.mean).toEqual(15);
     expect(stats.count).toEqual(2);
+    expect(stats.diffperc).toEqual(100);
   });
 
   it('should handle undefined field data without crashing', () => {
@@ -250,5 +252,44 @@ describe('Stats Calculators', () => {
     someNulls.config.nullValueMode = NullValueMode.Null;
 
     expect(reduce(someNulls, ReducerID.count)).toEqual(4);
+  });
+
+  it('median should ignoreNulls by default', () => {
+    const someNulls = createField('y', [3, null, 2, 1, 4]);
+    expect(reduce(someNulls, ReducerID.median)).toEqual(2.5);
+  });
+
+  it('median should use fieldConfig nullValueMode.Ignore and not count nulls', () => {
+    const someNulls = createField('y', [3, null, 2, 1, 4]);
+    someNulls.config.nullValueMode = NullValueMode.Ignore;
+    expect(reduce(someNulls, ReducerID.median)).toEqual(2.5);
+  });
+
+  it('median should use fieldConfig nullValueMode.Null and count nulls', () => {
+    const someNulls = createField('y', [3, null, 2, 1, 4]);
+    someNulls.config.nullValueMode = NullValueMode.Null;
+    expect(reduce(someNulls, ReducerID.median)).toEqual(2);
+  });
+
+  it('median should use fieldConfig nullValueMode.AsZero and count nulls as zero', () => {
+    const someNulls = createField('y', [3, null, 2, 1, 4]);
+    someNulls.config.nullValueMode = NullValueMode.AsZero;
+    expect(reduce(someNulls, ReducerID.median)).toEqual(2);
+  });
+
+  it('can reduce to percentiles', () => {
+    // This `Array.from` will build an array of elements from 1 to 99
+    const percentiles = [...Array.from({ length: 99 }, (_, i) => i + 1)];
+    percentiles.forEach((percentile) => {
+      const preciseStats = reduceField({
+        field: createField(
+          'x',
+          Array.from({ length: 101 }, (_, index) => index)
+        ),
+        reducers: [(ReducerID as Record<string, ReducerID>)[`p${percentile}`]],
+      });
+
+      expect(preciseStats[`p${percentile}`]).toEqual(percentile);
+    });
   });
 });

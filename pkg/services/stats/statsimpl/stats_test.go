@@ -6,14 +6,21 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/grafana/grafana/pkg/bus"
+	"github.com/grafana/grafana/pkg/infra/db"
+	"github.com/grafana/grafana/pkg/infra/tracing"
 	"github.com/grafana/grafana/pkg/services/correlations"
 	"github.com/grafana/grafana/pkg/services/correlations/correlationstest"
+	"github.com/grafana/grafana/pkg/services/dashboards"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
+	"github.com/grafana/grafana/pkg/services/folder"
+	"github.com/grafana/grafana/pkg/services/folder/foldertest"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/org/orgimpl"
 	"github.com/grafana/grafana/pkg/services/quota/quotatest"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
 	"github.com/grafana/grafana/pkg/services/stats"
 	"github.com/grafana/grafana/pkg/services/supportbundles/supportbundlestest"
 	"github.com/grafana/grafana/pkg/services/user"
@@ -30,9 +37,26 @@ func TestIntegrationStatsDataAccess(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
-	db := sqlstore.InitTestDB(t)
-	statsService := &sqlStatsService{db: db}
-	populateDB(t, db)
+	db, cfg := db.InitTestDBWithCfg(t)
+	orgSvc := populateDB(t, db, cfg)
+	dashSvc := &dashboards.FakeDashboardService{}
+	dashSvc.On("CountDashboardsInOrg", mock.Anything, int64(1)).Return(int64(2), nil)
+	dashSvc.On("CountDashboardsInOrg", mock.Anything, int64(2)).Return(int64(1), nil)
+	dashSvc.On("CountDashboardsInOrg", mock.Anything, int64(3)).Return(int64(0), nil)
+	dashSvc.On("GetDashboardTags", mock.Anything, &dashboards.GetDashboardTagsQuery{OrgID: 1}).Return([]*dashboards.DashboardTagCloudItem{{Term: "test"}}, nil)
+	dashSvc.On("GetDashboardTags", mock.Anything, &dashboards.GetDashboardTagsQuery{OrgID: 2}).Return([]*dashboards.DashboardTagCloudItem{}, nil)
+	dashSvc.On("GetDashboardTags", mock.Anything, &dashboards.GetDashboardTagsQuery{OrgID: 3}).Return([]*dashboards.DashboardTagCloudItem{}, nil)
+
+	folderService := &foldertest.FakeService{}
+	folderService.ExpectedFolders = []*folder.Folder{{ID: 1}, {ID: 2}, {ID: 3}}
+
+	statsService := &sqlStatsService{
+		db:        db,
+		dashSvc:   dashSvc,
+		orgSvc:    orgSvc,
+		folderSvc: folderService,
+		features:  featuremgmt.WithFeatures(),
+	}
 
 	t.Run("Get system stats should not results in error", func(t *testing.T) {
 		query := stats.GetSystemStatsQuery{}
@@ -46,8 +70,11 @@ func TestIntegrationStatsDataAccess(t *testing.T) {
 		assert.Equal(t, int64(0), result.LibraryVariables)
 		assert.Equal(t, int64(0), result.APIKeys)
 		assert.Equal(t, int64(2), result.Correlations)
+		assert.Equal(t, int64(3), result.Orgs)
+		assert.Equal(t, int64(3), result.Dashboards)
+		assert.Equal(t, int64(9), result.Folders) // will return 3 folders for each org
 		assert.NotNil(t, result.DatabaseCreatedTime)
-		assert.Equal(t, db.Dialect.DriverName(), result.DatabaseDriver)
+		assert.Equal(t, db.GetDialect().DriverName(), result.DatabaseDriver)
 	})
 
 	t.Run("Get system user count stats should not results in error", func(t *testing.T) {
@@ -76,18 +103,25 @@ func TestIntegrationStatsDataAccess(t *testing.T) {
 
 	t.Run("Get admin stats should not result in error", func(t *testing.T) {
 		query := stats.GetAdminStatsQuery{}
-		_, err := statsService.GetAdminStats(context.Background(), &query)
+		stats, err := statsService.GetAdminStats(context.Background(), &query)
 		assert.NoError(t, err)
+		assert.Equal(t, int64(1), stats.Tags)
+		assert.Equal(t, int64(3), stats.Dashboards)
+		assert.Equal(t, int64(3), stats.Orgs)
 	})
 }
 
-func populateDB(t *testing.T, sqlStore *sqlstore.SQLStore) {
+func populateDB(t *testing.T, db db.DB, cfg *setting.Cfg) org.Service {
 	t.Helper()
 
-	orgService, _ := orgimpl.ProvideService(sqlStore, sqlStore.Cfg, quotatest.New(false, nil))
-	userSvc, _ := userimpl.ProvideService(sqlStore, orgService, sqlStore.Cfg, nil, nil, &quotatest.FakeQuotaService{}, supportbundlestest.NewFakeBundleService())
+	orgService, _ := orgimpl.ProvideService(db, cfg, quotatest.New(false, nil))
+	userSvc, _ := userimpl.ProvideService(
+		db, orgService, cfg, nil, nil, tracing.InitializeTracerForTest(),
+		&quotatest.FakeQuotaService{}, supportbundlestest.NewFakeBundleService(),
+	)
 
-	correlationsSvc := correlationstest.New(sqlStore)
+	bus := bus.ProvideBus(tracing.InitializeTracerForTest())
+	correlationsSvc := correlationstest.New(db, cfg, bus)
 
 	c := make([]correlations.Correlation, 2)
 	for i := range c {
@@ -98,7 +132,7 @@ func populateDB(t *testing.T, sqlStore *sqlstore.SQLStore) {
 			Config: correlations.CorrelationConfig{
 				Field:  "field",
 				Target: map[string]any{},
-				Type:   correlations.ConfigTypeQuery,
+				Type:   correlations.CorrelationType("query"),
 			},
 		}
 		correlation, err := correlationsSvc.CreateCorrelation(context.Background(), cmd)
@@ -145,16 +179,6 @@ func populateDB(t *testing.T, sqlStore *sqlstore.SQLStore) {
 	}
 	err = orgService.AddOrgUser(context.Background(), cmd)
 	require.NoError(t, err)
-}
 
-func TestIntegration_GetAdminStats(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-	db := sqlstore.InitTestDB(t)
-	statsService := ProvideService(&setting.Cfg{}, db)
-
-	query := stats.GetAdminStatsQuery{}
-	_, err := statsService.GetAdminStats(context.Background(), &query)
-	require.NoError(t, err)
+	return orgService
 }

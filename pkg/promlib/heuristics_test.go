@@ -14,6 +14,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	sdkhttpclient "github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
 type heuristicsSuccessRoundTripper struct {
@@ -41,7 +42,7 @@ func newHeuristicsSDKProvider(hrt heuristicsSuccessRoundTripper) *sdkhttpclient.
 	return sdkhttpclient.NewProvider(sdkhttpclient.ProviderOptions{Middlewares: []sdkhttpclient.Middleware{mid}})
 }
 
-func mockExtendClientOpts(ctx context.Context, settings backend.DataSourceInstanceSettings, clientOpts *sdkhttpclient.Options) error {
+func mockExtendClientOpts(ctx context.Context, settings backend.DataSourceInstanceSettings, clientOpts *sdkhttpclient.Options, log log.Logger) error {
 	return nil
 }
 
@@ -52,8 +53,10 @@ func Test_GetHeuristics(t *testing.T) {
 			status: http.StatusOK,
 		}
 		httpProvider := newHeuristicsSDKProvider(rt)
+		logger := backend.NewLoggerWith("logger", "test")
 		s := &Service{
-			im: datasource.NewInstanceManager(newInstanceSettings(httpProvider, backend.NewLoggerWith("logger", "test"), mockExtendClientOpts)),
+			im:     datasource.NewInstanceManager(newInstanceSettings(httpProvider, logger, mockExtendClientOpts)),
+			logger: logger,
 		}
 
 		req := HeuristicsRequest{
@@ -72,8 +75,10 @@ func Test_GetHeuristics(t *testing.T) {
 			status: http.StatusOK,
 		}
 		httpProvider := newHeuristicsSDKProvider(rt)
+		logger := backend.NewLoggerWith("logger", "test")
 		s := &Service{
-			im: datasource.NewInstanceManager(newInstanceSettings(httpProvider, backend.NewLoggerWith("logger", "test"), mockExtendClientOpts)),
+			im:     datasource.NewInstanceManager(newInstanceSettings(httpProvider, logger, mockExtendClientOpts)),
+			logger: logger,
 		}
 
 		req := HeuristicsRequest{

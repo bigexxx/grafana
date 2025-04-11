@@ -1,5 +1,6 @@
 import classNames from 'classnames';
-import React, { PureComponent, CSSProperties } from 'react';
+import { PureComponent, CSSProperties } from 'react';
+import * as React from 'react';
 import ReactGridLayout, { ItemCallback } from 'react-grid-layout';
 import { Subscription } from 'rxjs';
 
@@ -12,8 +13,8 @@ import { DashboardPanelsChangedEvent } from 'app/types/events';
 
 import { AddLibraryPanelWidget } from '../components/AddLibraryPanelWidget';
 import { DashboardRow } from '../components/DashboardRow';
-import { DashboardModel, PanelModel } from '../state';
-import { GridPos } from '../state/PanelModel';
+import { DashboardModel } from '../state/DashboardModel';
+import { GridPos, PanelModel } from '../state/PanelModel';
 
 import DashboardEmpty from './DashboardEmpty';
 import { DashboardPanel } from './DashboardPanel';
@@ -110,6 +111,7 @@ export class DashboardGrid extends PureComponent<Props, State> {
       if (!panel.key) {
         panel.key = `panel-${panel.id}-${Date.now()}`;
       }
+      panel.title = panel.title?.substring(0, 5000);
       this.panelMap[panel.key] = panel;
 
       if (!panel.gridPos) {
@@ -221,15 +223,10 @@ export class DashboardGrid extends PureComponent<Props, State> {
     for (const panel of this.props.dashboard.panels) {
       const panelClasses = classNames({ 'react-grid-item--fullscreen': panel.isViewing });
 
-      // used to allow overflowing content to show on top of the next panel
-      // requires parent create stacking context to prevent overlap with parent elements
-      const descIndex = this.props.dashboard.panels.length - panelElements.length;
-
       const p = (
         <GrafanaGridItem
           key={panel.key}
           className={panelClasses}
-          descendingOrderIndex={descIndex}
           data-panelid={panel.id}
           gridPos={panel.gridPos}
           gridWidth={gridWidth}
@@ -363,7 +360,6 @@ export class DashboardGrid extends PureComponent<Props, State> {
 interface GrafanaGridItemProps extends React.HTMLAttributes<HTMLDivElement> {
   gridWidth?: number;
   gridPos?: GridPos;
-  descendingOrderIndex?: number;
   isViewing: boolean;
   windowHeight: number;
   windowWidth: number;
@@ -378,7 +374,7 @@ const GrafanaGridItem = React.forwardRef<HTMLDivElement, GrafanaGridItemProps>((
   let width = 100;
   let height = 100;
 
-  const { gridWidth, gridPos, isViewing, windowHeight, windowWidth, descendingOrderIndex, ...divProps } = props;
+  const { gridWidth, gridPos, isViewing, windowHeight, windowWidth, ...divProps } = props;
   const style: CSSProperties = props.style ?? {};
 
   if (isViewing) {
@@ -408,7 +404,7 @@ const GrafanaGridItem = React.forwardRef<HTMLDivElement, GrafanaGridItemProps>((
 
   // props.children[0] is our main children. RGL adds the drag handle at props.children[1]
   return (
-    <div {...divProps} style={{ ...divProps.style, zIndex: descendingOrderIndex }} ref={ref}>
+    <div {...divProps} style={{ ...divProps.style }} ref={ref}>
       {/* Pass width and height to children as render props */}
       {[props.children[0](width, height), props.children.slice(1)]}
     </div>

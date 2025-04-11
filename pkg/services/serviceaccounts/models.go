@@ -1,13 +1,14 @@
 package serviceaccounts
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
-	"github.com/grafana/grafana/pkg/models/roletype"
+	"github.com/grafana/grafana/pkg/apimachinery/errutil"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
-	"github.com/grafana/grafana/pkg/services/auth/identity"
 	"github.com/grafana/grafana/pkg/services/org"
-	"github.com/grafana/grafana/pkg/util/errutil"
 )
 
 var (
@@ -51,10 +52,6 @@ type MigrationResult struct {
 	FailedDetails   []string `json:"failedDetails"`
 }
 
-type ServiceAccount struct {
-	Id int64
-}
-
 // swagger:model
 type CreateServiceAccountForm struct {
 	// example: grafana
@@ -76,6 +73,8 @@ type UpdateServiceAccountForm struct {
 // swagger: model
 type ServiceAccountDTO struct {
 	Id int64 `json:"id" xorm:"user_id"`
+	// example: fe1xejlha91xce
+	UID string `json:"uid" xorm:"uid"`
 	// example: grafana
 	Name string `json:"name" xorm:"name"`
 	// example: sa-grafana
@@ -101,6 +100,12 @@ type GetSATokensQuery struct {
 	ServiceAccountID *int64 // optional filtering by service account ID
 }
 
+type GetServiceAccountQuery struct {
+	OrgID int64  `json:"orgId"`
+	ID    int64  `json:"id"`
+	UID   string `json:"uid"`
+}
+
 type AddServiceAccountTokenCommand struct {
 	Name          string `json:"name" binding:"Required"`
 	OrgId         int64  `json:"-"`
@@ -115,6 +120,7 @@ type SearchOrgServiceAccountsQuery struct {
 	Page         int
 	Limit        int
 	CountOnly    bool
+	CountTokens  bool
 	SignedInUser identity.Requester
 }
 
@@ -138,6 +144,8 @@ type SearchOrgServiceAccountsResult struct {
 type ServiceAccountProfileDTO struct {
 	// example: 2
 	Id int64 `json:"id" xorm:"user_id"`
+	// example: fe1xejlha91xce
+	UID string `json:"uid" xorm:"uid"`
 	// example: test
 	Name string `json:"name" xorm:"name"`
 	// example: sa-grafana
@@ -188,7 +196,7 @@ type ExtSvcAccount struct {
 	Name       string
 	OrgID      int64
 	IsDisabled bool
-	Role       roletype.RoleType
+	Role       identity.RoleType
 }
 
 type ManageExtSvcAccountCmd struct {
@@ -209,3 +217,16 @@ var AccessEvaluator = accesscontrol.EvalAny(
 	accesscontrol.EvalPermission(ActionRead),
 	accesscontrol.EvalPermission(ActionCreate),
 )
+
+func ExtSvcLoginPrefix(orgID int64) string {
+	return fmt.Sprintf("%s%d-%s", ServiceAccountPrefix, orgID, ExtSvcPrefix)
+}
+
+func IsExternalServiceAccount(login string) bool {
+	parts := strings.SplitAfter(login, "-")
+	if len(parts) < 4 {
+		return false
+	}
+
+	return parts[0] == ServiceAccountPrefix && parts[2] == ExtSvcPrefix
+}

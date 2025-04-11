@@ -1,6 +1,5 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React from 'react';
 
 import createMockDatasource from '../../__mocks__/datasource';
 import createMockQuery from '../../__mocks__/query';
@@ -68,7 +67,7 @@ describe('TracesQueryEditor', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Apply' }));
 
-    expect(onChange).toBeCalledWith(
+    expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         azureTraces: expect.objectContaining({
           resources: [
@@ -176,7 +175,7 @@ describe('TracesQueryEditor', () => {
     const applyButton = screen.getByRole('button', { name: 'Apply' });
     await userEvent.click(applyButton);
 
-    expect(onChange).toBeCalledWith(
+    expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         azureTraces: expect.objectContaining({
           resources: ['/subscriptions/def-123'],

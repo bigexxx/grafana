@@ -1,10 +1,9 @@
 import { css } from '@emotion/css';
-import React from 'react';
 import { UseFormRegister } from 'react-hook-form';
 
-import { GrafanaTheme2 } from '@grafana/data/src';
+import { GrafanaTheme2 } from '@grafana/data';
 import { selectors as e2eSelectors } from '@grafana/e2e-selectors/src';
-import { Checkbox, FieldSet, HorizontalGroup, LinkButton, useStyles2, VerticalGroup } from '@grafana/ui/src';
+import { Checkbox, FieldSet, HorizontalGroup, LinkButton, useStyles2, VerticalGroup } from '@grafana/ui';
 import { t, Trans } from 'app/core/internationalization';
 
 import { SharePublicDashboardAcknowledgmentInputs } from './CreatePublicDashboard';
@@ -110,7 +109,7 @@ export const AcknowledgeCheckboxes = ({
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  title: css`
-    font-weight: ${theme.typography.fontWeightBold};
-  `,
+  title: css({
+    fontWeight: theme.typography.fontWeightBold,
+  }),
 });

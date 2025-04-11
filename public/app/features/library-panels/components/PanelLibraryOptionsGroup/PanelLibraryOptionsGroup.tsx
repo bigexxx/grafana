@@ -1,10 +1,11 @@
 import { css } from '@emotion/css';
-import React, { useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { PanelPluginMeta } from '@grafana/data';
 import { Button, VerticalGroup } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
 import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
-import { PanelModel } from 'app/features/dashboard/state';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
 import { changeToLibraryPanel } from 'app/features/panel/state/actions';
 import { useDispatch } from 'app/types';
 
@@ -17,10 +18,9 @@ import { LibraryPanelsView } from '../LibraryPanelsView/LibraryPanelsView';
 interface Props {
   panel: PanelModel;
   searchQuery: string;
-  isWidget?: boolean;
 }
 
-export const PanelLibraryOptionsGroup = ({ panel, searchQuery, isWidget = false }: Props) => {
+export const PanelLibraryOptionsGroup = ({ panel, searchQuery }: Props) => {
   const [showingAddPanelModal, setShowingAddPanelModal] = useState(false);
   const [changeToPanel, setChangeToPanel] = useState<LibraryElementDTO | undefined>(undefined);
   const [panelFilter, setPanelFilter] = useState<string[]>([]);
@@ -49,12 +49,14 @@ export const PanelLibraryOptionsGroup = ({ panel, searchQuery, isWidget = false 
       {!panel.libraryPanel && (
         <VerticalGroup align="center">
           <Button icon="plus" onClick={onAddToPanelLibrary} variant="secondary" fullWidth>
-            Create new library panel
+            <Trans i18nKey="library-panels.panel-library-options-group.create-new-library-panel">
+              Create new library panel
+            </Trans>
           </Button>
         </VerticalGroup>
       )}
 
-      <PanelTypeFilter onChange={onPanelFilterChange} isWidget={isWidget} />
+      <PanelTypeFilter onChange={onPanelFilterChange} />
 
       <div className={styles.libraryPanelsView}>
         <LibraryPanelsView
@@ -63,7 +65,6 @@ export const PanelLibraryOptionsGroup = ({ panel, searchQuery, isWidget = false 
           panelFilter={panelFilter}
           onClickCard={setChangeToPanel}
           showSecondaryActions
-          isWidget={isWidget}
         />
       </div>
 
@@ -84,7 +85,7 @@ export const PanelLibraryOptionsGroup = ({ panel, searchQuery, isWidget = false 
 };
 
 const styles = {
-  libraryPanelsView: css`
-    width: 100%;
-  `,
+  libraryPanelsView: css({
+    width: '100%',
+  }),
 };

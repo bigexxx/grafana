@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/ini.v1"
+
 	"xorm.io/xorm"
 
 	. "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
@@ -33,7 +35,7 @@ func TestMigrations(t *testing.T) {
 
 	t.Cleanup(func() {
 		if err := x.Close(); err != nil {
-			fmt.Printf("failed to close xorm engine: %v", err)
+			t.Logf("failed to close xorm engine: %v", err)
 		}
 	})
 
@@ -69,9 +71,14 @@ func TestMigrations(t *testing.T) {
 	checkStepsAndDatabaseMatch(t, mg, expectedMigrations)
 }
 
-func TestMigrationLock(t *testing.T) {
+func TestIntegrationMigrationLock(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
 	dbType := sqlutil.GetTestDBType()
-	if dbType == SQLite {
+	// skip for SQLite and Spanner since there is no database locking (only migrator locking)
+	if dbType == SQLite || dbType == Spanner {
 		t.Skip()
 	}
 
@@ -85,7 +92,7 @@ func TestMigrationLock(t *testing.T) {
 
 	t.Cleanup(func() {
 		if err := x.Close(); err != nil {
-			fmt.Printf("failed to close xorm engine: %v", err)
+			t.Logf("failed to close xorm engine: %v", err)
 		}
 	})
 
@@ -96,9 +103,12 @@ func TestMigrationLock(t *testing.T) {
 		sess.Close()
 	})
 
+	key, err := database.GenerateAdvisoryLockId("test")
+	require.NoError(t, err)
+
 	cfg := LockCfg{
 		Session: sess,
-		Key:     "test",
+		Key:     key,
 	}
 
 	t.Run("obtaining lock should succeed", func(t *testing.T) {
@@ -143,7 +153,7 @@ func TestMigrationLock(t *testing.T) {
 		err = dialect.Lock(cfg)
 		require.NoError(t, err)
 
-		err = d2.Lock(LockCfg{Session: sess2})
+		err = d2.Lock(LockCfg{Session: sess2, Key: key})
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrLockDB)
 
@@ -193,7 +203,7 @@ func TestMigratorLocking(t *testing.T) {
 
 	t.Cleanup(func() {
 		if err := x.Close(); err != nil {
-			fmt.Printf("failed to close xorm engine: %v", err)
+			t.Logf("failed to close xorm engine: %v", err)
 		}
 	})
 
@@ -225,8 +235,8 @@ func TestMigratorLocking(t *testing.T) {
 func TestDatabaseLocking(t *testing.T) {
 	dbType := sqlutil.GetTestDBType()
 
-	// skip for SQLite since there is no database locking (only migrator locking)
-	if dbType == SQLite {
+	// skip for SQLite and Spanner since there is no database locking (only migrator locking)
+	if dbType == SQLite || dbType == Spanner {
 		t.Skip()
 	}
 
@@ -240,7 +250,7 @@ func TestDatabaseLocking(t *testing.T) {
 
 	t.Cleanup(func() {
 		if err := x.Close(); err != nil {
-			fmt.Printf("failed to close xorm engine: %v", err)
+			t.Logf("failed to close xorm engine: %v", err)
 		}
 	})
 

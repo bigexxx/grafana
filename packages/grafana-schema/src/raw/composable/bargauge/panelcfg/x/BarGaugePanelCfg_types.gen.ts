@@ -10,9 +10,9 @@
 
 import * as common from '@grafana/schema';
 
-export const pluginVersion = "11.0.0-pre";
+export const pluginVersion = "12.0.0-pre";
 
-export interface Options extends common.SingleStatBaseOptions {
+export interface Options extends common.OptionsWithLegend, common.SingleStatBaseOptions {
   displayMode: common.BarGaugeDisplayMode;
   maxVizHeight: number;
   minVizHeight: number;

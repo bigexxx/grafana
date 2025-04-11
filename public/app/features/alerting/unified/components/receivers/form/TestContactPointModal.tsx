@@ -1,15 +1,16 @@
 import { css } from '@emotion/css';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { FormProvider, useForm } from 'react-hook-form';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { Button, Label, Modal, RadioButtonGroup, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 import { TestReceiversAlert } from 'app/plugins/datasource/alertmanager/types';
 import { Annotations, Labels } from 'app/types/unified-alerting-dto';
 
 import { defaultAnnotations } from '../../../utils/constants';
 import AnnotationsStep from '../../rule-editor/AnnotationsStep';
-import LabelsField from '../../rule-editor/LabelsField';
+import LabelsField from '../../rule-editor/labels/LabelsField';
 
 interface Props {
   isOpen: boolean;
@@ -65,9 +66,15 @@ export const TestContactPointModal = ({ isOpen, onDismiss, onTest }: Props) => {
   };
 
   return (
-    <Modal onDismiss={onDismiss} isOpen={isOpen} title={'Test contact point'}>
+    <Modal
+      onDismiss={onDismiss}
+      isOpen={isOpen}
+      title={t('alerting.test-contact-point-modal.title-test-contact-point', 'Test contact point')}
+    >
       <div className={styles.section}>
-        <Label>Notification message</Label>
+        <Label>
+          <Trans i18nKey="alerting.test-contact-point-modal.notification-message">Notification message</Trans>
+        </Label>
         <RadioButtonGroup
           options={notificationOptions}
           value={notificationType}
@@ -99,7 +106,9 @@ export const TestContactPointModal = ({ isOpen, onDismiss, onTest }: Props) => {
           )}
 
           <Modal.ButtonRow>
-            <Button type="submit">Send test notification</Button>
+            <Button type="submit">
+              <Trans i18nKey="alerting.test-contact-point-modal.send-test-notification">Send test notification</Trans>
+            </Button>
           </Modal.ButtonRow>
         </form>
       </FormProvider>
@@ -108,13 +117,13 @@ export const TestContactPointModal = ({ isOpen, onDismiss, onTest }: Props) => {
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  flexRow: css`
-    display: flex;
-    flex-direction: row;
-    align-items: flex-start;
-    margin-bottom: ${theme.spacing(1)};
-  `,
-  section: css`
-    margin-bottom: ${theme.spacing(2)};
-  `,
+  flexRow: css({
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: theme.spacing(1),
+  }),
+  section: css({
+    marginBottom: theme.spacing(2),
+  }),
 });

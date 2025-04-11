@@ -13,16 +13,17 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/grafana/grafana/pkg/apimachinery/errutil"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/login/social"
 	"github.com/grafana/grafana/pkg/login/social/connectors"
-	"github.com/grafana/grafana/pkg/services/auth/identity"
+	"github.com/grafana/grafana/pkg/services/auth"
 	"github.com/grafana/grafana/pkg/services/authn"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/login"
 	"github.com/grafana/grafana/pkg/services/oauthtoken"
-	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/setting"
-	"github.com/grafana/grafana/pkg/util/errutil"
 )
 
 const (
@@ -60,17 +61,20 @@ func fromSocialErr(err *connectors.SocialError) error {
 	return errutil.Unauthorized("auth.oauth.userinfo.failed", errutil.WithPublicMessage(err.Error())).Errorf("%w", err)
 }
 
-var _ authn.LogoutClient = new(OAuth)
-var _ authn.RedirectClient = new(OAuth)
+var (
+	_ authn.LogoutClient           = new(OAuth)
+	_ authn.RedirectClient         = new(OAuth)
+	_ authn.SSOSettingsAwareClient = new(OAuth)
+)
 
 func ProvideOAuth(
 	name string, cfg *setting.Cfg, oauthService oauthtoken.OAuthTokenService,
-	socialService social.Service, settingsProviderService setting.Provider,
+	socialService social.Service, settingsProviderService setting.Provider, features featuremgmt.FeatureToggles,
 ) *OAuth {
 	providerName := strings.TrimPrefix(name, "auth.client.")
 	return &OAuth{
 		name, fmt.Sprintf("oauth_%s", providerName), providerName,
-		log.New(name), cfg, settingsProviderService, oauthService, socialService,
+		log.New(name), cfg, settingsProviderService, oauthService, socialService, features,
 	}
 }
 
@@ -84,6 +88,7 @@ type OAuth struct {
 	settingsProviderSvc setting.Provider
 	oauthService        oauthtoken.OAuthTokenService
 	socialService       social.Service
+	features            featuremgmt.FeatureToggles
 }
 
 func (c *OAuth) Name() string {
@@ -148,10 +153,13 @@ func (c *OAuth) Authenticate(ctx context.Context, r *authn.Request) (*authn.Iden
 		return nil, errOAuthUserInfo.Errorf("failed to get user info: %w", err)
 	}
 
-	// Implement in Grafana 11
-	// if userInfo.Id == "" {
-	// 	return nil, errors.New("idP did not return a user id")
-	// }
+	if userInfo.Id == "" {
+		if c.features.IsEnabledGlobally(featuremgmt.FlagOauthRequireSubClaim) {
+			return nil, errOAuthUserInfo.Errorf("missing required sub claims")
+		} else {
+			c.log.FromContext(ctx).Warn("Missing sub claim, oauth authentication without a sub claim is deprecated and will be rejected in future versions.")
+		}
+	}
 
 	if userInfo.Email == "" {
 		return nil, errOAuthMissingRequiredEmail.Errorf("required attribute email was not provided")
@@ -160,13 +168,6 @@ func (c *OAuth) Authenticate(ctx context.Context, r *authn.Request) (*authn.Iden
 	if !connector.IsEmailAllowed(userInfo.Email) {
 		return nil, errOAuthEmailNotAllowed.Errorf("provided email is not allowed")
 	}
-
-	orgRoles, isGrafanaAdmin, _ := getRoles(c.cfg, func() (org.RoleType, *bool, error) {
-		if c.cfg.OAuthSkipOrgRoleUpdateSync {
-			return "", nil, nil
-		}
-		return userInfo.Role, userInfo.IsGrafanaAdmin, nil
-	})
 
 	lookupParams := login.UserLookupParams{}
 	allowInsecureEmailLookup := c.settingsProviderSvc.KeyValue("auth", "oauth_allow_insecure_email_lookup").MustBool(false)
@@ -178,12 +179,12 @@ func (c *OAuth) Authenticate(ctx context.Context, r *authn.Request) (*authn.Iden
 		Login:           userInfo.Login,
 		Name:            userInfo.Name,
 		Email:           userInfo.Email,
-		IsGrafanaAdmin:  isGrafanaAdmin,
+		IsGrafanaAdmin:  userInfo.IsGrafanaAdmin,
 		AuthenticatedBy: c.moduleName,
 		AuthID:          userInfo.Id,
 		Groups:          userInfo.Groups,
 		OAuthToken:      token,
-		OrgRoles:        orgRoles,
+		OrgRoles:        userInfo.OrgRoles,
 		ClientParams: authn.ClientParams{
 			SyncUser:        true,
 			SyncTeams:       true,
@@ -191,10 +192,28 @@ func (c *OAuth) Authenticate(ctx context.Context, r *authn.Request) (*authn.Iden
 			SyncPermissions: true,
 			AllowSignUp:     connector.IsSignupAllowed(),
 			// skip org role flag is checked and handled in the connector. For now we can skip the hook if no roles are passed
-			SyncOrgRoles: len(orgRoles) > 0,
+			SyncOrgRoles: len(userInfo.OrgRoles) > 0,
 			LookUpParams: lookupParams,
 		},
 	}, nil
+}
+
+func (c *OAuth) IsEnabled() bool {
+	provider := c.socialService.GetOAuthInfoProvider(c.providerName)
+	if provider == nil {
+		return false
+	}
+
+	return provider.Enabled
+}
+
+func (c *OAuth) GetConfig() authn.SSOClientConfig {
+	provider := c.socialService.GetOAuthInfoProvider(c.providerName)
+	if provider == nil {
+		return nil
+	}
+
+	return provider
 }
 
 func (c *OAuth) RedirectURL(ctx context.Context, r *authn.Request) (*authn.Redirect, error) {
@@ -239,27 +258,34 @@ func (c *OAuth) RedirectURL(ctx context.Context, r *authn.Request) (*authn.Redir
 	}, nil
 }
 
-func (c *OAuth) Logout(ctx context.Context, user identity.Requester, info *login.UserAuth) (*authn.Redirect, bool) {
-	token := c.oauthService.GetCurrentOAuthToken(ctx, user)
+func (c *OAuth) Logout(ctx context.Context, user identity.Requester, sessionToken *auth.UserToken) (*authn.Redirect, bool) {
+	token := c.oauthService.GetCurrentOAuthToken(ctx, user, sessionToken)
 
-	if err := c.oauthService.InvalidateOAuthTokens(ctx, info); err != nil {
-		namespace, id := user.GetNamespacedID()
-		c.log.FromContext(ctx).Error("Failed to invalidate tokens", "namespace", namespace, "id", id, "error", err)
+	userID, err := identity.UserIdentifier(user.GetID())
+	if err != nil {
+		c.log.FromContext(ctx).Error("Failed to parse user id", "id", user.GetID(), "error", err)
+		return nil, false
+	}
+
+	ctxLogger := c.log.FromContext(ctx).New("userID", userID)
+
+	if err := c.oauthService.InvalidateOAuthTokens(ctx, user, sessionToken); err != nil {
+		ctxLogger.Error("Failed to invalidate tokens", "error", err)
 	}
 
 	oauthCfg := c.socialService.GetOAuthInfoProvider(c.providerName)
 	if !oauthCfg.Enabled {
-		c.log.FromContext(ctx).Debug("OAuth client is disabled")
+		ctxLogger.Debug("OAuth client is disabled")
 		return nil, false
 	}
 
 	redirectURL := getOAuthSignoutRedirectURL(c.cfg, oauthCfg)
 	if redirectURL == "" {
-		c.log.FromContext(ctx).Debug("No signout redirect url configured")
+		ctxLogger.Debug("No signout redirect url configured")
 		return nil, false
 	}
 
-	if isOICDLogout(redirectURL) && token != nil && token.Valid() {
+	if isOIDCLogout(redirectURL) && token != nil && token.Valid() {
 		if idToken, ok := token.Extra("id_token").(string); ok {
 			redirectURL = withIDTokenHint(redirectURL, idToken)
 		}
@@ -331,7 +357,7 @@ func withIDTokenHint(redirectURL string, idToken string) string {
 	return u.String()
 }
 
-func isOICDLogout(redirectUrl string) bool {
+func isOIDCLogout(redirectUrl string) bool {
 	if redirectUrl == "" {
 		return false
 	}

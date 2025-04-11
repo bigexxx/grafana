@@ -1,7 +1,8 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/querybuilder/operationUtils.ts
 import { capitalize } from 'lodash';
 import pluralize from 'pluralize';
 
-import { SelectableValue } from '@grafana/data/src';
+import { SelectableValue } from '@grafana/data';
 
 import { LabelParamEditor } from './components/LabelParamEditor';
 import {
@@ -95,8 +96,8 @@ export function rangeRendererLeftWithParams(
 function renderParams(model: QueryBuilderOperation, def: QueryBuilderOperationDef, innerExpr: string) {
   return (model.params ?? []).map((value, index) => {
     const paramDef = def.params[index];
-    if (paramDef.type === 'string') {
-      return '"' + value + '"';
+    if (paramDef?.type === 'string') {
+      return `"${value}"`;
     }
 
     return value;
@@ -124,30 +125,32 @@ export function getOperationParamId(operationId: string, paramIndex: number) {
 }
 
 export function getRangeVectorParamDef(withRateInterval = false): QueryBuilderOperationParamDef {
-  const param: QueryBuilderOperationParamDef = {
-    name: 'Range',
-    type: 'string',
-    options: [
-      {
-        label: '$__interval',
-        value: '$__interval',
-        // tooltip: 'Dynamic interval based on max data points, scrape and min interval',
-      },
-      { label: '1m', value: '1m' },
-      { label: '5m', value: '5m' },
-      { label: '10m', value: '10m' },
-      { label: '1h', value: '1h' },
-      { label: '24h', value: '24h' },
-    ],
-  };
+  const options: Array<SelectableValue<string>> = [
+    {
+      label: '$__interval',
+      value: '$__interval',
+      // tooltip: 'Dynamic interval based on max data points, scrape and min interval',
+    },
+    { label: '1m', value: '1m' },
+    { label: '5m', value: '5m' },
+    { label: '10m', value: '10m' },
+    { label: '1h', value: '1h' },
+    { label: '24h', value: '24h' },
+  ];
 
   if (withRateInterval) {
-    (param.options as Array<SelectableValue<string>>).unshift({
+    options.unshift({
       label: '$__rate_interval',
       value: '$__rate_interval',
       // tooltip: 'Always above 4x scrape interval',
     });
   }
+
+  const param: QueryBuilderOperationParamDef = {
+    name: 'Range',
+    type: 'string',
+    options,
+  };
 
   return param;
 }

@@ -1,6 +1,6 @@
 import { css, cx } from '@emotion/css';
 import { ActionId, ActionImpl } from 'kbar';
-import React from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
@@ -54,6 +54,7 @@ export const ResultItem = React.forwardRef(
                 {!hasCommandOrLink(ancestor) && (
                   <>
                     <span className={styles.breadcrumbAncestor}>{ancestor.name}</span>
+                    {/* eslint-disable-next-line @grafana/no-untranslated-strings */}
                     <span className={styles.breadcrumbSeparator}>&rsaquo;</span>
                   </>
                 )}

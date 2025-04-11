@@ -19,9 +19,8 @@ import {
   ExploreCorrelationHelperData,
   DataLinkTransformationConfig,
 } from '@grafana/data';
+import { CorrelationData } from '@grafana/runtime';
 import { RichHistorySearchFilters, RichHistorySettings } from 'app/core/utils/richHistoryTypes';
-
-import { CorrelationData } from '../features/correlations/useCorrelations';
 
 export type ExploreQueryParams = UrlQueryMap;
 
@@ -62,6 +61,13 @@ export interface ExploreState {
   syncedTimes: boolean;
 
   panes: Record<string, ExploreItemState | undefined>;
+
+  /**
+   * History of all queries
+   */
+  richHistory: RichHistoryQuery[];
+  richHistorySearchFilters?: RichHistorySearchFilters;
+  richHistoryTotal?: number;
 
   /**
    * Settings for rich history (note: filters are stored per each pane separately)
@@ -205,13 +211,6 @@ export interface ExploreItemState {
   showNodeGraph?: boolean;
   showFlameGraph?: boolean;
   showCustom?: boolean;
-
-  /**
-   * History of all queries
-   */
-  richHistory: RichHistoryQuery[];
-  richHistorySearchFilters?: RichHistorySearchFilters;
-  richHistoryTotal?: number;
 
   /**
    * We are using caching to store query responses of queries run from logs navigation.

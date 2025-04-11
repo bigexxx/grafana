@@ -1,34 +1,35 @@
 import { css } from '@emotion/css';
-import React, { ReactElement } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { useLocation } from 'react-router-dom-v5-compat';
 
 import { SelectableValue, GrafanaTheme2, PluginType } from '@grafana/data';
 import { locationSearchToObject } from '@grafana/runtime';
-import { Select, RadioButtonGroup, useStyles2, Tooltip, Field } from '@grafana/ui';
+import { Select, RadioButtonGroup, useStyles2, Tooltip, Field, TextLink } from '@grafana/ui';
 import { Page } from 'app/core/components/Page/Page';
-import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
+import { t, Trans } from 'app/core/internationalization';
 import { getNavModel } from 'app/core/selectors/navModel';
 import { ROUTES as CONNECTIONS_ROUTES } from 'app/features/connections/constants';
 import { useSelector } from 'app/types';
 
 import { HorizontalGroup } from '../components/HorizontalGroup';
 import { PluginList } from '../components/PluginList';
+import { RoadmapLinks } from '../components/RoadmapLinks';
 import { SearchField } from '../components/SearchField';
+import UpdateAllButton from '../components/UpdateAllButton';
+import { UpdateAllModal } from '../components/UpdateAllModal';
 import { Sorters } from '../helpers';
 import { useHistory } from '../hooks/useHistory';
-import { useGetAll, useIsRemotePluginsAvailable, useDisplayMode } from '../state/hooks';
-import { PluginListDisplayMode } from '../types';
+import { useGetAll, useGetUpdatable, useIsRemotePluginsAvailable } from '../state/hooks';
 
-export default function Browse({ route }: GrafanaRouteComponentProps): ReactElement | null {
+export default function Browse() {
   const location = useLocation();
   const locationSearch = locationSearchToObject(location.search);
   const navModel = useSelector((state) => getNavModel(state.navIndex, 'plugins'));
-  const { displayMode, setDisplayMode } = useDisplayMode();
   const styles = useStyles2(getStyles);
   const history = useHistory();
   const remotePluginsAvailable = useIsRemotePluginsAvailable();
   const keyword = locationSearch.q?.toString() || '';
-  const filterBy = locationSearch.filterBy?.toString() || 'installed';
+  const filterBy = locationSearch.filterBy?.toString() || 'all';
   const filterByType = (locationSearch.filterByType as PluginType | 'all') || 'all';
   const sortBy = (locationSearch.sortBy as Sorters) || Sorters.nameAsc;
   const { isLoading, error, plugins } = useGetAll(
@@ -36,6 +37,7 @@ export default function Browse({ route }: GrafanaRouteComponentProps): ReactElem
       keyword,
       type: filterByType !== 'all' ? filterByType : undefined,
       isInstalled: filterBy === 'installed' ? true : undefined,
+      hasUpdate: filterBy === 'has-update' ? true : undefined,
     },
     sortBy
   );
@@ -43,11 +45,12 @@ export default function Browse({ route }: GrafanaRouteComponentProps): ReactElem
   const filterByOptions = [
     { value: 'all', label: 'All' },
     { value: 'installed', label: 'Installed' },
+    { value: 'has-update', label: 'New Updates' },
   ];
 
-  const onSortByChange = (value: SelectableValue<string>) => {
-    history.push({ query: { sortBy: value.value } });
-  };
+  const { isLoading: areUpdatesLoading, updatablePlugins } = useGetUpdatable();
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const disableUpdateAllButton = updatablePlugins.length <= 0 || areUpdatesLoading;
 
   const onFilterByChange = (value: string) => {
     history.push({ query: { filterBy: value } });
@@ -61,6 +64,10 @@ export default function Browse({ route }: GrafanaRouteComponentProps): ReactElem
     history.push({ query: { filterBy, filterByType, q } });
   };
 
+  const onUpdateAll = () => {
+    setShowUpdateModal(true);
+  };
+
   // How should we handle errors?
   if (error) {
     console.error(error.message);
@@ -69,26 +76,33 @@ export default function Browse({ route }: GrafanaRouteComponentProps): ReactElem
 
   const subTitle = (
     <div>
-      Extend the Grafana experience with panel plugins and apps. To find more data sources go to{' '}
-      <a className="external-link" href={`${CONNECTIONS_ROUTES.AddNewConnection}?cat=data-source`}>
-        Connections
-      </a>
-      .
+      <Trans i18nKey="plugins.browse.subtitle">
+        Extend the Grafana experience with panel plugins and apps. To find more data sources go to{' '}
+        <TextLink href={`${CONNECTIONS_ROUTES.AddNewConnection}?cat=data-source`}>Connections</TextLink>.
+      </Trans>
     </div>
   );
 
+  const updateAllButton = (
+    <UpdateAllButton
+      disabled={disableUpdateAllButton}
+      onUpdateAll={onUpdateAll}
+      updatablePluginsLength={updatablePlugins.length}
+    />
+  );
+
   return (
-    <Page navModel={navModel} subTitle={subTitle}>
+    <Page navModel={navModel} actions={updateAllButton} subTitle={subTitle}>
       <Page.Contents>
         <HorizontalGroup wrap>
-          <Field label="Search">
+          <Field label={t('plugins.browse.label-search', 'Search')}>
             <SearchField value={keyword} onSearch={onSearch} />
           </Field>
           <HorizontalGroup wrap className={styles.actionBar}>
             {/* Filter by type */}
-            <Field label="Type">
+            <Field label={t('plugins.browse.label-type', 'Type')}>
               <Select
-                aria-label="Plugin type filter"
+                aria-label={t('plugins.browse.aria-label-plugin-type-filter', 'Plugin type filter')}
                 value={filterByType}
                 onChange={onFilterByTypeChange}
                 width={18}
@@ -103,7 +117,7 @@ export default function Browse({ route }: GrafanaRouteComponentProps): ReactElem
 
             {/* Filter by installed / all */}
             {remotePluginsAvailable ? (
-              <Field label="State">
+              <Field label={t('plugins.browse.label-state', 'State')}>
                 <RadioButtonGroup value={filterBy} onChange={onFilterByChange} options={filterByOptions} />
               </Field>
             ) : (
@@ -112,7 +126,7 @@ export default function Browse({ route }: GrafanaRouteComponentProps): ReactElem
                 placement="top"
               >
                 <div>
-                  <Field label="State">
+                  <Field label={t('plugins.browse.label-state', 'State')}>
                     <RadioButtonGroup
                       disabled={true}
                       value={filterBy}
@@ -123,45 +137,18 @@ export default function Browse({ route }: GrafanaRouteComponentProps): ReactElem
                 </div>
               </Tooltip>
             )}
-
-            {/* Sorting */}
-            <Field label="Sort">
-              <Select
-                aria-label="Sort Plugins List"
-                width={24}
-                value={sortBy}
-                onChange={onSortByChange}
-                options={[
-                  { value: 'nameAsc', label: 'By name (A-Z)' },
-                  { value: 'nameDesc', label: 'By name (Z-A)' },
-                  { value: 'updated', label: 'By updated date' },
-                  { value: 'published', label: 'By published date' },
-                  { value: 'downloads', label: 'By downloads' },
-                ]}
-              />
-            </Field>
-
-            {/* Display mode */}
-            <Field label="View">
-              <RadioButtonGroup<PluginListDisplayMode>
-                className={styles.displayAs}
-                value={displayMode}
-                onChange={setDisplayMode}
-                options={[
-                  {
-                    value: PluginListDisplayMode.Grid,
-                    icon: 'table',
-                    description: 'Display plugins in a grid layout',
-                  },
-                  { value: PluginListDisplayMode.List, icon: 'list-ul', description: 'Display plugins in list' },
-                ]}
-              />
-            </Field>
           </HorizontalGroup>
         </HorizontalGroup>
         <div className={styles.listWrap}>
-          <PluginList plugins={plugins} displayMode={displayMode} isLoading={isLoading} />
+          <PluginList plugins={plugins} isLoading={isLoading} />
         </div>
+        <RoadmapLinks />
+        <UpdateAllModal
+          isOpen={showUpdateModal}
+          isLoading={areUpdatesLoading}
+          onDismiss={() => setShowUpdateModal(false)}
+          plugins={updatablePlugins}
+        />
       </Page.Contents>
     </Page>
   );

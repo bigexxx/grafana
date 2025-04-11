@@ -2,28 +2,26 @@ import { ComponentType } from 'react';
 import { Observable } from 'rxjs';
 
 import {
+  AdHocVariableModel,
+  ConstantVariableModel,
   DataQuery,
   DataQueryRequest,
   DataQueryResponse,
   DataSourceApi,
   DataSourceJsonData,
   DataSourceRef,
+  LegacyMetricFindQueryOptions,
   MetricFindValue,
+  QueryVariableModel,
   StandardVariableQuery,
   VariableModel,
   VariableSupportType,
+  VariableWithMultiSupport,
+  VariableWithOptions,
 } from '@grafana/data';
 
 import { LEGACY_VARIABLE_QUERY_EDITOR_NAME } from './editor/LegacyVariableQueryEditor';
-import {
-  AdHocVariableModel,
-  ConstantVariableModel,
-  QueryVariableModel,
-  VariableQueryEditorType,
-  VariableQueryEditorProps,
-  VariableWithMultiSupport,
-  VariableWithOptions,
-} from './types';
+import { VariableQueryEditorType, VariableQueryEditorProps } from './types';
 
 /** @deprecated use a if (model.type === "query") type narrowing check instead */
 export const isQuery = (model: VariableModel): model is QueryVariableModel => {
@@ -64,7 +62,7 @@ interface DataSourceWithLegacyVariableSupport<
   TQuery extends DataQuery = DataQuery,
   TOptions extends DataSourceJsonData = DataSourceJsonData,
 > extends DataSourceApi<TQuery, TOptions> {
-  metricFindQuery(query: any, options?: any): Promise<MetricFindValue[]>;
+  metricFindQuery(query: string, options?: LegacyMetricFindQueryOptions): Promise<MetricFindValue[]>;
   variables: undefined;
 }
 

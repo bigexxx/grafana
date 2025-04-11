@@ -1,9 +1,14 @@
 import { WithAccessControlMetadata } from '@grafana/data';
 
+import { ManagerKind } from '../features/apiserver/types';
+
 export interface FolderListItemDTO {
   uid: string;
   title: string;
+  managedBy?: ManagerKind;
 }
+
+export type FolderParent = Pick<FolderDTO, 'title' | 'uid' | 'url'>;
 
 export interface FolderDTO extends WithAccessControlMetadata {
   canAdmin: boolean;
@@ -15,7 +20,10 @@ export interface FolderDTO extends WithAccessControlMetadata {
   hasAcl: boolean;
   id: number;
   parentUid?: string;
-  parents?: FolderDTO[];
+  managedBy?: ManagerKind;
+
+  // The API does actually return a full FolderDTO here, but we want to restrict it to just a few properties
+  parents?: FolderParent[];
   title: string;
   uid: string;
   updated: string;

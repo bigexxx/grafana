@@ -60,12 +60,14 @@ func (b *Builder) buildSelect() {
 	b.sql.WriteString(
 		`SELECT
 			dashboard.id,
+			dashboard.org_id,
 			dashboard.uid,
 			dashboard.title,
 			dashboard.slug,
 			dashboard_tag.term,
 			dashboard.is_folder,
 			dashboard.folder_id,
+			dashboard.deleted,
 			folder.uid AS folder_uid,
 		`)
 	if b.Features.IsEnabledGlobally(featuremgmt.FlagNestedFolders) {

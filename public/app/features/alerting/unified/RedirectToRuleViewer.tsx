@@ -1,11 +1,12 @@
 import { css } from '@emotion/css';
-import React, { useMemo } from 'react';
-import { Redirect } from 'react-router-dom';
+import { useMemo } from 'react';
+import { Navigate } from 'react-router-dom-v5-compat';
 import { useLocation } from 'react-use';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { config, isFetchError } from '@grafana/runtime';
-import { Alert, Card, Icon, LoadingPlaceholder, useStyles2, withErrorBoundary } from '@grafana/ui';
+import { Alert, Card, Icon, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { AlertLabels } from './components/AlertLabels';
 import { RuleViewerLayout } from './components/rule-viewer/RuleViewerLayout';
@@ -13,6 +14,7 @@ import { useCloudCombinedRulesMatching } from './hooks/useCombinedRule';
 import { getRulesSourceByName } from './utils/datasource';
 import { createViewLink } from './utils/misc';
 import { unescapePathSeparators } from './utils/rule-id';
+import { withPageErrorBoundary } from './withPageErrorBoundary';
 
 const pageTitle = 'Find rule';
 const subUrl = config.appSubUrl;
@@ -53,7 +55,7 @@ export function RedirectToRuleViewer(): JSX.Element | null {
   } = useCloudCombinedRulesMatching(name, sourceName, { namespace, groupName: group });
 
   if (!name || !sourceName) {
-    return <Redirect to="/notfound" />;
+    return <Navigate replace to="/notfound" />;
   }
 
   if (error) {
@@ -75,7 +77,7 @@ export function RedirectToRuleViewer(): JSX.Element | null {
   if (loading) {
     return (
       <RuleViewerLayout title={pageTitle}>
-        <LoadingPlaceholder text="Loading rule..." />
+        <LoadingPlaceholder text={t('alerting.redirect-to-rule-viewer.text-loading-rule', 'Loading rule...')} />
       </RuleViewerLayout>
     );
   }
@@ -85,7 +87,7 @@ export function RedirectToRuleViewer(): JSX.Element | null {
   if (!rulesSource) {
     return (
       <RuleViewerLayout title={pageTitle}>
-        <Alert title="Could not view rule">
+        <Alert title={t('alerting.redirect-to-rule-viewer.title-could-not-view-rule', 'Could not view rule')}>
           <details className={styles.errorMessage}>{`Could not find data source with name: ${sourceName}.`}</details>
         </Alert>
       </RuleViewerLayout>
@@ -95,7 +97,7 @@ export function RedirectToRuleViewer(): JSX.Element | null {
   if (rules.length === 1) {
     const [rule] = rules;
     const to = createViewLink(rulesSource, rule, '/alerting/list').replace(subUrl, '');
-    return <Redirect to={to} />;
+    return <Navigate replace to={to} />;
   }
 
   if (rules.length === 0) {
@@ -137,20 +139,20 @@ export function RedirectToRuleViewer(): JSX.Element | null {
 
 function getStyles(theme: GrafanaTheme2) {
   return {
-    param: css`
-      font-style: italic;
-      color: ${theme.colors.text.secondary};
-    `,
-    rules: css`
-      margin-top: ${theme.spacing(2)};
-    `,
-    namespace: css`
-      margin-left: ${theme.spacing(1)};
-    `,
-    errorMessage: css`
-      white-space: pre-wrap;
-    `,
+    param: css({
+      fontStyle: 'italic',
+      color: theme.colors.text.secondary,
+    }),
+    rules: css({
+      marginTop: theme.spacing(2),
+    }),
+    namespace: css({
+      marginLeft: theme.spacing(1),
+    }),
+    errorMessage: css({
+      whiteSpace: 'pre-wrap',
+    }),
   };
 }
 
-export default withErrorBoundary(RedirectToRuleViewer, { style: 'page' });
+export default withPageErrorBoundary(RedirectToRuleViewer);

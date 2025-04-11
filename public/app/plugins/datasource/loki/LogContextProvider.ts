@@ -14,13 +14,13 @@ import {
   LogRowContextQueryDirection,
   LogRowContextOptions,
   dateTime,
+  ScopedVars,
 } from '@grafana/data';
 import { LabelParser, LabelFilter, LineFilters, PipelineStage, Logfmt, Json } from '@grafana/lezer-logql';
-import { Labels } from '@grafana/schema';
 
 import { LokiContextUi } from './components/LokiContextUi';
 import { LokiDatasource, makeRequest, REF_ID_STARTER_LOG_ROW_CONTEXT } from './datasource';
-import { escapeLabelValueInExactSelector } from './languageUtils';
+import { escapeLabelValueInExactSelector, getLabelTypeFromFrame } from './languageUtils';
 import { addLabelToQuery, addParserToQuery } from './modifyQuery';
 import {
   getNodePositionsFromQuery,
@@ -61,7 +61,7 @@ export class LogContextProvider {
     // to use the cached filters, we need to reinitialize them.
     if (this.cachedContextFilters.length === 0 || !cacheFilters) {
       const filters = (
-        await this.getInitContextFilters(row.labels, origQuery, {
+        await this.getInitContextFilters(row, origQuery, {
           from: dateTime(row.timeEpochMs),
           to: dateTime(row.timeEpochMs),
           raw: { from: dateTime(row.timeEpochMs), to: dateTime(row.timeEpochMs) },
@@ -80,6 +80,9 @@ export class LogContextProvider {
     origQuery?: LokiQuery,
     cacheFilters = true
   ): Promise<LokiQuery> => {
+    if (origQuery && options?.scopedVars) {
+      origQuery = this.datasource.applyTemplateVariables(origQuery, options?.scopedVars);
+    }
     const { query } = await this.getQueryAndRange(row, options, origQuery, cacheFilters);
 
     if (!cacheFilters) {
@@ -95,6 +98,9 @@ export class LogContextProvider {
     options?: LogRowContextOptions,
     origQuery?: LokiQuery
   ): Promise<{ data: DataFrame[] }> => {
+    if (origQuery && options?.scopedVars) {
+      origQuery = this.datasource.applyTemplateVariables(origQuery, options?.scopedVars);
+    }
     const direction = (options && options.direction) || LogRowContextQueryDirection.Backward;
     const { query, range } = await this.getQueryAndRange(row, options, origQuery);
 
@@ -186,7 +192,15 @@ export class LogContextProvider {
     };
   }
 
-  getLogRowContextUi(row: LogRowModel, runContextQuery?: () => void, origQuery?: LokiQuery): React.ReactNode {
+  getLogRowContextUi(
+    row: LogRowModel,
+    runContextQuery?: () => void,
+    origQuery?: LokiQuery,
+    scopedVars?: ScopedVars
+  ): React.ReactNode {
+    if (origQuery && scopedVars) {
+      origQuery = this.datasource.applyTemplateVariables(origQuery, scopedVars);
+    }
     const updateFilter = (contextFilters: ContextFilter[]) => {
       this.cachedContextFilters = contextFilters;
 
@@ -312,14 +326,15 @@ export class LogContextProvider {
   };
 
   getInitContextFilters = async (
-    labels: Labels,
+    row: LogRowModel,
     query?: LokiQuery,
     timeRange?: TimeRange
   ): Promise<{ contextFilters: ContextFilter[]; preservedFiltersApplied: boolean }> => {
     let preservedFiltersApplied = false;
-    if (!query || isEmpty(labels)) {
+    if (!query || isEmpty(row.labels)) {
       return { contextFilters: [], preservedFiltersApplied };
     }
+    const rowLabels = row.labels;
 
     // 1. First we need to get all labels from the log row's label
     // and correctly set parsed and not parsed labels
@@ -330,20 +345,20 @@ export class LogContextProvider {
       await this.datasource.languageProvider.start(timeRange);
       allLabels = this.datasource.languageProvider.getLabelKeys();
     } else {
-      // If we have parser, we use fetchSeriesLabels to fetch actual labels for selected stream
+      // If we have parser, we use fetchLabels to fetch actual labels for selected stream
       const stream = getStreamSelectorsFromQuery(query.expr);
       // We are using stream[0] as log query can always have just 1 stream selector
-      const series = await this.datasource.languageProvider.fetchSeriesLabels(stream[0], { timeRange });
-      allLabels = Object.keys(series);
+      allLabels = await this.datasource.languageProvider.fetchLabels({ streamSelector: stream[0], timeRange });
     }
 
     const contextFilters: ContextFilter[] = [];
-    Object.entries(labels).forEach(([label, value]) => {
+    Object.entries(rowLabels).forEach(([label, value]) => {
+      const labelType = getLabelTypeFromFrame(label, row.dataFrame, row.rowIndex);
       const filter: ContextFilter = {
         label,
         value: value,
         enabled: allLabels.includes(label),
-        nonIndexed: !allLabels.includes(label),
+        nonIndexed: labelType !== null && labelType !== LabelType.Indexed,
       };
 
       contextFilters.push(filter);

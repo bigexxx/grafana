@@ -1,11 +1,12 @@
 import { css } from '@emotion/css';
-import React, { ReactElement } from 'react';
-import { Draggable } from 'react-beautiful-dnd';
+import { Draggable } from '@hello-pangea/dnd';
+import { ReactElement } from 'react';
 
 import { GrafanaTheme2, TypedVariableModel } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { reportInteraction } from '@grafana/runtime';
 import { Button, Icon, IconButton, useStyles2, useTheme2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { hasOptions } from '../guard';
 import { VariableUsagesButton } from '../inspect/VariableUsagesButton';
@@ -88,7 +89,7 @@ export function VariableEditorListRow({
                   propsOnDuplicate(identifier);
                 }}
                 name="copy"
-                tooltip="Duplicate variable"
+                tooltip={t('variables.variable-editor-list-row.tooltip-duplicate-variable', 'Duplicate variable')}
                 aria-label={selectors.pages.Dashboard.Settings.Variables.List.tableRowDuplicateButtons(variable.name)}
               />
               <IconButton
@@ -98,7 +99,7 @@ export function VariableEditorListRow({
                   propsOnDelete(identifier);
                 }}
                 name="trash-alt"
-                tooltip="Remove variable"
+                tooltip={t('variables.variable-editor-list-row.tooltip-remove-variable', 'Remove variable')}
                 aria-label={selectors.pages.Dashboard.Settings.Variables.List.tableRowRemoveButtons(variable.name)}
               />
               <div {...provided.dragHandleProps} className={styles.dragHandle}>
@@ -138,7 +139,10 @@ function VariableCheckIndicator({ passed }: VariableCheckIndicatorProps): ReactE
       <Icon
         name="check"
         className={styles.iconPassed}
-        title="This variable is referenced by other variables or dashboard."
+        title={t(
+          'variables.variable-check-indicator.title-variable-referenced-other-variables-dashboard',
+          'This variable is referenced by other variables or dashboard.'
+        )}
       />
     );
   }
@@ -147,45 +151,48 @@ function VariableCheckIndicator({ passed }: VariableCheckIndicatorProps): ReactE
     <Icon
       name="exclamation-triangle"
       className={styles.iconFailed}
-      title="This variable is not referenced by any variable or dashboard."
+      title={t(
+        'variables.variable-check-indicator.title-variable-referenced-dashboard',
+        'This variable is not referenced by any variable or dashboard.'
+      )}
     />
   );
 }
 
 function getStyles(theme: GrafanaTheme2) {
   return {
-    dragHandle: css`
-      cursor: grab;
-      margin-left: ${theme.spacing(1)};
-    `,
-    column: css`
-      width: 1%;
-    `,
-    nameLink: css`
-      cursor: pointer;
-      color: ${theme.colors.primary.text};
-    `,
-    definitionColumn: css`
-      width: 100%;
-      max-width: 200px;
-      cursor: pointer;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      -o-text-overflow: ellipsis;
-      white-space: nowrap;
-    `,
-    iconPassed: css`
-      color: ${theme.v1.palette.greenBase};
-      margin-right: ${theme.spacing(2)};
-    `,
-    iconFailed: css`
-      color: ${theme.v1.palette.orange};
-      margin-right: ${theme.spacing(2)};
-    `,
-    icons: css`
-      display: flex;
-      gap: ${theme.spacing(2)};
-      align-items: center;
-    `,
+    dragHandle: css({
+      cursor: 'grab',
+      marginLeft: theme.spacing(1),
+    }),
+    column: css({
+      width: '1%',
+    }),
+    nameLink: css({
+      cursor: 'pointer',
+      color: theme.colors.primary.text,
+    }),
+    definitionColumn: css({
+      width: '100%',
+      maxWidth: '200px',
+      cursor: 'pointer',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      OTextOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    }),
+    iconPassed: css({
+      color: theme.v1.palette.greenBase,
+      marginRight: theme.spacing(2),
+    }),
+    iconFailed: css({
+      color: theme.v1.palette.orange,
+      marginRight: theme.spacing(2),
+    }),
+    icons: css({
+      display: 'flex',
+      gap: theme.spacing(2),
+      alignItems: 'center',
+    }),
   };
 }

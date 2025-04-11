@@ -1,30 +1,27 @@
 import saveAs from 'file-saver';
-import React from 'react';
 import { useAsync } from 'react-use';
 import AutoSizer from 'react-virtualized-auto-sizer';
 
-import { SceneComponentProps, SceneObjectBase, SceneObjectRef } from '@grafana/scenes';
-import { Button, ClipboardButton, CodeEditor, Field, Modal, Switch, VerticalGroup } from '@grafana/ui';
+import { SceneComponentProps, SceneObjectBase } from '@grafana/scenes';
+import { Button, ClipboardButton, CodeEditor, Field, Modal, Stack, Switch } from '@grafana/ui';
 import { t, Trans } from 'app/core/internationalization';
 import { DashboardExporter } from 'app/features/dashboard/components/DashExportModal';
 import { shareDashboardType } from 'app/features/dashboard/components/ShareModal/utils';
-import { DashboardModel } from 'app/features/dashboard/state';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
 
-import { DashboardScene } from '../scene/DashboardScene';
 import { transformSceneToSaveModel } from '../serialization/transformSceneToSaveModel';
+import { getVariablesCompatibility } from '../utils/getVariablesCompatibility';
 import { DashboardInteractions } from '../utils/interactions';
+import { getDashboardSceneFor } from '../utils/utils';
 
-import { SceneShareTabState } from './types';
+import { SceneShareTabState, ShareView } from './types';
 
-const exportExternallyTranslation = t('share-modal.export.share-externally-label', `Export for sharing externally`);
-
-interface ShareExportTabState extends SceneShareTabState {
-  dashboardRef: SceneObjectRef<DashboardScene>;
+export interface ShareExportTabState extends SceneShareTabState {
   isSharingExternally?: boolean;
   isViewingJSON?: boolean;
 }
 
-export class ShareExportTab extends SceneObjectBase<ShareExportTabState> {
+export class ShareExportTab extends SceneObjectBase<ShareExportTabState> implements ShareView {
   public tabId = shareDashboardType.export;
   static Component = ShareExportTabRenderer;
 
@@ -58,18 +55,24 @@ export class ShareExportTab extends SceneObjectBase<ShareExportTabState> {
     return;
   }
 
-  public async getExportableDashboardJson() {
-    const { dashboardRef, isSharingExternally } = this.state;
-    const saveModel = transformSceneToSaveModel(dashboardRef.resolve());
+  public getExportableDashboardJson = async () => {
+    const { isSharingExternally } = this.state;
+    const saveModel = transformSceneToSaveModel(getDashboardSceneFor(this));
 
     const exportable = isSharingExternally
-      ? await this._exporter.makeExportable(new DashboardModel(saveModel))
+      ? await this._exporter.makeExportable(
+          new DashboardModel(saveModel, undefined, {
+            getVariablesFromState: () => {
+              return getVariablesCompatibility(window.__grafanaSceneContext);
+            },
+          })
+        )
       : saveModel;
 
     return exportable;
-  }
+  };
 
-  public async onSaveAsFile() {
+  public onSaveAsFile = async () => {
     const dashboardJson = await this.getExportableDashboardJson();
     const dashboardJsonPretty = JSON.stringify(dashboardJson, null, 2);
     const { isSharingExternally } = this.state;
@@ -87,12 +90,11 @@ export class ShareExportTab extends SceneObjectBase<ShareExportTabState> {
     DashboardInteractions.exportDownloadJsonClicked({
       externally: isSharingExternally,
     });
-  }
+  };
 }
 
 function ShareExportTabRenderer({ model }: SceneComponentProps<ShareExportTab>) {
   const { isSharingExternally, isViewingJSON, modalRef } = model.useState();
-
   const dashboardJson = useAsync(async () => {
     if (isViewingJSON) {
       const json = await model.getExportableDashboardJson();
@@ -102,14 +104,16 @@ function ShareExportTabRenderer({ model }: SceneComponentProps<ShareExportTab>) 
     return '';
   }, [isViewingJSON]);
 
+  const exportExternallyTranslation = t('share-modal.export.share-externally-label', `Export for sharing externally`);
+
   return (
     <>
       {!isViewingJSON && (
         <>
-          <p className="share-modal-info-text">
+          <p>
             <Trans i18nKey="share-modal.export.info-text">Export this dashboard.</Trans>
           </p>
-          <VerticalGroup spacing="md">
+          <Stack gap={2} direction="column">
             <Field label={exportExternallyTranslation}>
               <Switch
                 id="share-externally-toggle"
@@ -117,7 +121,7 @@ function ShareExportTabRenderer({ model }: SceneComponentProps<ShareExportTab>) 
                 onChange={model.onShareExternallyChange}
               />
             </Field>
-          </VerticalGroup>
+          </Stack>
 
           <Modal.ButtonRow>
             <Button
@@ -138,7 +142,6 @@ function ShareExportTabRenderer({ model }: SceneComponentProps<ShareExportTab>) 
           </Modal.ButtonRow>
         </>
       )}
-
       {isViewingJSON && (
         <>
           <AutoSizer disableHeight>
@@ -156,7 +159,12 @@ function ShareExportTabRenderer({ model }: SceneComponentProps<ShareExportTab>) 
               }
 
               if (dashboardJson.loading) {
-                return <div>Loading...</div>;
+                return (
+                  <div>
+                    {' '}
+                    <Trans i18nKey="share-modal.export.loading">Loading...</Trans>
+                  </div>
+                );
               }
 
               return null;

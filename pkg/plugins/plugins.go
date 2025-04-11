@@ -17,9 +17,7 @@ import (
 	"github.com/grafana/grafana/pkg/plugins/auth"
 	"github.com/grafana/grafana/pkg/plugins/backendplugin"
 	"github.com/grafana/grafana/pkg/plugins/backendplugin/pluginextensionv2"
-	"github.com/grafana/grafana/pkg/plugins/backendplugin/secretsmanagerplugin"
 	"github.com/grafana/grafana/pkg/plugins/log"
-	"github.com/grafana/grafana/pkg/plugins/pfs"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/util"
 )
@@ -44,12 +42,12 @@ type Plugin struct {
 	Pinned          bool
 
 	// Signature fields
-	Signature      SignatureStatus
-	SignatureType  SignatureType
-	SignatureOrg   string
-	Parent         *Plugin
-	Children       []*Plugin
-	SignatureError *SignatureError
+	Signature     SignatureStatus
+	SignatureType SignatureType
+	SignatureOrg  string
+	Parent        *Plugin
+	Children      []*Plugin
+	Error         *Error
 
 	// SystemJS fields
 	Module  string
@@ -59,15 +57,26 @@ type Plugin struct {
 
 	ExternalService *auth.ExternalService
 
-	Renderer       pluginextensionv2.RendererPlugin
-	SecretsManager secretsmanagerplugin.SecretsManagerPlugin
-	client         backendplugin.Plugin
-	log            log.Logger
+	Renderer pluginextensionv2.RendererPlugin
+	client   backendplugin.Plugin
+	log      log.Logger
 
 	SkipHostEnvVars bool
 
 	mu sync.Mutex
+
+	Translations map[string]string
 }
+
+var (
+	_ = backend.CollectMetricsHandler(&Plugin{})
+	_ = backend.CheckHealthHandler(&Plugin{})
+	_ = backend.QueryDataHandler(&Plugin{})
+	_ = backend.CallResourceHandler(&Plugin{})
+	_ = backend.StreamHandler(&Plugin{})
+	_ = backend.AdmissionHandler(&Plugin{})
+	_ = backend.ConversionHandler(&Plugin{})
+)
 
 type AngularMeta struct {
 	Detected        bool `json:"detected"`
@@ -92,33 +101,39 @@ type JSONData struct {
 	Routes       []*Route     `json:"routes"`
 
 	// AccessControl settings
-	Roles []RoleRegistration `json:"roles,omitempty"`
+	Roles      []RoleRegistration `json:"roles,omitempty"`
+	ActionSets []ActionSet        `json:"actionSets,omitempty"`
 
 	// Panel settings
 	SkipDataQuery bool `json:"skipDataQuery"`
 
 	// App settings
-	AutoEnabled bool `json:"autoEnabled"`
+	AutoEnabled bool       `json:"autoEnabled"`
+	Extensions  Extensions `json:"extensions"`
 
 	// Datasource settings
-	Annotations  bool            `json:"annotations"`
-	Metrics      bool            `json:"metrics"`
-	Alerting     bool            `json:"alerting"`
-	Explore      bool            `json:"explore"`
-	Table        bool            `json:"tables"`
-	Logs         bool            `json:"logs"`
-	Tracing      bool            `json:"tracing"`
-	QueryOptions map[string]bool `json:"queryOptions,omitempty"`
-	BuiltIn      bool            `json:"builtIn,omitempty"`
-	Mixed        bool            `json:"mixed,omitempty"`
-	Streaming    bool            `json:"streaming"`
-	SDK          bool            `json:"sdk,omitempty"`
+	Annotations               bool            `json:"annotations"`
+	Metrics                   bool            `json:"metrics"`
+	Alerting                  bool            `json:"alerting"`
+	Explore                   bool            `json:"explore"`
+	Table                     bool            `json:"tables"`
+	Logs                      bool            `json:"logs"`
+	Tracing                   bool            `json:"tracing"`
+	QueryOptions              map[string]bool `json:"queryOptions,omitempty"`
+	BuiltIn                   bool            `json:"builtIn,omitempty"`
+	Mixed                     bool            `json:"mixed,omitempty"`
+	Streaming                 bool            `json:"streaming"`
+	SDK                       bool            `json:"sdk,omitempty"`
+	MultiValueFilterOperators bool            `json:"multiValueFilterOperators,omitempty"`
 
-	// Backend (Datasource + Renderer + SecretsManager)
+	// Backend (Datasource + Renderer)
 	Executable string `json:"executable,omitempty"`
 
 	// App Service Auth Registration
-	IAM *pfs.IAM `json:"iam,omitempty"`
+	IAM *auth.IAM `json:"iam,omitempty"`
+
+	// List of languages supported by the plugin
+	Languages []string `json:"languages,omitempty"`
 }
 
 func ReadPluginJSON(reader io.Reader) (JSONData, error) {
@@ -131,26 +146,8 @@ func ReadPluginJSON(reader io.Reader) (JSONData, error) {
 		return JSONData{}, err
 	}
 
-	// Hardcoded changes
-	switch plugin.ID {
-	case "grafana-piechart-panel":
+	if plugin.ID == "grafana-piechart-panel" {
 		plugin.Name = "Pie Chart (old)"
-	case "grafana-pyroscope-datasource":
-		fallthrough
-	case "grafana-testdata-datasource":
-		fallthrough
-	case "grafana-postgresql-datasource":
-		fallthrough
-	case "annolist":
-		fallthrough
-	case "debug":
-		if len(plugin.AliasIDs) == 0 {
-			return plugin, fmt.Errorf("expected alias to be set")
-		}
-	default: // TODO: when gcom validates the alias, this condition can be removed
-		if len(plugin.AliasIDs) > 0 {
-			return plugin, ErrUnsupportedAlias
-		}
 	}
 
 	if len(plugin.Dependencies.Plugins) == 0 {
@@ -161,9 +158,38 @@ func ReadPluginJSON(reader io.Reader) (JSONData, error) {
 		plugin.Dependencies.GrafanaVersion = "*"
 	}
 
+	if len(plugin.Dependencies.Extensions.ExposedComponents) == 0 {
+		plugin.Dependencies.Extensions.ExposedComponents = make([]string, 0)
+	}
+
+	if plugin.Extensions.AddedLinks == nil {
+		plugin.Extensions.AddedLinks = []AddedLink{}
+	}
+
+	if plugin.Extensions.AddedComponents == nil {
+		plugin.Extensions.AddedComponents = []AddedComponent{}
+	}
+
+	if plugin.Extensions.AddedFunctions == nil {
+		plugin.Extensions.AddedFunctions = []AddedFunction{}
+	}
+
+	if plugin.Extensions.ExposedComponents == nil {
+		plugin.Extensions.ExposedComponents = []ExposedComponent{}
+	}
+
+	if plugin.Extensions.ExtensionPoints == nil {
+		plugin.Extensions.ExtensionPoints = []ExtensionPoint{}
+	}
+
 	for _, include := range plugin.Includes {
 		if include.Role == "" {
 			include.Role = org.RoleViewer
+		}
+
+		// Default to app access for app plugins
+		if plugin.Type == TypeApp && include.Role == org.RoleViewer && include.Action == "" {
+			include.Action = ActionAppAccess
 		}
 	}
 
@@ -202,10 +228,6 @@ type Route struct {
 	TokenAuth    *JWTTokenAuth   `json:"tokenAuth"`
 	JwtTokenAuth *JWTTokenAuth   `json:"jwtTokenAuth"`
 	Body         json.RawMessage `json:"body"`
-}
-
-func (r *Route) RequiresRBACAction() bool {
-	return r.ReqAction != ""
 }
 
 // Header describes an HTTP header that is forwarded with
@@ -361,6 +383,33 @@ func (p *Plugin) RunStream(ctx context.Context, req *backend.RunStreamRequest, s
 	return pluginClient.RunStream(ctx, req, sender)
 }
 
+// ValidateAdmission implements backend.AdmissionHandler.
+func (p *Plugin) ValidateAdmission(ctx context.Context, req *backend.AdmissionRequest) (*backend.ValidationResponse, error) {
+	pluginClient, ok := p.Client()
+	if !ok {
+		return nil, ErrPluginUnavailable
+	}
+	return pluginClient.ValidateAdmission(ctx, req)
+}
+
+// MutateAdmission implements backend.AdmissionHandler.
+func (p *Plugin) MutateAdmission(ctx context.Context, req *backend.AdmissionRequest) (*backend.MutationResponse, error) {
+	pluginClient, ok := p.Client()
+	if !ok {
+		return nil, ErrPluginUnavailable
+	}
+	return pluginClient.MutateAdmission(ctx, req)
+}
+
+// ConvertObject implements backend.AdmissionHandler.
+func (p *Plugin) ConvertObjects(ctx context.Context, req *backend.ConversionRequest) (*backend.ConversionResponse, error) {
+	pluginClient, ok := p.Client()
+	if !ok {
+		return nil, ErrPluginUnavailable
+	}
+	return pluginClient.ConvertObjects(ctx, req)
+}
+
 func (p *Plugin) File(name string) (fs.File, error) {
 	cleanPath, err := util.CleanRelativePath(name)
 	if err != nil {
@@ -396,10 +445,6 @@ func (p *Plugin) ExecutablePath() string {
 		return p.executablePath("plugin_start")
 	}
 
-	if p.IsSecretsManager() {
-		return p.executablePath("secrets_plugin_start")
-	}
-
 	return p.executablePath(p.Executable)
 }
 
@@ -419,6 +464,8 @@ type PluginClient interface {
 	backend.CollectMetricsHandler
 	backend.CheckHealthHandler
 	backend.CallResourceHandler
+	backend.AdmissionHandler
+	backend.ConversionHandler
 	backend.StreamHandler
 }
 
@@ -438,10 +485,6 @@ func (p *Plugin) IsRenderer() bool {
 	return p.Type == TypeRenderer
 }
 
-func (p *Plugin) IsSecretsManager() bool {
-	return p.Type == TypeSecretsManager
-}
-
 func (p *Plugin) IsApp() bool {
 	return p.Type == TypeApp
 }
@@ -450,20 +493,16 @@ func (p *Plugin) IsCorePlugin() bool {
 	return p.Class == ClassCore
 }
 
-func (p *Plugin) IsBundledPlugin() bool {
-	return p.Class == ClassBundled
-}
-
 func (p *Plugin) IsExternalPlugin() bool {
-	return !p.IsCorePlugin() && !p.IsBundledPlugin()
+	return !p.IsCorePlugin()
 }
 
 type Class string
 
 const (
 	ClassCore     Class = "core"
-	ClassBundled  Class = "bundled"
 	ClassExternal Class = "external"
+	ClassCDN      Class = "cdn"
 )
 
 func (c Class) String() string {
@@ -475,22 +514,20 @@ var PluginTypes = []Type{
 	TypePanel,
 	TypeApp,
 	TypeRenderer,
-	TypeSecretsManager,
 }
 
 type Type string
 
 const (
-	TypeDataSource     Type = "datasource"
-	TypePanel          Type = "panel"
-	TypeApp            Type = "app"
-	TypeRenderer       Type = "renderer"
-	TypeSecretsManager Type = "secretsmanager"
+	TypeDataSource Type = "datasource"
+	TypePanel      Type = "panel"
+	TypeApp        Type = "app"
+	TypeRenderer   Type = "renderer"
 )
 
 func (pt Type) IsValid() bool {
 	switch pt {
-	case TypeDataSource, TypePanel, TypeApp, TypeRenderer, TypeSecretsManager:
+	case TypeDataSource, TypePanel, TypeApp, TypeRenderer:
 		return true
 	}
 	return false

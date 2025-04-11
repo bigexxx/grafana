@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -15,19 +16,21 @@ import (
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/tests/fakes"
 	"github.com/grafana/grafana/pkg/util"
+	"github.com/grafana/grafana/pkg/util/cmputil"
 )
 
 func TestCalculateChanges(t *testing.T) {
 	orgId := int64(rand.Int31())
+	gen := models.RuleGen
 
 	t.Run("detects alerts that need to be added", func(t *testing.T) {
 		fakeStore := fakes.NewRuleStore(t)
 
 		groupKey := models.GenerateGroupKey(orgId)
-		rules := models.GenerateAlertRules(rand.Intn(5)+1, models.AlertRuleGen(withOrgID(orgId), simulateSubmitted, withoutUID))
+		rules := gen.With(gen.WithOrgID(orgId), simulateSubmitted, withoutUID).GenerateMany(1, 5)
 		submitted := make([]*models.AlertRuleWithOptionals, 0, len(rules))
 		for _, rule := range rules {
-			submitted = append(submitted, &models.AlertRuleWithOptionals{AlertRule: *rule})
+			submitted = append(submitted, &models.AlertRuleWithOptionals{AlertRule: rule})
 		}
 
 		changes, err := CalculateChanges(context.Background(), fakeStore, groupKey, submitted)
@@ -50,8 +53,8 @@ func TestCalculateChanges(t *testing.T) {
 
 	t.Run("detects alerts that need to be deleted", func(t *testing.T) {
 		groupKey := models.GenerateGroupKey(orgId)
-		inDatabaseMap, inDatabase := models.GenerateUniqueAlertRules(rand.Intn(5)+1, models.AlertRuleGen(withGroupKey(groupKey)))
-
+		inDatabase := gen.With(gen.WithGroupKey(groupKey)).GenerateManyRef(1, 5)
+		inDatabaseMap := groupByUID(t, inDatabase)
 		fakeStore := fakes.NewRuleStore(t)
 		fakeStore.PutRule(context.Background(), inDatabase...)
 
@@ -73,11 +76,14 @@ func TestCalculateChanges(t *testing.T) {
 
 	t.Run("should detect alerts that needs to be updated", func(t *testing.T) {
 		groupKey := models.GenerateGroupKey(orgId)
-		inDatabaseMap, inDatabase := models.GenerateUniqueAlertRules(rand.Intn(5)+1, models.AlertRuleGen(withGroupKey(groupKey)))
-		submittedMap, rules := models.GenerateUniqueAlertRules(len(inDatabase), models.AlertRuleGen(simulateSubmitted, withGroupKey(groupKey), withUIDs(inDatabaseMap)))
+		inDatabase := gen.With(gen.WithGroupKey(groupKey)).GenerateManyRef(1, 5)
+		inDatabaseMap := groupByUID(t, inDatabase)
+
+		rules := gen.With(simulateSubmitted, gen.WithGroupKey(groupKey), withUIDs(inDatabaseMap)).GenerateManyRef(len(inDatabase), len(inDatabase))
+		submittedMap := groupByUID(t, rules)
 		submitted := make([]*models.AlertRuleWithOptionals, 0, len(rules))
 		for _, rule := range rules {
-			submitted = append(submitted, &models.AlertRuleWithOptionals{AlertRule: *rule})
+			submitted = append(submitted, &models.AlertRuleWithOptionals{AlertRule: *rule, HasEditorSettings: true})
 		}
 
 		fakeStore := fakes.NewRuleStore(t)
@@ -104,7 +110,7 @@ func TestCalculateChanges(t *testing.T) {
 
 	t.Run("should include only if there are changes ignoring specific fields", func(t *testing.T) {
 		groupKey := models.GenerateGroupKey(orgId)
-		_, inDatabase := models.GenerateUniqueAlertRules(rand.Intn(5)+1, models.AlertRuleGen(withGroupKey(groupKey)))
+		inDatabase := gen.With(gen.WithGroupKey(groupKey)).GenerateManyRef(1, 5)
 
 		submitted := make([]*models.AlertRuleWithOptionals, 0, len(inDatabase))
 		for _, rule := range inDatabase {
@@ -132,7 +138,7 @@ func TestCalculateChanges(t *testing.T) {
 	t.Run("should patch rule with UID specified by existing rule", func(t *testing.T) {
 		testCases := []struct {
 			name    string
-			mutator func(r *models.AlertRule)
+			mutator models.AlertRuleMutator
 		}{
 			{
 				name: "title is empty",
@@ -165,9 +171,15 @@ func TestCalculateChanges(t *testing.T) {
 					r.For = 0
 				},
 			},
+			{
+				name: "GUID is empty",
+				mutator: func(r *models.AlertRule) {
+					r.GUID = ""
+				},
+			},
 		}
 
-		dbRule := models.AlertRuleGen(withOrgID(orgId))()
+		dbRule := gen.With(gen.WithOrgID(orgId)).GenerateRef()
 
 		fakeStore := fakes.NewRuleStore(t)
 		fakeStore.PutRule(context.Background(), dbRule)
@@ -176,7 +188,7 @@ func TestCalculateChanges(t *testing.T) {
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
-				expected := models.AlertRuleGen(simulateSubmitted, testCase.mutator)()
+				expected := gen.With(simulateSubmitted, testCase.mutator).GenerateRef()
 				expected.UID = dbRule.UID
 				submitted := *expected
 				changes, err := CalculateChanges(context.Background(), fakeStore, groupKey, []*models.AlertRuleWithOptionals{{AlertRule: submitted}})
@@ -193,7 +205,8 @@ func TestCalculateChanges(t *testing.T) {
 
 	t.Run("should be able to find alerts by UID in other group/namespace", func(t *testing.T) {
 		sourceGroupKey := models.GenerateGroupKey(orgId)
-		inDatabaseMap, inDatabase := models.GenerateUniqueAlertRules(rand.Intn(10)+10, models.AlertRuleGen(withGroupKey(sourceGroupKey)))
+		inDatabase := gen.With(gen.WithGroupKey(sourceGroupKey)).GenerateManyRef(10, 20)
+		inDatabaseMap := groupByUID(t, inDatabase)
 
 		fakeStore := fakes.NewRuleStore(t)
 		fakeStore.PutRule(context.Background(), inDatabase...)
@@ -207,10 +220,11 @@ func TestCalculateChanges(t *testing.T) {
 			RuleGroup:    groupName,
 		}
 
-		submittedMap, rules := models.GenerateUniqueAlertRules(rand.Intn(len(inDatabase)-5)+5, models.AlertRuleGen(simulateSubmitted, withGroupKey(groupKey), withUIDs(inDatabaseMap)))
+		rules := gen.With(simulateSubmitted, gen.WithGroupKey(groupKey), withUIDs(inDatabaseMap)).GenerateManyRef(5, len(inDatabase))
+		submittedMap := groupByUID(t, rules)
 		submitted := make([]*models.AlertRuleWithOptionals, 0, len(rules))
 		for _, rule := range rules {
-			submitted = append(submitted, &models.AlertRuleWithOptionals{AlertRule: *rule})
+			submitted = append(submitted, &models.AlertRuleWithOptionals{AlertRule: *rule, HasEditorSettings: true})
 		}
 
 		changes, err := CalculateChanges(context.Background(), fakeStore, groupKey, submitted)
@@ -234,14 +248,19 @@ func TestCalculateChanges(t *testing.T) {
 		require.Len(t, changes.AffectedGroups[sourceGroupKey], len(inDatabase))
 	})
 
-	t.Run("should fail when submitted rule has UID that does not exist in db", func(t *testing.T) {
+	t.Run("should add rule when submitted rule has UID that does not exist in db", func(t *testing.T) {
 		fakeStore := fakes.NewRuleStore(t)
 		groupKey := models.GenerateGroupKey(orgId)
-		submitted := models.AlertRuleGen(withOrgID(orgId), simulateSubmitted)()
+		submitted := gen.With(gen.WithOrgID(orgId), simulateSubmitted).Generate()
 		require.NotEqual(t, "", submitted.UID)
 
-		_, err := CalculateChanges(context.Background(), fakeStore, groupKey, []*models.AlertRuleWithOptionals{{AlertRule: *submitted}})
-		require.Error(t, err)
+		diff, err := CalculateChanges(context.Background(), fakeStore, groupKey, []*models.AlertRuleWithOptionals{{AlertRule: submitted}})
+		require.NoError(t, err)
+
+		require.Len(t, diff.New, 1)
+		require.Empty(t, diff.Delete)
+		require.Empty(t, diff.Update)
+		require.Equal(t, submitted, *diff.New[0])
 	})
 
 	t.Run("should fail if cannot fetch current rules in the group", func(t *testing.T) {
@@ -256,9 +275,9 @@ func TestCalculateChanges(t *testing.T) {
 		}
 
 		groupKey := models.GenerateGroupKey(orgId)
-		submitted := models.AlertRuleGen(withOrgID(orgId), simulateSubmitted, withoutUID)()
+		submitted := gen.With(gen.WithOrgID(orgId), simulateSubmitted, withoutUID).Generate()
 
-		_, err := CalculateChanges(context.Background(), fakeStore, groupKey, []*models.AlertRuleWithOptionals{{AlertRule: *submitted}})
+		_, err := CalculateChanges(context.Background(), fakeStore, groupKey, []*models.AlertRuleWithOptionals{{AlertRule: submitted}})
 		require.ErrorIs(t, err, expectedErr)
 	})
 
@@ -274,19 +293,20 @@ func TestCalculateChanges(t *testing.T) {
 		}
 
 		groupKey := models.GenerateGroupKey(orgId)
-		submitted := models.AlertRuleGen(withOrgID(orgId), simulateSubmitted)()
+		submitted := gen.With(gen.WithOrgID(orgId), simulateSubmitted).Generate()
 
-		_, err := CalculateChanges(context.Background(), fakeStore, groupKey, []*models.AlertRuleWithOptionals{{AlertRule: *submitted}})
+		_, err := CalculateChanges(context.Background(), fakeStore, groupKey, []*models.AlertRuleWithOptionals{{AlertRule: submitted}})
 		require.ErrorIs(t, err, expectedErr)
 	})
 }
 
 func TestCalculateAutomaticChanges(t *testing.T) {
 	orgID := rand.Int63()
+	gen := models.RuleGen
 
 	t.Run("should mark all rules in affected groups", func(t *testing.T) {
 		group := models.GenerateGroupKey(orgID)
-		rules := models.GenerateAlertRules(10, models.AlertRuleGen(withGroupKey(group)))
+		rules := gen.With(gen.WithGroupKey(group)).GenerateManyRef(10)
 		// copy rules to make sure that the function does not modify the original rules
 		copies := make([]*models.AlertRule, 0, len(rules))
 		for _, rule := range rules {
@@ -309,7 +329,7 @@ func TestCalculateAutomaticChanges(t *testing.T) {
 			AffectedGroups: map[models.AlertRuleGroupKey]models.RulesGroup{
 				group: copies,
 			},
-			New:    models.GenerateAlertRules(2, models.AlertRuleGen(withGroupKey(group))),
+			New:    gen.With(gen.WithGroupKey(group)).GenerateManyRef(2),
 			Update: updates,
 			Delete: rules[5:7],
 		}
@@ -337,9 +357,9 @@ func TestCalculateAutomaticChanges(t *testing.T) {
 
 	t.Run("should re-index rules in affected groups other than updated", func(t *testing.T) {
 		group := models.GenerateGroupKey(orgID)
-		rules := models.GenerateAlertRules(3, models.AlertRuleGen(withGroupKey(group), models.WithSequentialGroupIndex()))
+		rules := gen.With(gen.WithGroupKey(group), gen.WithSequentialGroupIndex()).GenerateManyRef(3)
 		group2 := models.GenerateGroupKey(orgID)
-		rules2 := models.GenerateAlertRules(4, models.AlertRuleGen(withGroupKey(group2), models.WithSequentialGroupIndex()))
+		rules2 := gen.With(gen.WithGroupKey(group2), gen.WithSequentialGroupIndex()).GenerateManyRef(4)
 
 		movedIndex := rand.Intn(len(rules2))
 		movedRule := rules2[movedIndex]
@@ -416,6 +436,378 @@ func TestCalculateAutomaticChanges(t *testing.T) {
 	})
 }
 
+func TestCalculateRuleGroupsDelete(t *testing.T) {
+	orgId := int64(rand.Int31())
+	gen := models.RuleGen
+
+	t.Run("returns ErrAlertRuleGroupNotFound when namespace has no rules", func(t *testing.T) {
+		fakeStore := fakes.NewRuleStore(t)
+		otherRules := gen.With(gen.WithOrgID(orgId), gen.WithNamespaceUID("ns-1")).GenerateManyRef(3)
+		fakeStore.Rules[orgId] = otherRules
+
+		query := &models.ListAlertRulesQuery{
+			NamespaceUIDs: []string{"ns-2"},
+		}
+		deltas, err := CalculateRuleGroupsDelete(context.Background(), fakeStore, orgId, query)
+		require.ErrorIs(t, err, models.ErrAlertRuleGroupNotFound)
+		require.Nil(t, deltas)
+	})
+
+	t.Run("returns deltas for all affected groups in namespace", func(t *testing.T) {
+		fakeStore := fakes.NewRuleStore(t)
+		folder := randFolder()
+
+		// Create rules in two groups in target namespace
+		group1Key := models.AlertRuleGroupKey{
+			OrgID:        orgId,
+			NamespaceUID: folder.UID,
+			RuleGroup:    util.GenerateShortUID(),
+		}
+		group2Key := models.AlertRuleGroupKey{
+			OrgID:        orgId,
+			NamespaceUID: folder.UID,
+			RuleGroup:    util.GenerateShortUID(),
+		}
+
+		group1Rules := gen.With(gen.WithGroupKey(group1Key)).GenerateManyRef(3)
+		group2Rules := gen.With(gen.WithGroupKey(group2Key)).GenerateManyRef(2)
+		allNamespaceRules := append(group1Rules, group2Rules...)
+
+		// Create rules in different namespace
+		otherRules := gen.With(gen.WithOrgID(orgId), gen.WithNamespaceUIDNotIn(folder.UID)).GenerateManyRef(3)
+
+		fakeStore.Rules[orgId] = append(allNamespaceRules, otherRules...)
+
+		query := &models.ListAlertRulesQuery{
+			NamespaceUIDs: []string{folder.UID},
+		}
+
+		deltas, err := CalculateRuleGroupsDelete(context.Background(), fakeStore, orgId, query)
+		require.NoError(t, err)
+
+		require.Len(t, deltas, 2, "expected deltas for two groups")
+
+		// Verify each group's delta
+		for _, delta := range deltas {
+			require.True(t, delta.GroupKey == group1Key || delta.GroupKey == group2Key)
+			require.Empty(t, delta.Update)
+			require.Empty(t, delta.New)
+
+			require.Contains(t, delta.AffectedGroups, delta.GroupKey)
+			if delta.GroupKey == group1Key {
+				require.ElementsMatch(t, group1Rules, delta.Delete)
+				require.ElementsMatch(t, group1Rules, delta.AffectedGroups[delta.GroupKey])
+			} else {
+				require.ElementsMatch(t, group2Rules, delta.Delete)
+				require.ElementsMatch(t, group2Rules, delta.AffectedGroups[delta.GroupKey])
+			}
+		}
+	})
+
+	t.Run("fails if store returns error", func(t *testing.T) {
+		fakeStore := fakes.NewRuleStore(t)
+		expectedErr := errors.New("store error")
+		fakeStore.Hook = func(cmd any) error {
+			switch cmd.(type) {
+			case models.ListAlertRulesQuery:
+				return expectedErr
+			}
+			return nil
+		}
+
+		deltas, err := CalculateRuleGroupsDelete(context.Background(), fakeStore, orgId, nil)
+		require.ErrorIs(t, err, expectedErr)
+		require.Nil(t, deltas)
+	})
+}
+
+func TestCalculateRuleGroupDelete(t *testing.T) {
+	gen := models.RuleGen
+	fakeStore := fakes.NewRuleStore(t)
+	groupKey := models.GenerateGroupKey(1)
+	otherRules := gen.With(gen.WithOrgID(groupKey.OrgID), gen.WithNamespaceUIDNotIn(groupKey.NamespaceUID)).GenerateManyRef(3)
+	fakeStore.Rules[groupKey.OrgID] = otherRules
+
+	t.Run("NotFound when group does not exist", func(t *testing.T) {
+		delta, err := CalculateRuleGroupDelete(context.Background(), fakeStore, groupKey)
+		require.ErrorIs(t, err, models.ErrAlertRuleGroupNotFound, "expected ErrAlertRuleGroupNotFound but got %s", err)
+		require.Nil(t, delta)
+	})
+
+	t.Run("set AffectedGroups when a rule refers to an existing group", func(t *testing.T) {
+		groupRules := gen.With(gen.WithGroupKey(groupKey)).GenerateManyRef(3)
+		fakeStore.Rules[groupKey.OrgID] = append(fakeStore.Rules[groupKey.OrgID], groupRules...)
+
+		delta, err := CalculateRuleGroupDelete(context.Background(), fakeStore, groupKey)
+		require.NoError(t, err)
+
+		assert.Equal(t, groupKey, delta.GroupKey)
+		assert.ElementsMatch(t, groupRules, delta.Delete)
+
+		assert.Empty(t, delta.Update)
+		assert.Empty(t, delta.New)
+
+		assert.Len(t, delta.AffectedGroups, 1)
+		assert.ElementsMatch(t, groupRules, delta.AffectedGroups[delta.GroupKey])
+	})
+}
+
+func TestCalculateRuleDelete(t *testing.T) {
+	gen := models.RuleGen
+	fakeStore := fakes.NewRuleStore(t)
+	rule := gen.GenerateRef()
+	otherRules := gen.With(gen.WithOrgID(rule.OrgID), gen.WithNamespaceUIDNotIn(rule.NamespaceUID)).GenerateManyRef(3)
+	fakeStore.Rules[rule.OrgID] = otherRules
+
+	t.Run("nil when a rule does not exist", func(t *testing.T) {
+		delta, err := CalculateRuleDelete(context.Background(), fakeStore, rule.GetKey())
+		require.ErrorIs(t, err, models.ErrAlertRuleNotFound)
+		require.Nil(t, delta)
+	})
+
+	t.Run("set AffectedGroups when a rule refers to an existing group", func(t *testing.T) {
+		groupRules := gen.With(gen.WithGroupKey(rule.GetGroupKey())).GenerateManyRef(3)
+		groupRules = append(groupRules, rule)
+		fakeStore.Rules[rule.OrgID] = append(fakeStore.Rules[rule.OrgID], groupRules...)
+
+		delta, err := CalculateRuleDelete(context.Background(), fakeStore, rule.GetKey())
+		require.NoError(t, err)
+
+		assert.Equal(t, rule.GetGroupKey(), delta.GroupKey)
+		assert.Len(t, delta.Delete, 1)
+		assert.Equal(t, rule, delta.Delete[0])
+
+		assert.Empty(t, delta.Update)
+		assert.Empty(t, delta.New)
+
+		assert.Len(t, delta.AffectedGroups, 1)
+		assert.Equal(t, models.RulesGroup(groupRules), delta.AffectedGroups[delta.GroupKey])
+	})
+}
+
+func TestCalculateRuleUpdate(t *testing.T) {
+	gen := models.RuleGen
+	fakeStore := fakes.NewRuleStore(t)
+	rule := gen.GenerateRef()
+	otherRules := gen.With(gen.WithOrgID(rule.OrgID), gen.WithNamespaceUIDNotIn(rule.NamespaceUID)).GenerateManyRef(3)
+	groupRules := gen.With(gen.WithGroupKey(rule.GetGroupKey())).GenerateManyRef(3)
+	groupRules = append(groupRules, rule)
+	fakeStore.Rules[rule.OrgID] = append(otherRules, groupRules...)
+
+	t.Run("when a rule is not changed", func(t *testing.T) {
+		cp := models.CopyRule(rule)
+		delta, err := CalculateRuleUpdate(context.Background(), fakeStore, &models.AlertRuleWithOptionals{
+			AlertRule: *cp,
+			HasPause:  false,
+		})
+		require.NoError(t, err)
+		require.True(t, delta.IsEmpty())
+	})
+
+	t.Run("when a rule is updated", func(t *testing.T) {
+		cp := models.CopyRule(rule)
+		cp.For = cp.For + 1*time.Minute // cause any diff
+
+		delta, err := CalculateRuleUpdate(context.Background(), fakeStore, &models.AlertRuleWithOptionals{
+			AlertRule: *cp,
+			HasPause:  false,
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, rule.GetGroupKey(), delta.GroupKey)
+		assert.Empty(t, delta.New)
+		assert.Empty(t, delta.Delete)
+		assert.Len(t, delta.Update, 1)
+		assert.Equal(t, cp, delta.Update[0].New)
+		assert.Equal(t, rule, delta.Update[0].Existing)
+
+		require.Contains(t, delta.AffectedGroups, delta.GroupKey)
+		assert.Equal(t, models.RulesGroup(groupRules), delta.AffectedGroups[delta.GroupKey])
+	})
+
+	t.Run("when a rule is moved between groups", func(t *testing.T) {
+		sourceGroupKey := rule.GetGroupKey()
+		targetGroupKey := models.GenerateGroupKey(rule.OrgID)
+		targetGroup := gen.With(gen.WithGroupKey(targetGroupKey)).GenerateManyRef(3)
+		fakeStore.Rules[rule.OrgID] = append(fakeStore.Rules[rule.OrgID], targetGroup...)
+
+		cp := models.CopyRule(rule)
+		cp.NamespaceUID = targetGroupKey.NamespaceUID
+		cp.RuleGroup = targetGroupKey.RuleGroup
+
+		delta, err := CalculateRuleUpdate(context.Background(), fakeStore, &models.AlertRuleWithOptionals{
+			AlertRule: *cp,
+			HasPause:  false,
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, targetGroupKey, delta.GroupKey)
+		assert.Empty(t, delta.New)
+		assert.Empty(t, delta.Delete)
+		assert.Len(t, delta.Update, 1)
+		assert.Equal(t, cp, delta.Update[0].New)
+		assert.Equal(t, rule, delta.Update[0].Existing)
+
+		require.Contains(t, delta.AffectedGroups, sourceGroupKey)
+		assert.Equal(t, models.RulesGroup(groupRules), delta.AffectedGroups[sourceGroupKey])
+		require.Contains(t, delta.AffectedGroups, targetGroupKey)
+		assert.Equal(t, models.RulesGroup(targetGroup), delta.AffectedGroups[targetGroupKey])
+	})
+
+	t.Run("when an alert rule query is updated", func(t *testing.T) {
+		cp := models.CopyRule(rule)
+		cp.Record = nil
+		cp.Data = []models.AlertQuery{{RefID: "something else"}}
+
+		delta, err := CalculateRuleUpdate(context.Background(), fakeStore, &models.AlertRuleWithOptionals{
+			AlertRule: *cp,
+			HasPause:  false,
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, rule.GetGroupKey(), delta.GroupKey)
+		assert.Empty(t, delta.New)
+		assert.Empty(t, delta.Delete)
+		assert.Len(t, delta.Update, 1)
+		assert.Equal(t, cp, delta.Update[0].New)
+		assert.Equal(t, rule, delta.Update[0].Existing)
+		require.Contains(t, delta.AffectedGroups, delta.GroupKey)
+	})
+
+	t.Run("when a recording rule query is updated", func(t *testing.T) {
+		base := gen.With(models.RuleGen.WithAllRecordingRules()).GenerateRef()
+		fakeStore.Rules[base.OrgID] = []*models.AlertRule{base}
+		cp := models.CopyRule(base)
+		cp.Data = []models.AlertQuery{{RefID: "something else"}}
+
+		delta, err := CalculateRuleUpdate(context.Background(), fakeStore, &models.AlertRuleWithOptionals{
+			AlertRule: *cp,
+			HasPause:  false,
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, base.GetGroupKey(), delta.GroupKey)
+		assert.Empty(t, delta.New)
+		assert.Empty(t, delta.Delete)
+		assert.Len(t, delta.Update, 1)
+		assert.Equal(t, cp, delta.Update[0].New)
+		assert.Equal(t, base, delta.Update[0].Existing)
+		require.Contains(t, delta.AffectedGroups, delta.GroupKey)
+	})
+}
+
+func TestCalculateRuleCreate(t *testing.T) {
+	gen := models.RuleGen
+	t.Run("when a rule refers to a new group", func(t *testing.T) {
+		fakeStore := fakes.NewRuleStore(t)
+		rule := gen.GenerateRef()
+
+		delta, err := CalculateRuleCreate(context.Background(), fakeStore, rule)
+		require.NoError(t, err)
+
+		assert.Equal(t, rule.GetGroupKey(), delta.GroupKey)
+		assert.Empty(t, delta.AffectedGroups)
+		assert.Empty(t, delta.Delete)
+		assert.Empty(t, delta.Update)
+		assert.Len(t, delta.New, 1)
+		assert.Equal(t, rule, delta.New[0])
+	})
+
+	t.Run("when a rule refers to an existing group", func(t *testing.T) {
+		fakeStore := fakes.NewRuleStore(t)
+		rule := gen.GenerateRef()
+
+		groupRules := gen.With(gen.WithGroupKey(rule.GetGroupKey())).GenerateManyRef(3)
+		otherRules := gen.With(gen.WithGroupKey(rule.GetGroupKey()), gen.WithNamespaceUIDNotIn(rule.NamespaceUID)).GenerateManyRef(3)
+		fakeStore.Rules[rule.OrgID] = append(groupRules, otherRules...)
+
+		delta, err := CalculateRuleCreate(context.Background(), fakeStore, rule)
+		require.NoError(t, err)
+
+		assert.Equal(t, rule.GetGroupKey(), delta.GroupKey)
+		assert.Len(t, delta.AffectedGroups, 1)
+		assert.Equal(t, models.RulesGroup(groupRules), delta.AffectedGroups[delta.GroupKey])
+		assert.Empty(t, delta.Delete)
+		assert.Empty(t, delta.Update)
+		assert.Len(t, delta.New, 1)
+		assert.Equal(t, rule, delta.New[0])
+	})
+}
+
+func TestDeltaAffectsQuery(t *testing.T) {
+	t.Run("returns false when there are no diffs", func(t *testing.T) {
+		delta := RuleDelta{
+			Diff: cmputil.DiffReport{},
+		}
+		assert.False(t, delta.AffectsQuery())
+	})
+	t.Run("returns true when diff contains a field that affects query", func(t *testing.T) {
+		delta := RuleDelta{
+			Diff: cmputil.DiffReport{
+				{
+					Path:  "Data",
+					Left:  reflect.ValueOf("old value"),
+					Right: reflect.ValueOf("new value"),
+				},
+			},
+		}
+		assert.True(t, delta.AffectsQuery())
+	})
+	t.Run("returns false when diff contains only fields that do not affect query", func(t *testing.T) {
+		delta := RuleDelta{
+			Diff: cmputil.DiffReport{
+				{
+					Path:  "Title",
+					Left:  reflect.ValueOf("old title"),
+					Right: reflect.ValueOf("new title"),
+				},
+			},
+		}
+		assert.False(t, delta.AffectsQuery())
+	})
+	t.Run("returns true when diff contains multiple fields, including one that affects query", func(t *testing.T) {
+		delta := RuleDelta{
+			Diff: cmputil.DiffReport{
+				{
+					Path:  "Title",
+					Left:  reflect.ValueOf("old title"),
+					Right: reflect.ValueOf("new title"),
+				},
+				{
+					Path:  "IntervalSeconds",
+					Left:  reflect.ValueOf(10),
+					Right: reflect.ValueOf(20),
+				},
+			},
+		}
+		assert.True(t, delta.AffectsQuery())
+	})
+	t.Run("handles nested paths in diff", func(t *testing.T) {
+		delta := RuleDelta{
+			Diff: cmputil.DiffReport{
+				{
+					Path:  "Data[0].Query",
+					Left:  reflect.ValueOf("old query"),
+					Right: reflect.ValueOf("new query"),
+				},
+			},
+		}
+		assert.True(t, delta.AffectsQuery())
+	})
+	t.Run("returns false for empty diff paths", func(t *testing.T) {
+		delta := RuleDelta{
+			Diff: cmputil.DiffReport{
+				{
+					Path:  "",
+					Left:  reflect.ValueOf("old value"),
+					Right: reflect.ValueOf("new value"),
+				},
+			},
+		}
+		assert.False(t, delta.AffectsQuery())
+	})
+}
+
 // simulateSubmitted resets some fields of the structure that are not populated by API model to model conversion
 func simulateSubmitted(rule *models.AlertRule) {
 	rule.ID = 0
@@ -423,25 +815,11 @@ func simulateSubmitted(rule *models.AlertRule) {
 	rule.Updated = time.Time{}
 }
 
-func withOrgID(orgId int64) func(rule *models.AlertRule) {
-	return func(rule *models.AlertRule) {
-		rule.OrgID = orgId
-	}
-}
-
 func withoutUID(rule *models.AlertRule) {
 	rule.UID = ""
 }
 
-func withGroupKey(groupKey models.AlertRuleGroupKey) func(rule *models.AlertRule) {
-	return func(rule *models.AlertRule) {
-		rule.RuleGroup = groupKey.RuleGroup
-		rule.OrgID = groupKey.OrgID
-		rule.NamespaceUID = groupKey.NamespaceUID
-	}
-}
-
-func withUIDs(uids map[string]*models.AlertRule) func(rule *models.AlertRule) {
+func withUIDs(uids map[string]*models.AlertRule) models.AlertRuleMutator {
 	unused := make([]string, 0, len(uids))
 	for s := range uids {
 		unused = append(unused, s)
@@ -466,4 +844,15 @@ func randFolder() *folder.Folder {
 		UpdatedBy: 0,
 		CreatedBy: 0,
 	}
+}
+
+func groupByUID(t *testing.T, list []*models.AlertRule) map[string]*models.AlertRule {
+	result := make(map[string]*models.AlertRule, len(list))
+	for _, rule := range list {
+		if _, ok := result[rule.UID]; ok {
+			t.Fatalf("expected unique UID for rule %s but duplicate", rule.UID)
+		}
+		result[rule.UID] = rule
+	}
+	return result
 }

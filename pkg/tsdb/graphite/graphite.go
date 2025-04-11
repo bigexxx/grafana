@@ -26,7 +26,6 @@ import (
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/tracing"
 	"github.com/grafana/grafana/pkg/setting"
-	"github.com/grafana/grafana/pkg/tsdb/legacydata"
 )
 
 var logger = log.New("tsdb.graphite")
@@ -110,7 +109,7 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 		"from":          []string{from},
 		"until":         []string{until},
 		"format":        []string{"json"},
-		"maxDataPoints": []string{"500"},
+		"maxDataPoints": []string{fmt.Sprintf("%d", q.MaxDataPoints)},
 		"target":        []string{},
 	}
 
@@ -125,7 +124,14 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 		logger.Warn("Found query models without targets", "models without targets", strings.Join(emptyQueries, "\n"))
 		// If no queries had a valid target, return an error; otherwise, attempt with the targets we have
 		if len(emptyQueries) == len(req.Queries) {
-			return &result, errors.New("no query target found for the alert rule")
+			if result.Responses == nil {
+				result.Responses = make(map[string]backend.DataResponse)
+			}
+			// marking this downstream error as it is a user error, but arguably this is a plugin error
+			// since the plugin should have frontend validation that prevents us from getting into this state
+			missingQueryResponse := backend.ErrDataResponseWithSource(400, backend.ErrorSourceDownstream, "no query target found for the alert rule")
+			result.Responses["A"] = missingQueryResponse
+			return &result, nil
 		}
 	}
 	formData["target"] = targetList
@@ -296,6 +302,9 @@ func (s *Service) toDataFrames(logger log.Logger, response *http.Response, origR
 
 		tags := make(map[string]string)
 		for name, value := range series.Tags {
+			if name == "name" {
+				value = target
+			}
 			switch value := value.(type) {
 			case string:
 				tags[name] = value
@@ -306,7 +315,8 @@ func (s *Service) toDataFrames(logger log.Logger, response *http.Response, origR
 
 		frames = append(frames, data.NewFrame(refId,
 			data.NewField("time", nil, timeVector),
-			data.NewField("value", tags, values).SetConfig(&data.FieldConfig{DisplayNameFromDS: target})))
+			data.NewField("value", tags, values).SetConfig(&data.FieldConfig{DisplayNameFromDS: target})).SetMeta(
+			&data.FrameMeta{Type: data.FrameTypeTimeSeriesMulti}))
 
 		if setting.Env == setting.Dev {
 			logger.Debug("Graphite response", "target", series.Target, "datapoints", len(series.DataPoints))
@@ -351,7 +361,7 @@ func epochMStoGraphiteTime(tr backend.TimeRange) (string, string) {
 /**
  * Graphite should always return timestamp as a number but values might be nil when data is missing
  */
-func parseDataTimePoint(dataTimePoint legacydata.DataTimePoint) (time.Time, *float64, error) {
+func parseDataTimePoint(dataTimePoint DataTimePoint) (time.Time, *float64, error) {
 	if !dataTimePoint[1].Valid {
 		return time.Time{}, nil, errors.New("failed to parse data point timestamp")
 	}

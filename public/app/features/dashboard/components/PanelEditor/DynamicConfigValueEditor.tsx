@@ -1,5 +1,5 @@
 import { css, cx } from '@emotion/css';
-import React, { useId } from 'react';
+import { useId } from 'react';
 import Highlighter from 'react-highlight-words';
 
 import {
@@ -10,6 +10,7 @@ import {
   GrafanaTheme2,
 } from '@grafana/data';
 import { Counter, Field, HorizontalGroup, IconButton, Label, useStyles2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { OptionsPaneCategory } from './OptionsPaneCategory';
 
@@ -71,7 +72,14 @@ export const DynamicConfigValueEditor = ({
         </Label>
         {!isSystemOverride && (
           <div>
-            <IconButton name="times" onClick={onRemove} tooltip="Remove label" />
+            <IconButton
+              name="times"
+              onClick={onRemove}
+              tooltip={t(
+                'dashboard.dynamic-config-value-editor.render-label.tooltip-remove-property',
+                'Remove property'
+              )}
+            />
           </div>
         )}
       </HorizontalGroup>
@@ -83,10 +91,10 @@ export const DynamicConfigValueEditor = ({
       <OptionsPaneCategory
         id={item.name}
         renderTitle={renderLabel(false, true)}
-        className={css`
-          padding-left: 0;
-          padding-right: 0;
-        `}
+        className={css({
+          paddingLeft: 0,
+          paddingRight: 0,
+        })}
         isNested
         isOpenDefault={property.value !== undefined}
       >
@@ -130,13 +138,11 @@ export const DynamicConfigValueEditor = ({
   );
 };
 
-const getStyles = (theme: GrafanaTheme2) => {
-  return {
-    collapsibleOverrideEditor: css`
-      label: collapsibleOverrideEditor;
-      & + .dynamicConfigValueEditor--nonCollapsible {
-        margin-top: ${theme.spacing(1)};
-      }
-    `,
-  };
-};
+const getStyles = (theme: GrafanaTheme2) => ({
+  collapsibleOverrideEditor: css({
+    label: 'collapsibleOverrideEditor',
+    '& + .dynamicConfigValueEditor--nonCollapsible': {
+      marginTop: theme.spacing(1),
+    },
+  }),
+});

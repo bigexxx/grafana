@@ -38,7 +38,7 @@ func (hs *HTTPServer) AddOrgUserToCurrentOrg(c *contextmodel.ReqContext) respons
 	if err := web.Bind(c.Req, &cmd); err != nil {
 		return response.Error(http.StatusBadRequest, "bad request data", err)
 	}
-	cmd.OrgID = c.SignedInUser.GetOrgID()
+	cmd.OrgID = c.GetOrgID()
 	return hs.addOrgUserHelper(c, cmd)
 }
 
@@ -74,7 +74,7 @@ func (hs *HTTPServer) addOrgUserHelper(c *contextmodel.ReqContext, cmd org.AddOr
 	if !cmd.Role.IsValid() {
 		return response.Error(http.StatusBadRequest, "Invalid role specified", nil)
 	}
-	if !c.SignedInUser.GetOrgRole().Includes(cmd.Role) && !c.SignedInUser.GetIsGrafanaAdmin() {
+	if !c.SignedInUser.GetOrgRole().Includes(cmd.Role) && !c.GetIsGrafanaAdmin() {
 		return response.Error(http.StatusForbidden, "Cannot assign a role higher than user's role", nil)
 	}
 
@@ -117,7 +117,7 @@ func (hs *HTTPServer) addOrgUserHelper(c *contextmodel.ReqContext, cmd org.AddOr
 // 500: internalServerError
 func (hs *HTTPServer) GetOrgUsersForCurrentOrg(c *contextmodel.ReqContext) response.Response {
 	result, err := hs.searchOrgUsersHelper(c, &org.SearchOrgUsersQuery{
-		OrgID: c.SignedInUser.GetOrgID(),
+		OrgID: c.GetOrgID(),
 		Query: c.Query("query"),
 		Limit: c.QueryInt("limit"),
 		User:  c.SignedInUser,
@@ -146,7 +146,7 @@ func (hs *HTTPServer) GetOrgUsersForCurrentOrg(c *contextmodel.ReqContext) respo
 
 func (hs *HTTPServer) GetOrgUsersForCurrentOrgLookup(c *contextmodel.ReqContext) response.Response {
 	orgUsersResult, err := hs.searchOrgUsersHelper(c, &org.SearchOrgUsersQuery{
-		OrgID:                    c.SignedInUser.GetOrgID(),
+		OrgID:                    c.GetOrgID(),
 		Query:                    c.Query("query"),
 		Limit:                    c.QueryInt("limit"),
 		User:                     c.SignedInUser,
@@ -161,6 +161,7 @@ func (hs *HTTPServer) GetOrgUsersForCurrentOrgLookup(c *contextmodel.ReqContext)
 
 	for _, u := range orgUsersResult.OrgUsers {
 		result = append(result, &dtos.UserLookupDTO{
+			UID:       u.UID,
 			UserID:    u.UserID,
 			Login:     u.Login,
 			AvatarURL: u.AvatarURL,
@@ -276,7 +277,7 @@ func (hs *HTTPServer) SearchOrgUsersWithPaging(c *contextmodel.ReqContext) respo
 	}
 
 	query := &org.SearchOrgUsersQuery{
-		OrgID:    c.SignedInUser.GetOrgID(),
+		OrgID:    c.GetOrgID(),
 		Query:    c.Query("query"),
 		Page:     page,
 		Limit:    perPage,
@@ -324,10 +325,13 @@ func (hs *HTTPServer) searchOrgUsersHelper(c *contextmodel.ReqContext, query *or
 	// Get accesscontrol metadata and IPD labels for users in the target org
 	accessControlMetadata := map[string]accesscontrol.Metadata{}
 	if c.QueryBool("accesscontrol") {
-		permissionsList, err := hs.accesscontrolService.GetUserPermissionsInOrg(c.Req.Context(), c.SignedInUser, query.OrgID)
-		permissions := accesscontrol.GroupScopesByAction(permissionsList)
-		if err != nil {
-			return nil, err
+		permissions := c.GetPermissions()
+		if query.OrgID != c.GetOrgID() {
+			identity, err := hs.authnService.ResolveIdentity(c.Req.Context(), query.OrgID, c.GetID())
+			if err != nil {
+				return nil, err
+			}
+			permissions = identity.GetPermissions()
 		}
 		accessControlMetadata = accesscontrol.GetResourcesMetadata(c.Req.Context(), permissions, "users:id:", userIDs)
 	}
@@ -335,9 +339,8 @@ func (hs *HTTPServer) searchOrgUsersHelper(c *contextmodel.ReqContext, query *or
 	for i := range filteredUsers {
 		filteredUsers[i].AccessControl = accessControlMetadata[fmt.Sprint(filteredUsers[i].UserID)]
 		if module, ok := modules[filteredUsers[i].UserID]; ok {
-			oauthInfo := hs.SocialService.GetOAuthInfoProvider(module)
 			filteredUsers[i].AuthLabels = []string{login.GetAuthProviderLabel(module)}
-			filteredUsers[i].IsExternallySynced = login.IsExternallySynced(hs.Cfg, module, oauthInfo)
+			filteredUsers[i].IsExternallySynced = hs.isExternallySynced(hs.Cfg, module)
 		}
 	}
 
@@ -365,7 +368,7 @@ func (hs *HTTPServer) UpdateOrgUserForCurrentOrg(c *contextmodel.ReqContext) res
 	if err := web.Bind(c.Req, &cmd); err != nil {
 		return response.Error(http.StatusBadRequest, "bad request data", err)
 	}
-	cmd.OrgID = c.SignedInUser.GetOrgID()
+	cmd.OrgID = c.GetOrgID()
 	var err error
 	cmd.UserID, err = strconv.ParseInt(web.Params(c.Req)[":userId"], 10, 64)
 	if err != nil {
@@ -408,7 +411,7 @@ func (hs *HTTPServer) updateOrgUserHelper(c *contextmodel.ReqContext, cmd org.Up
 	if !cmd.Role.IsValid() {
 		return response.Error(http.StatusBadRequest, "Invalid role specified", nil)
 	}
-	if !c.SignedInUser.GetOrgRole().Includes(cmd.Role) && !c.SignedInUser.GetIsGrafanaAdmin() {
+	if !c.SignedInUser.GetOrgRole().Includes(cmd.Role) && !c.GetIsGrafanaAdmin() {
 		return response.Error(http.StatusForbidden, "Cannot assign a role higher than user's role", nil)
 	}
 
@@ -424,8 +427,7 @@ func (hs *HTTPServer) updateOrgUserHelper(c *contextmodel.ReqContext, cmd org.Up
 		}
 	}
 	if authInfo != nil && authInfo.AuthModule != "" {
-		oauthInfo := hs.SocialService.GetOAuthInfoProvider(authInfo.AuthModule)
-		if login.IsExternallySynced(hs.Cfg, authInfo.AuthModule, oauthInfo) {
+		if hs.isExternallySynced(hs.Cfg, authInfo.AuthModule) {
 			return response.Err(org.ErrCannotChangeRoleForExternallySyncedUser.Errorf("Cannot change role for externally synced user"))
 		}
 	}
@@ -466,7 +468,7 @@ func (hs *HTTPServer) RemoveOrgUserForCurrentOrg(c *contextmodel.ReqContext) res
 
 	return hs.removeOrgUserHelper(c.Req.Context(), &org.RemoveOrgUserCommand{
 		UserID:                   userId,
-		OrgID:                    c.SignedInUser.GetOrgID(),
+		OrgID:                    c.GetOrgID(),
 		ShouldDeleteOrphanedUser: true,
 	})
 }
@@ -538,6 +540,16 @@ type AddOrgUserParams struct {
 	// in:path
 	// required:true
 	OrgID int64 `json:"org_id"`
+}
+
+// swagger:parameters getOrgUsersForCurrentOrg
+type GetOrgUsersForCurrentOrgParams struct {
+	// in:query
+	// required:false
+	Query string `json:"query"`
+	// in:query
+	// required:false
+	Limit int `json:"limit"`
 }
 
 // swagger:parameters getOrgUsersForCurrentOrgLookup

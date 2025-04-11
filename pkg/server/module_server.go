@@ -10,19 +10,21 @@ import (
 	"sync"
 
 	"github.com/grafana/dskit/services"
-
 	"github.com/grafana/grafana/pkg/api"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/modules"
+	"github.com/grafana/grafana/pkg/services/authz"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
-	storageServer "github.com/grafana/grafana/pkg/services/store/entity/server"
 	"github.com/grafana/grafana/pkg/setting"
+	"github.com/grafana/grafana/pkg/storage/unified/resource"
+	"github.com/grafana/grafana/pkg/storage/unified/sql"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // NewModule returns an instance of a ModuleServer, responsible for managing
 // dskit modules (services).
-func NewModule(opts Options, apiOpts api.ServerOptions, features featuremgmt.FeatureToggles, cfg *setting.Cfg) (*ModuleServer, error) {
-	s, err := newModuleServer(opts, apiOpts, features, cfg)
+func NewModule(opts Options, apiOpts api.ServerOptions, features featuremgmt.FeatureToggles, cfg *setting.Cfg, storageMetrics *resource.StorageMetrics, indexMetrics *resource.BleveIndexMetrics, promGatherer prometheus.Gatherer) (*ModuleServer, error) {
+	s, err := newModuleServer(opts, apiOpts, features, cfg, storageMetrics, indexMetrics, promGatherer)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +36,7 @@ func NewModule(opts Options, apiOpts api.ServerOptions, features featuremgmt.Fea
 	return s, nil
 }
 
-func newModuleServer(opts Options, apiOpts api.ServerOptions, features featuremgmt.FeatureToggles, cfg *setting.Cfg) (*ModuleServer, error) {
+func newModuleServer(opts Options, apiOpts api.ServerOptions, features featuremgmt.FeatureToggles, cfg *setting.Cfg, storageMetrics *resource.StorageMetrics, indexMetrics *resource.BleveIndexMetrics, promGatherer prometheus.Gatherer) (*ModuleServer, error) {
 	rootCtx, shutdownFn := context.WithCancel(context.Background())
 
 	s := &ModuleServer{
@@ -50,6 +52,9 @@ func newModuleServer(opts Options, apiOpts api.ServerOptions, features featuremg
 		version:          opts.Version,
 		commit:           opts.Commit,
 		buildBranch:      opts.BuildBranch,
+		storageMetrics:   storageMetrics,
+		indexMetrics:     indexMetrics,
+		promGatherer:     promGatherer,
 	}
 
 	return s, nil
@@ -71,11 +76,15 @@ type ModuleServer struct {
 	shutdownFinished chan struct{}
 	isInitialized    bool
 	mtx              sync.Mutex
+	storageMetrics   *resource.StorageMetrics
+	indexMetrics     *resource.BleveIndexMetrics
 
 	pidFile     string
 	version     string
 	commit      string
 	buildBranch string
+
+	promGatherer prometheus.Gatherer
 }
 
 // init initializes the server and its services.
@@ -107,15 +116,15 @@ func (s *ModuleServer) Run() error {
 	s.notifySystemd("READY=1")
 	s.log.Debug("Waiting on services...")
 
-	// Only allow individual dskit modules to run in dev mode.
-	if s.cfg.Env != setting.Dev {
-		if len(s.cfg.Target) > 1 || s.cfg.Target[0] != "all" {
-			s.log.Error("dskit module targeting is only supported in dev mode. Falling back to 'all'")
-			s.cfg.Target = []string{"all"}
-		}
-	}
-
 	m := modules.New(s.cfg.Target)
+
+	// only run the instrumentation server module if were not running a module that already contains an http server
+	m.RegisterInvisibleModule(modules.InstrumentationServer, func() (services.Service, error) {
+		if m.IsModuleEnabled(modules.All) || m.IsModuleEnabled(modules.Core) {
+			return services.NewBasicService(nil, nil, nil).WithName(modules.InstrumentationServer), nil
+		}
+		return NewInstrumentationService(s.log, s.cfg, s.promGatherer)
+	})
 
 	m.RegisterModule(modules.Core, func() (services.Service, error) {
 		return NewService(s.cfg, s.opts, s.apiOpts)
@@ -131,7 +140,15 @@ func (s *ModuleServer) Run() error {
 	//}
 
 	m.RegisterModule(modules.StorageServer, func() (services.Service, error) {
-		return storageServer.ProvideService(s.cfg, s.features)
+		docBuilders, err := InitializeDocumentBuilders(s.cfg)
+		if err != nil {
+			return nil, err
+		}
+		return sql.ProvideUnifiedStorageGrpcService(s.cfg, s.features, nil, s.log, nil, docBuilders, s.storageMetrics, s.indexMetrics)
+	})
+
+	m.RegisterModule(modules.ZanzanaServer, func() (services.Service, error) {
+		return authz.ProvideZanzanaService(s.cfg, s.features)
 	})
 
 	m.RegisterModule(modules.All, nil)

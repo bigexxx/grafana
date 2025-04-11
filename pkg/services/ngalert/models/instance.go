@@ -14,6 +14,8 @@ type AlertInstance struct {
 	CurrentStateSince time.Time
 	CurrentStateEnd   time.Time
 	LastEvalTime      time.Time
+	LastSentAt        *time.Time
+	ResolvedAt        *time.Time
 	ResultFingerprint string
 }
 
@@ -37,6 +39,8 @@ const (
 	InstanceStateNoData InstanceStateType = "NoData"
 	// InstanceStateError is for an erroring alert.
 	InstanceStateError InstanceStateType = "Error"
+	// InstanceStateRecovering is for a recovering alert.
+	InstanceStateRecovering InstanceStateType = "Recovering"
 )
 
 // IsValid checks that the value of InstanceStateType is a valid
@@ -46,13 +50,15 @@ func (i InstanceStateType) IsValid() bool {
 		i == InstanceStateNormal ||
 		i == InstanceStateNoData ||
 		i == InstanceStatePending ||
-		i == InstanceStateError
+		i == InstanceStateError ||
+		i == InstanceStateRecovering
 }
 
 // ListAlertInstancesQuery is the query list alert Instances.
 type ListAlertInstancesQuery struct {
 	RuleUID   string
 	RuleOrgID int64 `json:"-"`
+	RuleGroup string
 }
 
 // ValidateAlertInstance validates that the alert instance contains an alert rule id,

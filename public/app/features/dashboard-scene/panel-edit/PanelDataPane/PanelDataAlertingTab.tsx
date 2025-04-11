@@ -1,67 +1,61 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
-import { SceneObjectBase, SceneComponentProps } from '@grafana/scenes';
+import { config } from '@grafana/runtime';
+import { SceneComponentProps, SceneObjectBase, SceneObjectRef, SceneObjectState, VizPanel } from '@grafana/scenes';
 import { Alert, LoadingPlaceholder, Tab, useStyles2 } from '@grafana/ui';
 import { contextSrv } from 'app/core/core';
+import { Trans, t } from 'app/core/internationalization';
 import { RulesTable } from 'app/features/alerting/unified/components/rules/RulesTable';
 import { usePanelCombinedRules } from 'app/features/alerting/unified/hooks/usePanelCombinedRules';
 import { getRulesPermissions } from 'app/features/alerting/unified/utils/access-control';
+import { stringifyErrorLike } from 'app/features/alerting/unified/utils/misc';
 
 import { getDashboardSceneFor, getPanelIdForVizPanel } from '../../utils/utils';
-import { VizPanelManager } from '../VizPanelManager';
 
 import { ScenesNewRuleFromPanelButton } from './NewAlertRuleButton';
-import { PanelDataPaneTabState, PanelDataPaneTab, TabId, PanelDataTabHeaderProps } from './types';
+import { PanelDataPaneTab, PanelDataTabHeaderProps, TabId } from './types';
 
-export class PanelDataAlertingTab extends SceneObjectBase<PanelDataPaneTabState> implements PanelDataPaneTab {
+export interface PanelDataAlertingTabState extends SceneObjectState {
+  panelRef: SceneObjectRef<VizPanel>;
+}
+
+export class PanelDataAlertingTab extends SceneObjectBase<PanelDataAlertingTabState> implements PanelDataPaneTab {
   static Component = PanelDataAlertingTabRendered;
-  TabComponent: (props: PanelDataTabHeaderProps) => React.JSX.Element;
+  public tabId = TabId.Alert;
 
-  tabId = TabId.Alert;
-  private _panelManager: VizPanelManager;
-
-  constructor(panelManager: VizPanelManager) {
-    super({});
-    this.TabComponent = (props: PanelDataTabHeaderProps) => AlertingTab({ ...props, model: this });
-    this._panelManager = panelManager;
+  public renderTab(props: PanelDataTabHeaderProps) {
+    return <AlertingTab key={this.getTabLabel()} model={this} {...props} />;
   }
 
-  getTabLabel() {
+  public getTabLabel() {
     return 'Alert';
   }
 
-  getDashboardUID() {
+  public getDashboardUID() {
     const dashboard = this.getDashboard();
     return dashboard.state.uid!;
   }
 
-  getDashboard() {
-    return getDashboardSceneFor(this._panelManager);
+  public getDashboard() {
+    return getDashboardSceneFor(this);
   }
 
-  getLegacyPanelId() {
-    return getPanelIdForVizPanel(this._panelManager.state.panel);
+  public getLegacyPanelId() {
+    return getPanelIdForVizPanel(this.state.panelRef.resolve());
   }
 
-  getCanCreateRules() {
+  public getCanCreateRules() {
     const rulesPermissions = getRulesPermissions('grafana');
-    return this.getDashboard().state.meta.canSave && contextSrv.hasPermission(rulesPermissions.create);
-  }
-
-  get panelManager() {
-    return this._panelManager;
-  }
-
-  get panel() {
-    return this._panelManager.state.panel;
+    return (
+      config.unifiedAlerting &&
+      this.getDashboard().state.meta.canSave &&
+      contextSrv.hasPermission(rulesPermissions.create)
+    );
   }
 }
 
-export function PanelDataAlertingTabRendered(props: SceneComponentProps<PanelDataAlertingTab>) {
-  const { model } = props;
-
+export function PanelDataAlertingTabRendered({ model }: SceneComponentProps<PanelDataAlertingTab>) {
   const styles = useStyles2(getStyles);
 
   const { errors, loading, rules } = usePanelCombinedRules({
@@ -70,9 +64,15 @@ export function PanelDataAlertingTabRendered(props: SceneComponentProps<PanelDat
   });
 
   const alert = errors.length ? (
-    <Alert title="Errors loading rules" severity="error">
+    <Alert
+      title={t(
+        'dashboard-scene.panel-data-alerting-tab-rendered.alert.title-errors-loading-rules',
+        'Errors loading rules'
+      )}
+      severity="error"
+    >
       {errors.map((error, index) => (
-        <div key={index}>Failed to load Grafana rules state: {error.message || 'Unknown error.'}</div>
+        <div key={index}>Failed to load Grafana rules state: {stringifyErrorLike(error)}</div>
       ))}
     </Alert>
   ) : null;
@@ -81,12 +81,14 @@ export function PanelDataAlertingTabRendered(props: SceneComponentProps<PanelDat
     return (
       <>
         {alert}
-        <LoadingPlaceholder text="Loading rules..." />
+        <LoadingPlaceholder
+          text={t('dashboard-scene.panel-data-alerting-tab-rendered.text-loading-rules', 'Loading rules...')}
+        />
       </>
     );
   }
 
-  const { panel } = model;
+  const panel = model.state.panelRef.resolve();
   const canCreateRules = model.getCanCreateRules();
 
   if (rules.length) {
@@ -98,10 +100,31 @@ export function PanelDataAlertingTabRendered(props: SceneComponentProps<PanelDat
     );
   }
 
+  const isNew = !Boolean(model.getDashboardUID());
+  const dashboard = model.getDashboard();
+
   return (
     <div className={styles.noRulesWrapper}>
-      <p>There are no alert rules linked to this panel.</p>
-      {canCreateRules && <ScenesNewRuleFromPanelButton panel={panel}></ScenesNewRuleFromPanelButton>}
+      {!isNew && (
+        <>
+          <p>
+            <Trans i18nKey="dashboard.panel-edit.alerting-tab.no-rules">
+              There are no alert rules linked to this panel.
+            </Trans>
+          </p>
+          {canCreateRules && <ScenesNewRuleFromPanelButton panel={panel}></ScenesNewRuleFromPanelButton>}
+        </>
+      )}
+      {isNew && !!dashboard.state.meta.canSave && (
+        <Alert
+          severity="info"
+          title={t('dashboard-scene.panel-data-alerting-tab-rendered.title-dashboard-not-saved', 'Dashboard not saved')}
+        >
+          <Trans i18nKey="dashboard.panel-edit.alerting-tab.dashboard-not-saved">
+            Dashboard must be saved before alerts can be added.
+          </Trans>
+        </Alert>
+      )}
     </div>
   );
 }
@@ -131,7 +154,6 @@ function AlertingTab(props: PanelDataAlertingTabHeaderProps) {
 
   return (
     <Tab
-      key={props.key}
       label={model.getTabLabel()}
       icon="bell"
       counter={rules.length}

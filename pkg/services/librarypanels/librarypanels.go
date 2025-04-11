@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	"github.com/grafana/grafana/pkg/api/routing"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/metrics"
-	"github.com/grafana/grafana/pkg/services/auth/identity"
 	"github.com/grafana/grafana/pkg/services/dashboards"
 	"github.com/grafana/grafana/pkg/services/folder"
 	"github.com/grafana/grafana/pkg/services/libraryelements"
@@ -42,7 +42,7 @@ func ProvideService(cfg *setting.Cfg, sqlStore db.DB, routeRegister routing.Rout
 // Service is a service for operating on library panels.
 type Service interface {
 	ConnectLibraryPanelsForDashboard(c context.Context, signedInUser identity.Requester, dash *dashboards.Dashboard) error
-	ImportLibraryPanelsForDashboard(c context.Context, signedInUser identity.Requester, libraryPanels *simplejson.Json, panels []any, folderID int64) error
+	ImportLibraryPanelsForDashboard(c context.Context, signedInUser identity.Requester, libraryPanels *simplejson.Json, panels []any, folderID int64, folderUID string) error
 }
 
 type LibraryInfo struct {
@@ -117,11 +117,11 @@ func connectLibraryPanelsRecursively(c context.Context, panels []any, libraryPan
 }
 
 // ImportLibraryPanelsForDashboard loops through all panels in dashboard JSON and creates any missing library panels in the database.
-func (lps *LibraryPanelService) ImportLibraryPanelsForDashboard(c context.Context, signedInUser identity.Requester, libraryPanels *simplejson.Json, panels []any, folderID int64) error {
-	return importLibraryPanelsRecursively(c, lps.LibraryElementService, signedInUser, libraryPanels, panels, folderID)
+func (lps *LibraryPanelService) ImportLibraryPanelsForDashboard(c context.Context, signedInUser identity.Requester, libraryPanels *simplejson.Json, panels []any, folderID int64, folderUID string) error {
+	return importLibraryPanelsRecursively(c, lps.LibraryElementService, signedInUser, libraryPanels, panels, folderID, folderUID)
 }
 
-func importLibraryPanelsRecursively(c context.Context, service libraryelements.Service, signedInUser identity.Requester, libraryPanels *simplejson.Json, panels []any, folderID int64) error {
+func importLibraryPanelsRecursively(c context.Context, service libraryelements.Service, signedInUser identity.Requester, libraryPanels *simplejson.Json, panels []any, folderID int64, folderUID string) error {
 	for _, panel := range panels {
 		panelAsJSON := simplejson.NewFromAny(panel)
 		libraryPanel := panelAsJSON.Get("libraryPanel")
@@ -132,7 +132,7 @@ func importLibraryPanelsRecursively(c context.Context, service libraryelements.S
 
 		// we have a row
 		if panelType == "row" {
-			err := importLibraryPanelsRecursively(c, service, signedInUser, libraryPanels, panelAsJSON.Get("panels").MustArray(), folderID)
+			err := importLibraryPanelsRecursively(c, service, signedInUser, libraryPanels, panelAsJSON.Get("panels").MustArray(), folderID, folderUID)
 			if err != nil {
 				return err
 			}
@@ -168,11 +168,12 @@ func importLibraryPanelsRecursively(c context.Context, service libraryelements.S
 
 			metrics.MFolderIDsServiceCount.WithLabelValues(metrics.LibraryPanels).Inc()
 			var cmd = model.CreateLibraryElementCommand{
-				FolderID: folderID, // nolint:staticcheck
-				Name:     name,
-				Model:    Model,
-				Kind:     int64(model.PanelElement),
-				UID:      UID,
+				FolderID:  folderID, // nolint:staticcheck
+				FolderUID: &folderUID,
+				Name:      name,
+				Model:     Model,
+				Kind:      int64(model.PanelElement),
+				UID:       UID,
 			}
 			_, err = service.CreateElement(c, signedInUser, cmd)
 			if err != nil {
@@ -194,19 +195,16 @@ func (lps LibraryPanelService) CountInFolders(ctx context.Context, orgID int64, 
 	if len(folderUIDs) == 0 {
 		return 0, nil
 	}
+
 	var count int64
 	return count, lps.SQLStore.WithDbSession(ctx, func(sess *db.Session) error {
 		metrics.MFolderIDsServiceCount.WithLabelValues(metrics.LibraryPanels).Inc()
-		// the sequential IDs for the respective entries of dashboard and folder tables are different,
-		// so we need to get the folder ID from the dashboard table
-		// TODO: In the future, we should consider adding a folder UID column to the library_element table
-		// and use that instead of the folder ID.
-		s := fmt.Sprintf(`SELECT COUNT(*) FROM library_element
-			WHERE org_id = ? AND folder_id IN (SELECT id FROM dashboard WHERE org_id = ? AND uid IN (%s)) AND kind = ?`, strings.Repeat("?,", len(folderUIDs)-1)+"?")
+		s := fmt.Sprintf(`SELECT COUNT(*) FROM library_element WHERE org_id = ? AND folder_uid IN (%s) AND kind = ?`, strings.Repeat("?,", len(folderUIDs)-1)+"?")
+
 		args := make([]interface{}, 0, len(folderUIDs)+2)
-		args = append(args, orgID, orgID)
-		for _, folderUID := range folderUIDs {
-			args = append(args, folderUID)
+		args = append(args, orgID)
+		for _, uid := range folderUIDs {
+			args = append(args, uid)
 		}
 		args = append(args, int64(model.PanelElement))
 		_, err := sess.SQL(s, args...).Get(&count)

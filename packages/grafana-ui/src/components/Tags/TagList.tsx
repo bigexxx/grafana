@@ -1,10 +1,11 @@
 import { css, cx } from '@emotion/css';
-import React, { forwardRef, memo } from 'react';
+import { forwardRef, memo } from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 
 import { useStyles2, useTheme2 } from '../../themes';
 import { IconName } from '../../types/icon';
+import { t } from '../../utils/i18n';
 import { SkeletonComponent, attachSkeleton } from '../../utils/skeleton';
 
 import { OnTagClick, Tag } from './Tag';
@@ -34,7 +35,7 @@ const TagListComponent = memo(
       const numTags = tags.length;
       const tagsToDisplay = displayMax ? tags.slice(0, displayMax) : tags;
       return (
-        <ul className={cx(styles.wrapper, className)} aria-label="Tags" ref={ref}>
+        <ul className={cx(styles.wrapper, className)} aria-label={t('grafana-ui.tags.list-label', 'Tags')} ref={ref}>
           {tagsToDisplay.map((tag, i) => (
             <li className={styles.li} key={tag}>
               <Tag
@@ -48,7 +49,10 @@ const TagListComponent = memo(
             </li>
           ))}
           {displayMax && displayMax > 0 && numTags - displayMax > 0 && (
-            <span className={styles.moreTagsLabel}>+ {numTags - displayMax}</span>
+            <span className={styles.moreTagsLabel}>
+              {'+ '}
+              {numTags - displayMax}
+            </span>
           )}
         </ul>
       );

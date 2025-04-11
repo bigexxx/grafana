@@ -19,6 +19,17 @@ export interface ArcOption {
   field?: string;
 }
 
+export enum ZoomMode {
+  Cooperative = 'cooperative',
+  Greedy = 'greedy',
+}
+
+export enum LayoutAlgorithm {
+  Force = 'force',
+  Grid = 'grid',
+  Layered = 'layered',
+}
+
 export interface Options {
   edges?: {
     /**
@@ -30,6 +41,10 @@ export interface Options {
      */
     secondaryStatUnit?: string;
   };
+  /**
+   * How to layout the nodes in the node graph
+   */
+  layoutAlgorithm?: LayoutAlgorithm;
   nodes?: {
     /**
      * Unit for the main stat to override what ever is set in the data frame.
@@ -44,4 +59,8 @@ export interface Options {
      */
     arcs?: Array<ArcOption>;
   };
+  /**
+   * How to handle zoom/scroll events in the node graph
+   */
+  zoomMode?: ZoomMode;
 }

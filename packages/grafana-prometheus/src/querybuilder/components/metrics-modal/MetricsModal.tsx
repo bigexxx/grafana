@@ -1,7 +1,8 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/querybuilder/components/metrics-modal/MetricsModal.tsx
 import { cx } from '@emotion/css';
 import { PayloadAction, createSlice } from '@reduxjs/toolkit';
 import debounce from 'debounce-promise';
-import React, { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer } from 'react';
 
 import { SelectableValue } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
@@ -51,7 +52,7 @@ export type MetricsModalProps = {
   query: PromVisualQuery;
   onClose: () => void;
   onChange: (query: PromVisualQuery) => void;
-  initialMetrics: string[];
+  initialMetrics: string[] | (() => Promise<string[]>);
 };
 
 export const MetricsModal = (props: MetricsModalProps) => {
@@ -69,7 +70,11 @@ export const MetricsModal = (props: MetricsModalProps) => {
     // *** Loading Gif
     dispatch(setIsLoading(true));
 
-    const data: MetricsModalMetadata = await setMetrics(datasource, query, initialMetrics);
+    // Because Combobox in MetricsCombobox doesn't use the same lifecycle as Select to open the Metrics Explorer
+    // it might not have loaded any metrics yet, so it instead passes in an async function to get the metrics
+    const metrics = typeof initialMetrics === 'function' ? await initialMetrics() : initialMetrics;
+
+    const data: MetricsModalMetadata = await setMetrics(datasource, query, metrics);
     dispatch(
       buildMetrics({
         isLoading: false,

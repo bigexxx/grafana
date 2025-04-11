@@ -5,7 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/grafana/grafana/pkg/services/auth/identity"
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
 
 var sqlIDAcceptList = map[string]struct{}{
@@ -127,7 +128,7 @@ func SetAcceptListForTest(list map[string]struct{}) func() {
 	}
 }
 
-func UserRolesFilter(orgID, userID int64, teamIDs []int64, roles []string) (string, []any) {
+func UserRolesFilter(orgID, userID int64, teamIDs []int64, roles []string, dialect migrator.Dialect) (string, []any) {
 	var params []any
 	builder := strings.Builder{}
 
@@ -145,7 +146,7 @@ func UserRolesFilter(orgID, userID int64, teamIDs []int64, roles []string) (stri
 
 	if len(teamIDs) > 0 {
 		if builder.Len() > 0 {
-			builder.WriteString("UNION")
+			builder.WriteString(dialect.UnionDistinct())
 		}
 		builder.WriteString(`
 			SELECT tr.role_id FROM team_role as tr
@@ -160,7 +161,7 @@ func UserRolesFilter(orgID, userID int64, teamIDs []int64, roles []string) (stri
 
 	if len(roles) != 0 {
 		if builder.Len() > 0 {
-			builder.WriteString("UNION")
+			builder.WriteString(dialect.UnionDistinct())
 		}
 
 		builder.WriteString(`
@@ -176,4 +177,19 @@ func UserRolesFilter(orgID, userID int64, teamIDs []int64, roles []string) (stri
 	}
 
 	return "INNER JOIN (" + builder.String() + ") as all_role ON role.id = all_role.role_id", params
+}
+
+func RolePrefixesFilter(rolePrefixes []string) (string, []any) {
+	query := ""
+	params := make([]any, 0)
+
+	if len(rolePrefixes) > 0 {
+		query += " WHERE ( " + strings.Repeat("role.name LIKE ? OR ", len(rolePrefixes)-1)
+		query += "role.name LIKE ? )"
+		for i := range rolePrefixes {
+			params = append(params, rolePrefixes[i]+"%")
+		}
+	}
+
+	return query, params
 }

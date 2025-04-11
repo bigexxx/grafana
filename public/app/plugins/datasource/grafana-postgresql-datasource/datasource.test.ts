@@ -36,6 +36,12 @@ const fakeDataSourceSrv: DataSourceSrv = {
   getInstanceSettings: () => ({ id: 8674 }),
 } as unknown as DataSourceSrv;
 
+const uid = '0000';
+// mock uuidv4 to give back the same value every time
+jest.mock('uuid', () => ({
+  v4: () => uid,
+}));
+
 let origBackendSrv: BackendSrv;
 let origDataSourceSrv: DataSourceSrv;
 beforeAll(() => {
@@ -286,34 +292,6 @@ describe('PostgreSQLDatasource', () => {
     });
   });
 
-  describe('When performing a query with hidden target', () => {
-    it('should return empty result and backendSrv.fetch should not be called', async () => {
-      const options = {
-        range: {
-          from: dateTime(1432288354),
-          to: dateTime(1432288401),
-        },
-        targets: [
-          {
-            format: 'table',
-            rawQuery: true,
-            rawSql: 'select time, metric, value from grafana_metric',
-            refId: 'A',
-            datasource: 'gdev-ds',
-            hide: true,
-          },
-        ],
-      } as unknown as DataQueryRequest<SQLQuery>;
-
-      const { ds } = setupTestContext({});
-
-      await expect(ds.query(options)).toEmitValuesWith((received) => {
-        expect(received[0]).toEqual({ data: [] });
-        expect(fetchMock).not.toHaveBeenCalled();
-      });
-    });
-  });
-
   describe('When runSql returns an empty dataframe', () => {
     const response = {
       results: {
@@ -432,8 +410,7 @@ describe('PostgreSQLDatasource', () => {
     it('should return a list of fields when fetchFields is called', async () => {
       const fetchFieldsResponse = {
         results: {
-          columns: {
-            refId: 'columns',
+          [`columns-${uid}`]: {
             frames: [
               dataFrameToJSON(
                 createDataFrame({
@@ -840,6 +817,6 @@ const createFetchResponse = <T>(data: T): FetchResponse<T> => ({
   type: 'basic',
   statusText: 'Ok',
   redirected: false,
-  headers: {} as unknown as Headers,
+  headers: new Headers(),
   ok: true,
 });

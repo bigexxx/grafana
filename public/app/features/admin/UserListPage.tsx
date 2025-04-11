@@ -1,13 +1,14 @@
 import { css } from '@emotion/css';
-import React, { useState } from 'react';
+import { useState } from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { selectors as e2eSelectors } from '@grafana/e2e-selectors';
-import { config, featureEnabled } from '@grafana/runtime';
+import { config } from '@grafana/runtime';
 import { useStyles2, TabsBar, Tab } from '@grafana/ui';
 import { t } from 'app/core/internationalization';
 import { contextSrv } from 'app/core/services/context_srv';
-import { isPublicDashboardsEnabled } from 'app/features/dashboard/components/ShareModal/SharePublicDashboard/SharePublicDashboardUtils';
+import { isEmailSharingEnabled } from 'app/features/dashboard/components/ShareModal/SharePublicDashboard/SharePublicDashboardUtils';
 
 import { Page } from '../../core/components/Page/Page';
 import { AccessControlAction } from '../../types';
@@ -28,7 +29,11 @@ const selectors = e2eSelectors.pages.UserListPage;
 
 const PublicDashboardsTab = ({ view, setView }: { view: TabView | null; setView: (v: TabView | null) => void }) => (
   <Tab
-    label={t('users-access-list.tabs.public-dashboard-users-tab-title', 'Public dashboard users')}
+    label={
+      config.featureToggles.newDashboardSharingComponent
+        ? t('users-access-list.tabs.shared-dashboard-users-tab-title', 'Shared dashboard users')
+        : t('users-access-list.tabs.public-dashboard-users-tab-title', 'Public dashboard users')
+    }
     active={view === TabView.PUBLIC_DASHBOARDS}
     onChangeTab={() => setView(TabView.PUBLIC_DASHBOARDS)}
     data-testid={selectors.tabs.publicDashboardsUsers}
@@ -47,10 +52,6 @@ export default function UserListPage() {
 
   const hasAccessToAdminUsers = contextSrv.hasPermission(AccessControlAction.UsersRead);
   const hasAccessToOrgUsers = contextSrv.hasPermission(AccessControlAction.OrgUsersRead);
-  const hasEmailSharingEnabled =
-    isPublicDashboardsEnabled() &&
-    Boolean(config.featureToggles.publicDashboardsEmailSharing) &&
-    featureEnabled('publicDashboardsEmailSharing');
 
   const [view, setView] = useState(() => {
     if (hasAccessToAdminUsers) {
@@ -68,32 +69,32 @@ export default function UserListPage() {
       {showAdminAndOrgTabs ? (
         <TabsBar className={styles.tabsMargin}>
           <Tab
-            label="All users"
+            label={t('admin.user-list-page.label-all-users', 'All users')}
             active={view === TabView.ADMIN}
             onChangeTab={() => setView(TabView.ADMIN)}
             data-testid={selectors.tabs.allUsers}
           />
           <Tab
-            label="Organization users"
+            label={t('admin.user-list-page.label-organization-users', 'Organization users')}
             active={view === TabView.ORG}
             onChangeTab={() => setView(TabView.ORG)}
             data-testid={selectors.tabs.orgUsers}
           />
           {config.anonymousEnabled && (
             <Tab
-              label="Anonymous devices"
+              label={t('admin.user-list-page.label-anonymous-devices', 'Anonymous devices')}
               active={view === TabView.ANON}
               onChangeTab={() => setView(TabView.ANON)}
               data-testid={selectors.tabs.anonUserDevices}
             />
           )}
-          {hasEmailSharingEnabled && <PublicDashboardsTab view={view} setView={setView} />}
+          {isEmailSharingEnabled() && <PublicDashboardsTab view={view} setView={setView} />}
         </TabsBar>
       ) : (
-        hasEmailSharingEnabled && (
+        isEmailSharingEnabled() && (
           <TabsBar className={styles.tabsMargin}>
             <Tab
-              label="Users"
+              label={t('admin.user-list-page.label-users', 'Users')}
               active={view === TabView.ORG}
               onChangeTab={() => setView(TabView.ORG)}
               data-testid={selectors.tabs.users}

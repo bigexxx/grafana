@@ -1,47 +1,50 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
-import { DashboardCursorSync, GrafanaTheme2 } from '@grafana/data';
+import { GrafanaTheme2 } from '@grafana/data';
+import { config } from '@grafana/runtime';
 import {
-  SceneObjectState,
-  SceneObjectBase,
+  QueryVariable,
   SceneComponentProps,
-  SceneFlexLayout,
-  SceneFlexItem,
+  sceneGraph,
+  SceneObjectBase,
+  SceneObjectState,
   SceneObjectUrlSyncConfig,
   SceneObjectUrlValues,
-  sceneGraph,
   SceneVariableSet,
-  QueryVariable,
-  behaviors,
 } from '@grafana/scenes';
-import { ToolbarButton, Box, Stack, Icon, TabsBar, Tab, useStyles2 } from '@grafana/ui';
+import { Box, Icon, LinkButton, Stack, Tab, TabsBar, ToolbarButton, Tooltip, useStyles2 } from '@grafana/ui';
+import { t, Trans } from 'app/core/internationalization';
 
 import { getExploreUrl } from '../../core/utils/explore';
 
-import { buildBreakdownActionScene } from './ActionTabs/BreakdownScene';
-import { buildMetricOverviewScene } from './ActionTabs/MetricOverviewScene';
 import { buildRelatedMetricsScene } from './ActionTabs/RelatedMetricsScene';
-import { getAutoQueriesForMetric } from './AutomaticMetricQueries/AutoQueryEngine';
-import { AutoVizPanel } from './AutomaticMetricQueries/AutoVizPanel';
-import { AutoQueryDef, AutoQueryInfo } from './AutomaticMetricQueries/types';
+import { buildLabelBreakdownActionScene } from './Breakdown/LabelBreakdownScene';
+import { MAIN_PANEL_MAX_HEIGHT, MAIN_PANEL_MIN_HEIGHT, MetricGraphScene } from './MetricGraphScene';
+import { buildRelatedLogsScene } from './RelatedLogs/RelatedLogsScene';
 import { ShareTrailButton } from './ShareTrailButton';
 import { useBookmarkState } from './TrailStore/useBookmarkState';
+import { getAutoQueriesForMetric } from './autoQuery/getAutoQueriesForMetric';
+import { AutoQueryDef, AutoQueryInfo } from './autoQuery/types';
+import { reportExploreMetrics } from './interactions';
 import {
   ActionViewDefinition,
   ActionViewType,
   getVariablesWithMetricConstant,
   MakeOptional,
-  OpenEmbeddedTrailEvent,
+  MetricSelectedEvent,
+  RefreshMetricsEvent,
   trailDS,
   VAR_GROUP_BY,
   VAR_METRIC_EXPR,
 } from './shared';
-import { getDataSource, getTrailFor } from './utils';
+import { getDataSource, getTrailFor, getUrlForTrail } from './utils';
+
+const { exploreMetricsRelatedLogs } = config.featureToggles;
 
 export interface MetricSceneState extends SceneObjectState {
-  body: SceneFlexLayout;
+  body: MetricGraphScene;
   metric: string;
+  nativeHistogram?: boolean;
   actionView?: string;
 
   autoQuery: AutoQueryInfo;
@@ -52,10 +55,10 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
   protected _urlSync = new SceneObjectUrlSyncConfig(this, { keys: ['actionView'] });
 
   public constructor(state: MakeOptional<MetricSceneState, 'body' | 'autoQuery'>) {
-    const autoQuery = state.autoQuery ?? getAutoQueriesForMetric(state.metric);
+    const autoQuery = state.autoQuery ?? getAutoQueriesForMetric(state.metric, state.nativeHistogram);
     super({
       $variables: state.$variables ?? getVariableSet(state.metric),
-      body: state.body ?? buildGraphScene(),
+      body: state.body ?? new MetricGraphScene({}),
       autoQuery,
       queryDef: state.queryDef ?? autoQuery.main,
       ...state,
@@ -66,7 +69,17 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
 
   private _onActivate() {
     if (this.state.actionView === undefined) {
-      this.setActionView('overview');
+      this.setActionView('breakdown');
+    }
+
+    if (config.featureToggles.enableScopesInMetricsExplore) {
+      // Push the scopes change event to the tabs
+      // The event is not propagated because the tabs are not part of the scene graph
+      this._subs.add(
+        this.subscribeToEvent(RefreshMetricsEvent, (event) => {
+          this.state.body.state.selectedTab?.publishEvent(event);
+        })
+      );
     }
   }
 
@@ -93,13 +106,13 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
 
     if (actionViewDef && actionViewDef.value !== this.state.actionView) {
       // reduce max height for main panel to reduce height flicker
-      body.state.children[0].setState({ maxHeight: MAIN_PANEL_MIN_HEIGHT });
-      body.setState({ children: [...body.state.children.slice(0, 2), actionViewDef.getScene()] });
+      body.state.topView.state.children[0].setState({ maxHeight: MAIN_PANEL_MIN_HEIGHT });
+      body.setState({ selectedTab: actionViewDef.getScene() });
       this.setState({ actionView: actionViewDef.value });
     } else {
       // restore max height
-      body.state.children[0].setState({ maxHeight: MAIN_PANEL_MAX_HEIGHT });
-      body.setState({ children: body.state.children.slice(0, 2) });
+      body.state.topView.state.children[0].setState({ maxHeight: MAIN_PANEL_MAX_HEIGHT });
+      body.setState({ selectedTab: undefined });
       this.setState({ actionView: undefined });
     }
   }
@@ -111,18 +124,27 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
 }
 
 const actionViewsDefinitions: ActionViewDefinition[] = [
-  { displayName: 'Overview', value: 'overview', getScene: buildMetricOverviewScene },
-  { displayName: 'Breakdown', value: 'breakdown', getScene: buildBreakdownActionScene },
-  { displayName: 'Related metrics', value: 'related', getScene: buildRelatedMetricsScene },
+  { displayName: 'Breakdown', value: 'breakdown', getScene: buildLabelBreakdownActionScene },
+  {
+    displayName: 'Related metrics',
+    value: 'related',
+    getScene: buildRelatedMetricsScene,
+    description: 'Relevant metrics based on current label filters',
+  },
 ];
+
+if (exploreMetricsRelatedLogs) {
+  actionViewsDefinitions.push({
+    displayName: 'Related logs',
+    value: 'related_logs',
+    getScene: buildRelatedLogsScene,
+    description: 'Relevant logs based on current label filters and time range',
+  });
+}
 
 export interface MetricActionBarState extends SceneObjectState {}
 
 export class MetricActionBar extends SceneObjectBase<MetricActionBarState> {
-  public onOpenTrail = () => {
-    this.publishEvent(new OpenEmbeddedTrailEvent(), true);
-  };
-
   public getLinkToExplore = async () => {
     const metricScene = sceneGraph.getAncestor(this, MetricScene);
     const trail = getTrailFor(this);
@@ -140,6 +162,7 @@ export class MetricActionBar extends SceneObjectBase<MetricActionBarState> {
   };
 
   public openExploreLink = async () => {
+    reportExploreMetrics('selected_metric_action_clicked', { action: 'open_in_explore' });
     this.getLinkToExplore().then((link) => {
       // We use window.open instead of a Link or <a> because we want to compute the explore link when clicking,
       // if we precompute it we have to keep track of a lot of dependencies
@@ -160,10 +183,23 @@ export class MetricActionBar extends SceneObjectBase<MetricActionBarState> {
           <Stack gap={1}>
             <ToolbarButton
               variant={'canvas'}
+              tooltip={t(
+                'trails.metric-action-bar.tooltip-remove-existing-metric-choose',
+                'Remove existing metric and choose a new metric'
+              )}
+              onClick={() => {
+                reportExploreMetrics('selected_metric_action_clicked', { action: 'unselect' });
+                trail.publishEvent(new MetricSelectedEvent(undefined));
+              }}
+            >
+              <Trans i18nKey="trails.metric-action-bar.select-new-metric">Select new metric</Trans>
+            </ToolbarButton>
+            <ToolbarButton
+              variant={'canvas'}
               icon="compass"
-              tooltip="Open in explore"
+              tooltip={t('trails.metric-action-bar.tooltip-open-in-explore', 'Open in explore')}
               onClick={model.openExploreLink}
-            ></ToolbarButton>
+            />
             <ShareTrailButton trail={trail} />
             <ToolbarButton
               variant={'canvas'}
@@ -174,27 +210,43 @@ export class MetricActionBar extends SceneObjectBase<MetricActionBarState> {
                   <Icon name={'star'} type={'default'} size={'lg'} />
                 )
               }
-              tooltip={'Bookmark'}
+              tooltip={t('trails.metric-action-bar.tooltip-bookmark', 'Bookmark')}
               onClick={toggleBookmark}
             />
             {trail.state.embedded && (
-              <ToolbarButton variant={'canvas'} onClick={model.onOpenTrail}>
-                Open
-              </ToolbarButton>
+              <LinkButton
+                href={getUrlForTrail(trail)}
+                variant={'secondary'}
+                onClick={() => reportExploreMetrics('selected_metric_action_clicked', { action: 'open_from_embedded' })}
+              >
+                <Trans i18nKey="trails.metric-action-bar.open">Open</Trans>
+              </LinkButton>
             )}
           </Stack>
         </div>
 
         <TabsBar>
           {actionViewsDefinitions.map((tab, index) => {
-            return (
+            const tabRender = (
               <Tab
                 key={index}
                 label={tab.displayName}
                 active={actionView === tab.value}
-                onChangeTab={() => metricScene.setActionView(tab.value)}
+                onChangeTab={() => {
+                  reportExploreMetrics('metric_action_view_changed', { view: tab.value });
+                  metricScene.setActionView(tab.value);
+                }}
               />
             );
+
+            if (tab.description) {
+              return (
+                <Tooltip key={index} content={tab.description} placement="bottom-start" theme="info">
+                  {tabRender}
+                </Tooltip>
+              );
+            }
+            return tabRender;
           })}
         </TabsBar>
       </Box>
@@ -208,6 +260,7 @@ function getStyles(theme: GrafanaTheme2) {
       [theme.breakpoints.up(theme.breakpoints.values.md)]: {
         position: 'absolute',
         right: 0,
+        top: 16,
         zIndex: 2,
       },
     }),
@@ -227,29 +280,6 @@ function getVariableSet(metric: string) {
         query: { query: `label_names(${VAR_METRIC_EXPR})`, refId: 'A' },
         value: '',
         text: '',
-      }),
-    ],
-  });
-}
-
-const MAIN_PANEL_MIN_HEIGHT = 280;
-const MAIN_PANEL_MAX_HEIGHT = '40%';
-
-function buildGraphScene() {
-  const bodyAutoVizPanel = new AutoVizPanel({});
-
-  return new SceneFlexLayout({
-    direction: 'column',
-    $behaviors: [new behaviors.CursorSync({ key: 'metricCrosshairSync', sync: DashboardCursorSync.Crosshair })],
-    children: [
-      new SceneFlexItem({
-        minHeight: MAIN_PANEL_MIN_HEIGHT,
-        maxHeight: MAIN_PANEL_MAX_HEIGHT,
-        body: bodyAutoVizPanel,
-      }),
-      new SceneFlexItem({
-        ySizing: 'content',
-        body: new MetricActionBar({}),
       }),
     ],
   });

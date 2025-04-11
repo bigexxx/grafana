@@ -1,9 +1,9 @@
 import { css } from '@emotion/css';
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { Grid, Modal, useStyles2, Text } from '@grafana/ui';
-import { t } from 'app/core/internationalization';
+import { t, Trans } from 'app/core/internationalization';
 import { getModKey } from 'app/core/utils/browser';
 
 const getShortcuts = (modKey: string) => {
@@ -27,7 +27,7 @@ const getShortcuts = (modKey: string) => {
           description: t('help-modal.shortcuts-description.exit-edit/setting-views', 'Exit edit/setting views'),
         },
         {
-          keys: [`${modKey} + h`],
+          keys: ['?'],
           description: t('help-modal.shortcuts-description.show-all-shortcuts', 'Show all keyboard shortcuts'),
         },
         { keys: ['c', 't'], description: t('help-modal.shortcuts-description.change-theme', 'Change theme') },
@@ -130,7 +130,7 @@ const getShortcuts = (modKey: string) => {
         },
         {
           keys: ['p', 's'],
-          description: t('help-modal.shortcuts-description.open-shared-modal', 'Open Panel Share Modal'),
+          description: t('help-modal.shortcuts-description.open-shared-modal', 'Share panel snapshot'),
         },
         { keys: ['p', 'd'], description: t('help-modal.shortcuts-description.duplicate-panel', 'Duplicate Panel') },
         { keys: ['p', 'r'], description: t('help-modal.shortcuts-description.remove-panel', 'Remove Panel') },
@@ -165,8 +165,12 @@ export const HelpModal = ({ onDismiss }: HelpModalProps): JSX.Element => {
               </caption>
               <thead className="sr-only">
                 <tr>
-                  <th>Keys</th>
-                  <th>Description</th>
+                  <th>
+                    <Trans i18nKey="help-modal.column-headers.keys">Keys</Trans>
+                  </th>
+                  <th>
+                    <Trans i18nKey="help-modal.column-headers.description">Description</Trans>
+                  </th>
                 </tr>
               </thead>
               <tbody>

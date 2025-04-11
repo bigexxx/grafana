@@ -1,12 +1,9 @@
 import { action } from '@storybook/addon-actions';
-import { Meta, Story } from '@storybook/react';
-import React from 'react';
-
-import { ConfirmButton } from '@grafana/ui';
+import { Meta, StoryFn } from '@storybook/react';
 
 import { Button } from '../Button';
 
-import { Props } from './ConfirmButton';
+import { ConfirmButton, Props } from './ConfirmButton';
 import mdx from './ConfirmButton.mdx';
 import { DeleteButton } from './DeleteButton';
 
@@ -48,7 +45,7 @@ interface StoryProps extends Partial<Props> {
   buttonText: string;
 }
 
-export const Basic: Story<StoryProps> = (args) => {
+export const Basic: StoryFn<StoryProps> = (args) => {
   return (
     <ConfirmButton
       closeOnConfirm={args.closeOnConfirm}
@@ -65,7 +62,7 @@ export const Basic: Story<StoryProps> = (args) => {
   );
 };
 
-export const WithCustomButton: Story<StoryProps> = (args) => {
+export const WithCustomButton: StoryFn<StoryProps> = (args) => {
   return (
     <ConfirmButton
       closeOnConfirm={args.closeOnConfirm}
@@ -84,7 +81,7 @@ export const WithCustomButton: Story<StoryProps> = (args) => {
   );
 };
 
-export const Delete: Story<StoryProps> = (args) => {
+export const Delete: StoryFn<StoryProps> = (args) => {
   return (
     <DeleteButton
       size={args.size}

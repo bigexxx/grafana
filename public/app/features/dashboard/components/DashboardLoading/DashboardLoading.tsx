@@ -1,9 +1,9 @@
 import { css, keyframes } from '@emotion/css';
-import React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { locationService } from '@grafana/runtime';
 import { Button, HorizontalGroup, Spinner, useStyles2, VerticalGroup } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
 import { DashboardInitPhase } from 'app/types';
 
 export interface Props {
@@ -25,7 +25,7 @@ export const DashboardLoading = ({ initPhase }: Props) => {
           </HorizontalGroup>{' '}
           <HorizontalGroup align="center" justify="center">
             <Button variant="secondary" size="md" icon="repeat" onClick={cancelVariables}>
-              Cancel loading dashboard
+              <Trans i18nKey="dashboard.dashboard-loading.cancel-loading-dashboard">Cancel loading dashboard</Trans>
             </Button>
           </HorizontalGroup>
         </VerticalGroup>
@@ -44,16 +44,18 @@ export const getStyles = (theme: GrafanaTheme2) => {
   `;
 
   return {
-    dashboardLoading: css`
-      height: 60vh;
-      display: flex;
-      opacity: 0%;
-      align-items: center;
-      justify-content: center;
-      animation: ${invisibleToVisible} 0s step-end ${slowStartThreshold} 1 normal forwards;
-    `,
-    dashboardLoadingText: css`
-      font-size: ${theme.typography.h4.fontSize};
-    `,
+    dashboardLoading: css({
+      height: '60vh',
+      display: 'flex',
+      opacity: '0%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      [theme.transitions.handleMotion('no-preference', 'reduce')]: {
+        animation: `${invisibleToVisible} 0s step-end ${slowStartThreshold} 1 normal forwards`,
+      },
+    }),
+    dashboardLoadingText: css({
+      fontSize: theme.typography.h4.fontSize,
+    }),
   };
 };

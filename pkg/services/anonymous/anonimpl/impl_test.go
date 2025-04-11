@@ -15,6 +15,8 @@ import (
 	"github.com/grafana/grafana/pkg/services/accesscontrol/actest"
 	"github.com/grafana/grafana/pkg/services/anonymous"
 	"github.com/grafana/grafana/pkg/services/anonymous/anonimpl/anonstore"
+	"github.com/grafana/grafana/pkg/services/anonymous/validator"
+	"github.com/grafana/grafana/pkg/services/authn"
 	"github.com/grafana/grafana/pkg/services/authn/authntest"
 	"github.com/grafana/grafana/pkg/services/org/orgtest"
 	"github.com/grafana/grafana/pkg/setting"
@@ -26,6 +28,10 @@ func TestMain(m *testing.M) {
 }
 
 func TestIntegrationDeviceService_tag(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+
 	type tagReq struct {
 		httpReq *http.Request
 		kind    anonymous.DeviceKind
@@ -36,6 +42,7 @@ func TestIntegrationDeviceService_tag(t *testing.T) {
 		expectedAnonUICount int64
 		expectedKey         string
 		expectedDevice      *anonstore.Device
+		disableService      bool
 	}{
 		{
 			name: "no requests",
@@ -113,20 +120,49 @@ func TestIntegrationDeviceService_tag(t *testing.T) {
 			},
 			expectedAnonUICount: 2,
 		},
+		{
+			name: "when the service is disabled, read operations return empty",
+			req: []tagReq{
+				{
+					httpReq: &http.Request{
+						Header: http.Header{
+							"User-Agent":                            []string{"testdisabled"},
+							"X-Forwarded-For":                       []string{"10.33.33.3"},
+							http.CanonicalHeaderKey(deviceIDHeader): []string{"t35td154b13d1d"},
+						},
+					},
+					kind: anonymous.AnonDeviceUI,
+				},
+			},
+			disableService:      true,
+			expectedAnonUICount: 0,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+
 			store := db.InitTestDB(t)
-			anonService := ProvideAnonymousDeviceService(&usagestats.UsageStatsMock{},
-				&authntest.FakeService{}, store, setting.NewCfg(), orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{})
+
+			cfg := setting.NewCfg()
+			cfg.Anonymous.Enabled = !tc.disableService
+
+			anonService := ProvideAnonymousDeviceService(
+				&usagestats.UsageStatsMock{}, &authntest.FakeService{}, store, cfg, orgtest.NewOrgServiceFake(),
+				nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{}, validator.FakeAnonUserLimitValidator{},
+			)
 
 			for _, req := range tc.req {
-				err := anonService.TagDevice(context.Background(), req.httpReq, req.kind)
+				err := anonService.TagDevice(ctx, req.httpReq, req.kind)
 				require.NoError(t, err)
+
+				t.Cleanup(func() {
+					anonService.untagDevice(ctx, nil, &authn.Request{HTTPRequest: req.httpReq}, nil)
+				})
 			}
 
-			devices, err := anonService.anonStore.ListDevices(context.Background(), nil, nil)
+			devices, err := anonService.ListDevices(ctx, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, devices, int(tc.expectedAnonUICount))
 			if tc.expectedDevice != nil {
@@ -142,19 +178,42 @@ func TestIntegrationDeviceService_tag(t *testing.T) {
 				assert.Equal(t, tc.expectedDevice, devices[0])
 			}
 
+			// One minute is added to the end time as mysql 5.7 datetime type has a default precision of seconds and not milis.
+			to := time.Now().Add(time.Minute)
+			from := to.AddDate(0, 0, -1)
+
+			devicesCount, err := anonService.CountDevices(ctx, from, to)
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedAnonUICount, devicesCount)
+
+			devicesFound, err := anonService.SearchDevices(ctx, &anonstore.SearchDeviceQuery{
+				From: from,
+				To:   to,
+			})
+			require.NoError(t, err)
+			if tc.expectedAnonUICount > 0 {
+				require.NotNil(t, devicesFound)
+				require.Equal(t, tc.expectedAnonUICount, devicesFound.TotalCount)
+			}
+
 			stats, err := anonService.usageStatFn(context.Background())
 			require.NoError(t, err)
 
-			assert.Equal(t, tc.expectedAnonUICount, stats["stats.anonymous.device.ui.count"].(int64), stats)
+			if !tc.disableService {
+				assert.Equal(t, tc.expectedAnonUICount, stats["stats.anonymous.device.ui.count"].(int64), stats)
+			}
 		})
 	}
 }
 
 // Ensure that the local cache prevents request from being tagged
 func TestIntegrationAnonDeviceService_localCacheSafety(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
 	store := db.InitTestDB(t)
 	anonService := ProvideAnonymousDeviceService(&usagestats.UsageStatsMock{},
-		&authntest.FakeService{}, store, setting.NewCfg(), orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{})
+		&authntest.FakeService{}, store, setting.NewCfg(), orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{}, validator.FakeAnonUserLimitValidator{})
 
 	req := &http.Request{
 		Header: http.Header{
@@ -184,6 +243,10 @@ func TestIntegrationAnonDeviceService_localCacheSafety(t *testing.T) {
 }
 
 func TestIntegrationDeviceService_SearchDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC) // Fixed timestamp for testing
 
 	testCases := []struct {
@@ -247,8 +310,8 @@ func TestIntegrationDeviceService_SearchDevice(t *testing.T) {
 	}
 	store := db.InitTestDB(t)
 	cfg := setting.NewCfg()
-	cfg.AnonymousEnabled = true
-	anonService := ProvideAnonymousDeviceService(&usagestats.UsageStatsMock{}, &authntest.FakeService{}, store, cfg, orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{})
+	cfg.Anonymous.Enabled = true
+	anonService := ProvideAnonymousDeviceService(&usagestats.UsageStatsMock{}, &authntest.FakeService{}, store, cfg, orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{}, validator.FakeAnonUserLimitValidator{})
 
 	for _, tc := range testCases {
 		err := store.Reset()
@@ -267,6 +330,92 @@ func TestIntegrationDeviceService_SearchDevice(t *testing.T) {
 			if tc.expectedDevice != nil {
 				device := devices.Devices[0]
 				require.Equal(t, tc.expectedDevice.UserAgent, device.UserAgent)
+			}
+		})
+	}
+}
+
+func TestIntegrationAnonDeviceService_DeviceLimitWithCache(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+	// Setup test environment
+	store := db.InitTestDB(t)
+	cfg := setting.NewCfg()
+	cfg.Anonymous.DeviceLimit = 1 // Set device limit to 1 for testing
+	anonService := ProvideAnonymousDeviceService(
+		&usagestats.UsageStatsMock{},
+		&authntest.FakeService{},
+		store,
+		cfg,
+		orgtest.NewOrgServiceFake(),
+		nil,
+		actest.FakeAccessControl{},
+		&routing.RouteRegisterImpl{},
+		validator.FakeAnonUserLimitValidator{},
+	)
+
+	// Define test cases
+	testCases := []struct {
+		name        string
+		httpReq     *http.Request
+		expectedErr error
+	}{
+		{
+			name: "first request should succeed",
+			httpReq: &http.Request{
+				Header: http.Header{
+					"User-Agent":                            []string{"test"},
+					"X-Forwarded-For":                       []string{"10.30.30.1"},
+					http.CanonicalHeaderKey(deviceIDHeader): []string{"device1"},
+				},
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "second request should fail due to device limit",
+			httpReq: &http.Request{
+				Header: http.Header{
+					"User-Agent":                            []string{"test"},
+					"X-Forwarded-For":                       []string{"10.30.30.2"},
+					http.CanonicalHeaderKey(deviceIDHeader): []string{"device2"},
+				},
+			},
+			expectedErr: anonstore.ErrDeviceLimitReached,
+		},
+		{
+			name: "repeat request should hit cache and succeed",
+			httpReq: &http.Request{
+				Header: http.Header{
+					"User-Agent":                            []string{"test"},
+					"X-Forwarded-For":                       []string{"10.30.30.1"},
+					http.CanonicalHeaderKey(deviceIDHeader): []string{"device1"},
+				},
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "third request should hit cache and fail due to device limit",
+			httpReq: &http.Request{
+				Header: http.Header{
+					"User-Agent":                            []string{"test"},
+					"X-Forwarded-For":                       []string{"10.30.30.2"},
+					http.CanonicalHeaderKey(deviceIDHeader): []string{"device2"},
+				},
+			},
+			expectedErr: anonstore.ErrDeviceLimitReached,
+		},
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := anonService.TagDevice(context.Background(), tc.httpReq, anonymous.AnonDeviceUI)
+			if tc.expectedErr != nil {
+				require.Error(t, err)
+				assert.Equal(t, tc.expectedErr, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

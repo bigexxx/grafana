@@ -4,23 +4,24 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
-	"k8s.io/apiserver/pkg/registry/generic"
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	common "k8s.io/kube-openapi/pkg/common"
 	"k8s.io/kube-openapi/pkg/spec3"
 	"k8s.io/kube-openapi/pkg/validation/spec"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/grafana/grafana/pkg/apis/featuretoggle/v0alpha1"
-	"github.com/grafana/grafana/pkg/apiserver/builder"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
+	"github.com/grafana/grafana/pkg/services/apiserver/builder"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/setting"
 )
 
 var _ builder.APIGroupBuilder = (*FeatureFlagAPIBuilder)(nil)
+var _ builder.APIGroupRouteProvider = (*FeatureFlagAPIBuilder)(nil)
 
 var gv = v0alpha1.SchemeGroupVersion
 
@@ -39,6 +40,7 @@ func RegisterAPIService(features *featuremgmt.FeatureManager,
 	accessControl accesscontrol.AccessControl,
 	apiregistration builder.APIRegistrar,
 	cfg *setting.Cfg,
+	registerer prometheus.Registerer,
 ) *FeatureFlagAPIBuilder {
 	builder := NewFeatureFlagAPIBuilder(features, accessControl, cfg)
 	apiregistration.RegisterAPI(builder)
@@ -78,14 +80,7 @@ func (b *FeatureFlagAPIBuilder) InstallSchema(scheme *runtime.Scheme) error {
 	return scheme.SetVersionPriority(gv)
 }
 
-func (b *FeatureFlagAPIBuilder) GetAPIGroupInfo(
-	scheme *runtime.Scheme,
-	codecs serializer.CodecFactory, // pointer?
-	_ generic.RESTOptionsGetter,
-	_ bool,
-) (*genericapiserver.APIGroupInfo, error) {
-	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(v0alpha1.GROUP, scheme, metav1.ParameterCodec, codecs)
-
+func (b *FeatureFlagAPIBuilder) UpdateAPIGroupInfo(apiGroupInfo *genericapiserver.APIGroupInfo, _ builder.APIGroupOptions) error {
 	featureStore := NewFeaturesStorage()
 	toggleStore := NewTogglesStorage(b.features)
 
@@ -94,7 +89,7 @@ func (b *FeatureFlagAPIBuilder) GetAPIGroupInfo(
 	storage[toggleStore.resource.StoragePath()] = toggleStore
 
 	apiGroupInfo.VersionedResourcesStorageMap[v0alpha1.VERSION] = storage
-	return &apiGroupInfo, nil
+	return nil
 }
 
 func (b *FeatureFlagAPIBuilder) GetOpenAPIDefinitions() common.GetOpenAPIDefinitions {
@@ -106,7 +101,7 @@ func (b *FeatureFlagAPIBuilder) GetAuthorizer() authorizer.Authorizer {
 }
 
 // Register additional routes with the server
-func (b *FeatureFlagAPIBuilder) GetAPIRoutes() *builder.APIRoutes {
+func (b *FeatureFlagAPIBuilder) GetAPIRoutes(gv schema.GroupVersion) *builder.APIRoutes {
 	defs := v0alpha1.GetOpenAPIDefinitions(func(path string) spec.Ref { return spec.Ref{} })
 	stateSchema := defs["github.com/grafana/grafana/pkg/apis/featuretoggle/v0alpha1.ResolvedToggleState"].Schema
 
@@ -132,70 +127,6 @@ func (b *FeatureFlagAPIBuilder) GetAPIRoutes() *builder.APIRoutes {
 															Schema: &stateSchema,
 														},
 													},
-												},
-												Description: "OK",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-					Patch: &spec3.Operation{
-						OperationProps: spec3.OperationProps{
-							Tags:        tags,
-							Summary:     "Update individual toggles",
-							Description: "Patch some of the toggles (keyed by the toggle name)",
-							RequestBody: &spec3.RequestBody{
-								RequestBodyProps: spec3.RequestBodyProps{
-									Required:    true,
-									Description: "flags to change",
-									Content: map[string]*spec3.MediaType{
-										"application/json": {
-											MediaTypeProps: spec3.MediaTypeProps{
-												Schema: &stateSchema,
-												Example: &v0alpha1.ResolvedToggleState{
-													Enabled: map[string]bool{
-														featuremgmt.FlagAutoMigrateOldPanels: true,
-														featuremgmt.FlagAngularDeprecationUI: false,
-													},
-												},
-												Examples: map[string]*spec3.Example{
-													"enable-auto-migrate": {
-														ExampleProps: spec3.ExampleProps{
-															Summary:     "enable auto-migrate panels",
-															Description: "enable description",
-															Value: &v0alpha1.ResolvedToggleState{
-																Enabled: map[string]bool{
-																	featuremgmt.FlagAutoMigrateOldPanels: true,
-																},
-															},
-														},
-													},
-													"disable-auto-migrate": {
-														ExampleProps: spec3.ExampleProps{
-															Summary:     "disable auto-migrate panels",
-															Description: "disable description",
-															Value: &v0alpha1.ResolvedToggleState{
-																Enabled: map[string]bool{
-																	featuremgmt.FlagAutoMigrateOldPanels: false,
-																},
-															},
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-							Responses: &spec3.Responses{
-								ResponsesProps: spec3.ResponsesProps{
-									StatusCodeResponses: map[int]*spec3.Response{
-										200: {
-											ResponseProps: spec3.ResponseProps{
-												Content: map[string]*spec3.MediaType{
-													"application/json": {},
 												},
 												Description: "OK",
 											},

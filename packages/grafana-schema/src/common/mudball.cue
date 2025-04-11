@@ -190,6 +190,9 @@ BigValueJustifyMode: "auto" | "center" @cuetsy(kind="enum")
 // TODO docs
 BigValueTextMode: "auto" | "value" | "value_and_name" | "name" | "none" @cuetsy(kind="enum",memberNames="Auto|Value|ValueAndName|Name|None")
 
+// TODO docs
+PercentChangeColorMode: "standard" | "inverted" | "same_as_value" @cuetsy(kind="enum",memberNames="Standard|Inverted|SameAsValue")
+
 // TODO -- should not be table specific!
 // TODO docs
 FieldTextAlignment: "auto" | "left" | "right" | "center" @cuetsy(kind="type")
@@ -203,6 +206,8 @@ VizTextDisplayOptions: {
 	titleSize?: number
 	// Explicit value text size
 	valueSize?: number
+	// Explicit percent text size
+	percentSize?: number
 } @cuetsy(kind="interface")
 
 // TODO docs
@@ -224,6 +229,7 @@ GraphFieldConfig: {
 	gradientMode?:    GraphGradientMode
 	thresholdsStyle?: GraphThresholdsStyleConfig
 	transform?:       GraphTransform
+	insertNulls?:     bool | number
 } @cuetsy(kind="interface")
 
 // TODO docs
@@ -247,7 +253,7 @@ BarGaugeDisplayMode: "basic" | "lcd" | "gradient" @cuetsy(kind="enum")
 BarGaugeValueMode: "color" | "text" | "hidden" @cuetsy(kind="enum")
 
 // Allows for the bar gauge name to be placed explicitly
-BarGaugeNamePlacement: "auto" | "top" | "left" @cuetsy(kind="enum")
+BarGaugeNamePlacement: "auto" | "top" | "left" | "hidden" @cuetsy(kind="enum")
 
 // Allows for the bar gauge size to be set explicitly
 BarGaugeSizing: "auto" | "manual" @cuetsy(kind="enum")
@@ -258,6 +264,7 @@ VizTooltipOptions: {
 	sort: SortOrder
 	maxWidth?: number
 	maxHeight?: number
+	hideZeros?: bool
 } @cuetsy(kind="interface")
 
 Labels: {

@@ -1,11 +1,12 @@
 import { css } from '@emotion/css';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
-import { Field, Input, Button, Legend, Container, useStyles2, HorizontalGroup, LinkButton } from '@grafana/ui';
+import { Field, Input, Button, Legend, Container, useStyles2, LinkButton, Stack } from '@grafana/ui';
 import config from 'app/core/config';
+import { t, Trans } from 'app/core/internationalization';
 
 interface EmailDTO {
   userOrEmail: string;
@@ -40,37 +41,52 @@ export const ForgottenPassword = () => {
   if (emailSent) {
     return (
       <div>
-        <p>An email with a reset link has been sent to the email address. You should receive it shortly.</p>
+        <p>
+          <Trans i18nKey="forgot-password.email-sent">
+            An email with a reset link has been sent to the email address. You should receive it shortly.
+          </Trans>
+        </p>
         <Container margin="md" />
         <LinkButton variant="primary" href={loginHref}>
-          Back to login
+          <Trans i18nKey="forgot-password.back-button">Back to login</Trans>
         </LinkButton>
       </div>
     );
   }
   return (
     <form onSubmit={handleSubmit(sendEmail)}>
-      <Legend>Reset password</Legend>
+      <Legend>
+        <Trans i18nKey="forgot-password.reset-password-header">Reset password</Trans>
+      </Legend>
       <Field
-        label="User"
-        description="Enter your information to get a reset link sent to you"
+        label={t('forgot-password.user-field-label', 'User')}
+        description={t(
+          'forgot-password.user-field-description',
+          'Enter your information to get a reset link sent to you'
+        )}
         invalid={!!errors.userOrEmail}
         error={errors?.userOrEmail?.message}
       >
         <Input
           id="user-input"
-          placeholder="Email or username"
+          placeholder={t('forgot-password.user-field-placeholder', 'Email or username')}
           {...register('userOrEmail', { required: 'Email or username is required' })}
         />
       </Field>
-      <HorizontalGroup>
-        <Button type="submit">Send reset email</Button>
+      <Stack>
+        <Button type="submit">
+          <Trans i18nKey="forgot-password.send-email-button">Send reset email</Trans>
+        </Button>
         <LinkButton fill="text" href={loginHref}>
-          Back to login
+          <Trans i18nKey="forgot-password.back-button">Back to login</Trans>
         </LinkButton>
-      </HorizontalGroup>
+      </Stack>
 
-      <p className={styles}>Did you forget your username or email? Contact your Grafana administrator.</p>
+      <p className={styles}>
+        <Trans i18nKey="forgot-password.contact-admin">
+          Did you forget your username or email? Contact your Grafana administrator.
+        </Trans>
+      </p>
     </form>
   );
 };

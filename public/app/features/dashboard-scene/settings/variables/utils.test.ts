@@ -10,10 +10,10 @@ import {
   GroupByVariable,
   TextBoxVariable,
   SceneVariableSet,
+  SceneVariable,
 } from '@grafana/scenes';
-import { DataQuery, DataSourceJsonData, VariableType } from '@grafana/schema';
-import { SHARED_DASHBOARD_QUERY } from 'app/plugins/datasource/dashboard';
-import { DASHBOARD_DATASOURCE_PLUGIN_ID } from 'app/plugins/datasource/dashboard/types';
+import { DataQuery, DataSourceJsonData, VariableHide, VariableType } from '@grafana/schema';
+import { SHARED_DASHBOARD_QUERY, DASHBOARD_DATASOURCE_PLUGIN_ID } from 'app/plugins/datasource/dashboard/constants';
 
 import { AdHocFiltersVariableEditor } from './editors/AdHocFiltersVariableEditor';
 import { ConstantVariableEditor } from './editors/ConstantVariableEditor';
@@ -37,6 +37,7 @@ import {
   getNextAvailableId,
   getVariableDefault,
   isSceneVariableInstance,
+  validateVariableName,
 } from './utils';
 
 const templateSrv = {
@@ -226,7 +227,6 @@ describe('getVariableScene', () => {
   it.each([
     ['custom', CustomVariable],
     ['query', QueryVariable],
-    ['constant', ConstantVariable],
     ['interval', IntervalVariable],
     ['datasource', DataSourceVariable],
     ['adhoc', AdHocFiltersVariable],
@@ -237,6 +237,15 @@ describe('getVariableScene', () => {
     const sceneVariable = getVariableScene(type as EditableVariableType, initialState);
     expect(sceneVariable).toBeInstanceOf(instanceType);
     expect(sceneVariable.state.name).toBe(initialState.name);
+    expect(sceneVariable.state.hide).toBe(undefined);
+  });
+
+  it('should return the scene variable instance for the constant editable variable type', () => {
+    const initialState = { name: 'MyVariable' };
+    const sceneVariable = getVariableScene('constant' as EditableVariableType, initialState);
+    expect(sceneVariable).toBeInstanceOf(ConstantVariable);
+    expect(sceneVariable.state.name).toBe(initialState.name);
+    expect(sceneVariable.state.hide).toBe(VariableHide.hideVariable);
   });
 });
 
@@ -367,5 +376,55 @@ describe('getVariableDefault', () => {
 
     expect(defaultVariable).toBeInstanceOf(QueryVariable);
     expect(defaultVariable.state.name).toBe('query0');
+  });
+});
+
+describe('Variables name validation', () => {
+  let variable1: SceneVariable;
+  let variable2: SceneVariable;
+
+  beforeAll(async () => {
+    variable1 = new CustomVariable({
+      name: 'customVar',
+      query: 'test, test2',
+      value: 'test',
+      text: 'test',
+    });
+    variable2 = new CustomVariable({
+      name: 'customVar2',
+      query: 'test3, test4, $customVar',
+      value: '$customVar',
+      text: '$customVar',
+    });
+
+    new SceneVariableSet({ variables: [variable1, variable2] });
+  });
+
+  it('should not return error on same name and key', () => {
+    expect(validateVariableName(variable1, variable1.state.name).isValid).toBe(true);
+  });
+
+  it('should not return error if name is unique', () => {
+    expect(validateVariableName(variable1, 'unique_variable_name').isValid).toBe(true);
+  });
+
+  it('should return error if global variable name is used', () => {
+    expect(validateVariableName(variable1, '__').isValid).toBe(false);
+  });
+
+  it('should not return error if global variable name is used not at the beginning ', () => {
+    expect(validateVariableName(variable1, 'test__').isValid).toBe(true);
+  });
+
+  it('should return error if name is empty', () => {
+    expect(validateVariableName(variable1, '').isValid).toBe(false);
+  });
+
+  it('should return error if non word characters are used', () => {
+    expect(validateVariableName(variable1, '-').isValid).toBe(false);
+  });
+
+  it('should return error if variable name is taken', () => {
+    expect(validateVariableName(variable1, variable2.state.name).isValid).toBe(false);
   });
 });

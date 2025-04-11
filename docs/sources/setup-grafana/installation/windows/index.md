@@ -13,6 +13,10 @@ weight: 700
 
 # Install Grafana on Windows
 
+The following video demonstrates how to install Grafana using the Windows standalone installer as outlined in this document:
+
+{{< youtube id="js2bZijbhJM" >}}
+
 You install Grafana using the Windows installer or using the standalone Windows binary file.
 
 1. Navigate to the [Grafana download page](/grafana/download).
@@ -40,7 +44,7 @@ You install Grafana using the Windows installer or using the standalone Windows 
 Start Grafana by executing `grafana-server.exe`, located in the `bin` directory, preferably from the command line. If you want to run Grafana as a Windows service, then download
 [NSSM](https://nssm.cc/). It is very easy to add Grafana as a Windows service using that tool.
 
-1. To run Grafana, open your browser and go to the Grafana port (http://localhost:3000/ is default) and then follow the instructions in [Getting Started]({{< relref "../../../getting-started/build-first-dashboard" >}}).
+1. To run Grafana, open your browser and go to the Grafana port (http://localhost:3000/ is default) and then follow the instructions in [Getting Started](../../../getting-started/build-first-dashboard/).
 
    > **Note:** The default Grafana port is `3000`. This port might require extra permissions on Windows. If it does not appear in the default port, you can change the port number.
 
@@ -60,4 +64,4 @@ Start Grafana by executing `grafana-server.exe`, located in the `bin` directory,
 
 ## Next steps
 
-- [Start the Grafana server]({{< relref "../../start-restart-grafana" >}})
+- [Start the Grafana server](../../start-restart-grafana/)

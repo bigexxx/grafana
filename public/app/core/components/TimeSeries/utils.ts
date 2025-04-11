@@ -2,7 +2,6 @@ import { isNumber } from 'lodash';
 import uPlot from 'uplot';
 
 import {
-  DashboardCursorSync,
   DataFrame,
   FieldConfig,
   FieldType,
@@ -60,10 +59,14 @@ for (let i = 0; i < BIN_INCRS.length; i++) {
   BIN_INCRS[i] = 2 ** i;
 }
 
-import { UPlotConfigBuilder, UPlotConfigPrepFn } from '@grafana/ui/src/components/uPlot/config/UPlotConfigBuilder';
-import { getScaleGradientFn } from '@grafana/ui/src/components/uPlot/config/gradientFills';
-import { buildScaleKey } from '@grafana/ui/src/components/uPlot/internal';
-import { getStackingGroups, preparePlotData2 } from '@grafana/ui/src/components/uPlot/utils';
+import {
+  UPlotConfigBuilder,
+  UPlotConfigPrepFn,
+  getScaleGradientFn,
+  buildScaleKey,
+  getStackingGroups,
+  preparePlotData2,
+} from '@grafana/ui/internal';
 
 const defaultFormatter = (v: any, decimals: DecimalCount = 1) => (v == null ? '-' : v.toFixed(decimals));
 
@@ -73,19 +76,15 @@ const defaultConfig: GraphFieldConfig = {
   axisPlacement: AxisPlacement.Auto,
 };
 
-export const preparePlotConfigBuilder: UPlotConfigPrepFn<{
-  sync?: () => DashboardCursorSync;
-}> = ({
+export const preparePlotConfigBuilder: UPlotConfigPrepFn = ({
   frame,
   theme,
   timeZones,
   getTimeRange,
-  sync,
   allFrames,
   renderers,
   tweakScale = (opts) => opts,
   tweakAxis = (opts) => opts,
-  eventsScope = '__global_',
   hoverProximity,
   orientation = VizOrientation.Horizontal,
 }) => {
@@ -252,24 +251,19 @@ export const preparePlotConfigBuilder: UPlotConfigPrepFn<{
           softMin: customConfig.axisSoftMin,
           softMax: customConfig.axisSoftMax,
           centeredZero: customConfig.axisCenteredZero,
+          stackingMode: customConfig.stacking?.mode,
           range:
-            customConfig.stacking?.mode === StackingMode.Percent
+            field.type === FieldType.enum
               ? (u: uPlot, dataMin: number, dataMax: number) => {
-                  dataMin = dataMin < 0 ? -1 : 0;
-                  dataMax = dataMax > 0 ? 1 : 0;
-                  return [dataMin, dataMax];
+                  // this is the exhaustive enum (stable)
+                  let len = field.config.type!.enum!.text!.length;
+
+                  return [-1, len];
+
+                  // these are only values that are present
+                  // return [dataMin - 1, dataMax + 1]
                 }
-              : field.type === FieldType.enum
-                ? (u: uPlot, dataMin: number, dataMax: number) => {
-                    // this is the exhaustive enum (stable)
-                    let len = field.config.type!.enum!.text!.length;
-
-                    return [-1, len];
-
-                    // these are only values that are present
-                    // return [dataMin - 1, dataMax + 1]
-                  }
-                : undefined,
+              : undefined,
           decimals: field.config.decimals,
         },
         field
@@ -328,7 +322,7 @@ export const preparePlotConfigBuilder: UPlotConfigPrepFn<{
             scaleKey,
             label: customConfig.axisLabel,
             size: customConfig.axisWidth,
-            placement: isHorizontal ? customConfig.axisPlacement ?? AxisPlacement.Auto : AxisPlacement.Bottom,
+            placement: isHorizontal ? (customConfig.axisPlacement ?? AxisPlacement.Auto) : AxisPlacement.Bottom,
             formatValue: (v, decimals) => formattedValueToString(fmt(v, decimals)),
             theme,
             grid: { show: customConfig.axisGridShow },
@@ -555,8 +549,6 @@ export const preparePlotConfigBuilder: UPlotConfigPrepFn<{
     r.init(builder, fieldIndices);
   });
 
-  builder.scaleKeys = [xScaleKey, yScaleKey];
-
   // if hovered value is null, how far we may scan left/right to hover nearest non-null
   const DEFAULT_HOVER_NULL_PROXIMITY = 15;
   const DEFAULT_FOCUS_PROXIMITY = 30;
@@ -584,23 +576,15 @@ export const preparePlotConfigBuilder: UPlotConfigPrepFn<{
     focus: {
       prox: hoverProximity ?? DEFAULT_FOCUS_PROXIMITY,
     },
+    points: { one: true },
   };
 
-  if (xField.type === FieldType.time && sync && sync() !== DashboardCursorSync.Off) {
-    cursor.sync = {
-      key: eventsScope,
-      scales: [xScaleKey, null],
-      // match: [() => true, () => false],
-    };
-  }
-
-  builder.setSync();
   builder.setCursor(cursor);
 
   return builder;
 };
 
-export function getNamesToFieldIndex(frame: DataFrame, allFrames: DataFrame[]): Map<string, number> {
+function getNamesToFieldIndex(frame: DataFrame, allFrames: DataFrame[]): Map<string, number> {
   const originNames = new Map<string, number>();
   frame.fields.forEach((field, i) => {
     const origin = field.state?.origin;

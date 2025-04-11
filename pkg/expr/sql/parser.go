@@ -1,99 +1,62 @@
 package sql
 
 import (
-	"errors"
-	"strings"
+	"fmt"
+	"sort"
 
-	parser "github.com/krasun/gosqlparser"
-	"github.com/xwb1989/sqlparser"
+	"github.com/dolthub/vitess/go/vt/sqlparser"
+	"github.com/grafana/grafana/pkg/infra/log"
 )
+
+var logger = log.New("sql_expr")
 
 // TablesList returns a list of tables for the sql statement
 func TablesList(rawSQL string) ([]string, error) {
 	stmt, err := sqlparser.Parse(rawSQL)
 	if err != nil {
-		tables, err := parse(rawSQL)
-		if err != nil {
-			return parseTables(rawSQL)
-		}
-		return tables, nil
+		logger.Error("error parsing sql", "error", err.Error(), "sql", rawSQL)
+		return nil, fmt.Errorf("error parsing sql: %s", err.Error())
 	}
 
-	tables := []string{}
-	switch kind := stmt.(type) {
-	case *sqlparser.Select:
-		for _, t := range kind.From {
-			buf := sqlparser.NewTrackedBuffer(nil)
-			t.Format(buf)
-			table := buf.String()
-			if table != "dual" {
-				tables = append(tables, buf.String())
+	tables := make(map[string]struct{})
+
+	walkSubtree := func(node sqlparser.SQLNode) error {
+		err = sqlparser.Walk(func(node sqlparser.SQLNode) (kontinue bool, err error) {
+			switch v := node.(type) {
+			case *sqlparser.AliasedTableExpr:
+				if tableName, ok := v.Expr.(sqlparser.TableName); ok {
+					tables[tableName.Name.String()] = struct{}{}
+				}
+			case *sqlparser.TableName:
+				tables[v.Name.String()] = struct{}{}
 			}
-		}
-	default:
-		return nil, errors.New("not a select statement")
-	}
-	return tables, nil
-}
+			return true, nil
+		}, node)
 
-// uses a simple tokenizer
-func parse(rawSQL string) ([]string, error) {
-	query, err := parser.Parse(rawSQL)
-	if err != nil {
+		if err != nil {
+			logger.Error("error walking sql", "error", err, "node", node)
+			return fmt.Errorf("failed to parse SQL expression: %w", err)
+		}
+		return nil
+	}
+
+	if err := walkSubtree(stmt); err != nil {
 		return nil, err
 	}
-	if query.GetType() == parser.StatementSelect {
-		sel, ok := query.(*parser.Select)
-		if ok {
-			return []string{sel.Table}, nil
+
+	result := make([]string, 0, len(tables))
+	for table := range tables {
+		// Remove 'dual' table if it exists
+		// This is a special table in MySQL that always returns a single row with a single column
+		// See: https://dev.mysql.com/doc/refman/5.7/en/select.html#:~:text=You%20are%20permitted%20to%20specify%20DUAL%20as%20a%20dummy%20table%20name%20in%20situations%20where%20no%20tables%20are%20referenced
+		if table != "dual" {
+			result = append(result, table)
 		}
 	}
-	return nil, err
-}
 
-func parseTables(rawSQL string) ([]string, error) {
-	checkSql := strings.ToUpper(rawSQL)
-	if strings.HasPrefix(checkSql, "SELECT") || strings.HasPrefix(rawSQL, "WITH") {
-		tables := []string{}
-		tokens := strings.Split(rawSQL, " ")
-		checkNext := false
-		takeNext := false
-		for _, t := range tokens {
-			t = strings.ToUpper(t)
-			t = strings.TrimSpace(t)
+	sort.Strings(result)
 
-			if takeNext {
-				tables = append(tables, t)
-				checkNext = false
-				takeNext = false
-				continue
-			}
-			if checkNext {
-				if strings.Contains(t, "(") {
-					checkNext = false
-					continue
-				}
-				if strings.Contains(t, ",") {
-					values := strings.Split(t, ",")
-					for _, v := range values {
-						v := strings.TrimSpace(v)
-						if v != "" {
-							tables = append(tables, v)
-						} else {
-							takeNext = true
-							break
-						}
-					}
-					continue
-				}
-				tables = append(tables, t)
-				checkNext = false
-			}
-			if t == "FROM" {
-				checkNext = true
-			}
-		}
-		return tables, nil
-	}
-	return nil, errors.New("not a select statement")
+	logger.Debug("tables found in sql", "tables", tables)
+
+	return result, nil
 }

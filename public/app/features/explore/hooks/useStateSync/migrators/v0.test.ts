@@ -1,6 +1,11 @@
-import { DEFAULT_RANGE } from 'app/features/explore/state/utils';
+import { DEFAULT_RANGE } from 'app/features/explore/state/constants';
 
 import { v0Migrator } from './v0';
+
+// Avoids errors caused by circular dependencies
+jest.mock('app/features/live/dashboard/dashboardWatcher', () => ({
+  ignoreNextSave: jest.fn(),
+}));
 
 describe('v0 migrator', () => {
   describe('parse', () => {

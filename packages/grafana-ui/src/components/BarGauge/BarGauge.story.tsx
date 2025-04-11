@@ -1,12 +1,11 @@
-import { Story, Meta } from '@storybook/react';
-import React from 'react';
+import { StoryFn, Meta } from '@storybook/react';
 
 import { VizOrientation, ThresholdsMode, Field, FieldType, getDisplayProcessor } from '@grafana/data';
-import { BarGauge, BarGaugeDisplayMode } from '@grafana/ui';
+import { BarGaugeDisplayMode } from '@grafana/schema';
 
 import { useTheme2 } from '../../themes';
 
-import { Props } from './BarGauge';
+import { BarGauge, Props } from './BarGauge';
 import mdx from './BarGauge.mdx';
 
 const meta: Meta = {
@@ -110,14 +109,14 @@ const AddBarGaugeStory = (storyProps: StoryProps) => {
   return <BarGauge {...props} />;
 };
 
-export const barGaugeVertical: Story<StoryProps> = AddBarGaugeStory.bind({});
+export const barGaugeVertical: StoryFn<StoryProps> = AddBarGaugeStory.bind({});
 barGaugeVertical.args = {
   height: 500,
   width: 100,
   orientation: VizOrientation.Vertical,
 };
 
-export const barGaugeHorizontal: Story<StoryProps> = AddBarGaugeStory.bind({});
+export const barGaugeHorizontal: StoryFn<StoryProps> = AddBarGaugeStory.bind({});
 barGaugeHorizontal.args = {
   height: 100,
   width: 500,

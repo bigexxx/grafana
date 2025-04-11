@@ -1,11 +1,12 @@
 import { css } from '@emotion/css';
-import React from 'react';
 import { useFieldArray, useFormContext } from 'react-hook-form';
 
 import { GrafanaTheme2 } from '@grafana/data';
-import { Button, Field, Icon, IconButton, InlineField, InlineFieldRow, Input, useStyles2 } from '@grafana/ui';
+import { Button, Field, Icon, IconButton, InlineField, InlineFieldRow, Input, Tooltip, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 
 import { MuteTimingFields } from '../../types/mute-timing-form';
+import ConditionalWrap from '../ConditionalWrap';
 
 import { isValidStartAndEndTime, isvalidTimeFormat } from './util';
 
@@ -17,7 +18,8 @@ const INVALID_FORMAT_MESSAGE = 'Times must be between 00:00 and 24:00 UTC';
 
 export const MuteTimingTimeRange = ({ intervalIndex }: Props) => {
   const styles = useStyles2(getStyles);
-  const { register, formState, getValues } = useFormContext<MuteTimingFields>();
+  const { register, formState, getValues, watch } = useFormContext<MuteTimingFields>();
+  const isDisabled = watch(`time_intervals.${intervalIndex}.disable`);
 
   const {
     fields: timeRanges,
@@ -34,7 +36,7 @@ export const MuteTimingTimeRange = ({ intervalIndex }: Props) => {
     <div>
       <Field
         className={styles.field}
-        label="Time range"
+        label={t('alerting.mute-timing-time-range.label-time-range', 'Time range')}
         description="The time inclusive of the start and exclusive of the end time (in UTC if no location has been selected, otherwise local time)"
         invalid={timeRangeInvalid}
       >
@@ -57,7 +59,7 @@ export const MuteTimingTimeRange = ({ intervalIndex }: Props) => {
               <div className={styles.timeRange} key={timeRange.id}>
                 <InlineFieldRow>
                   <InlineField
-                    label="Start time"
+                    label={t('alerting.mute-timing-time-range.label-start-time', 'Start time')}
                     invalid={Boolean(timeRangeErrors?.start_time)}
                     error={timeRangeErrors?.start_time?.message}
                   >
@@ -81,15 +83,16 @@ export const MuteTimingTimeRange = ({ intervalIndex }: Props) => {
                       })}
                       className={styles.timeRangeInput}
                       maxLength={5}
+                      readOnly={isDisabled}
                       suffix={<Icon name="clock-nine" />}
                       // @ts-ignore react-hook-form doesn't handle nested field arrays well
                       defaultValue={timeRange.start_time}
-                      placeholder="HH:mm"
+                      placeholder={t('alerting.mute-timing-time-range.mute-timing-starts-at-placeholder-hhmm', 'HH:mm')}
                       data-testid="mute-timing-starts-at"
                     />
                   </InlineField>
                   <InlineField
-                    label="End time"
+                    label={t('alerting.mute-timing-time-range.label-end-time', 'End time')}
                     invalid={Boolean(timeRangeErrors?.end_time)}
                     error={timeRangeErrors?.end_time?.message}
                   >
@@ -112,22 +115,23 @@ export const MuteTimingTimeRange = ({ intervalIndex }: Props) => {
                       })}
                       className={styles.timeRangeInput}
                       maxLength={5}
+                      readOnly={isDisabled}
                       suffix={<Icon name="clock-nine" />}
                       // @ts-ignore react-hook-form doesn't handle nested field arrays well
                       defaultValue={timeRange.end_time}
-                      placeholder="HH:mm"
+                      placeholder={t('alerting.mute-timing-time-range.mute-timing-ends-at-placeholder-hhmm', 'HH:mm')}
                       data-testid="mute-timing-ends-at"
                     />
                   </InlineField>
                   <IconButton
                     className={styles.deleteTimeRange}
-                    title="Remove"
+                    title={t('alerting.mute-timing-time-range.title-remove', 'Remove')}
                     name="trash-alt"
                     onClick={(e) => {
                       e.preventDefault();
                       removeTimeRange(index);
                     }}
-                    tooltip="Remove time range"
+                    tooltip={t('alerting.mute-timing-time-range.tooltip-remove-time-range', 'Remove time range')}
                   />
                 </InlineFieldRow>
               </div>
@@ -135,33 +139,43 @@ export const MuteTimingTimeRange = ({ intervalIndex }: Props) => {
           })}
         </>
       </Field>
-      <Button
-        className={styles.addTimeRange}
-        variant="secondary"
-        type="button"
-        icon="plus"
-        onClick={() => addTimeRange({ start_time: '', end_time: '' })}
+      <ConditionalWrap
+        shouldWrap={isDisabled}
+        wrap={(children) => (
+          <Tooltip content="This time interval is disabled" placement="right-start">
+            {children}
+          </Tooltip>
+        )}
       >
-        Add another time range
-      </Button>
+        <Button
+          className={styles.addTimeRange}
+          variant="secondary"
+          type="button"
+          icon="plus"
+          disabled={isDisabled}
+          onClick={() => addTimeRange({ start_time: '', end_time: '' })}
+        >
+          <Trans i18nKey="alerting.mute-timing-time-range.add-another-time-range">Add another time range</Trans>
+        </Button>
+      </ConditionalWrap>
     </div>
   );
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  field: css`
-    margin-bottom: 0;
-  `,
-  timeRange: css`
-    margin-bottom: ${theme.spacing(1)};
-  `,
-  timeRangeInput: css`
-    width: 90px;
-  `,
-  deleteTimeRange: css`
-    margin: ${theme.spacing(1)} 0 0 ${theme.spacing(0.5)};
-  `,
-  addTimeRange: css`
-    margin-bottom: ${theme.spacing(2)};
-  `,
+  field: css({
+    marginBottom: 0,
+  }),
+  timeRange: css({
+    marginBottom: theme.spacing(1),
+  }),
+  timeRangeInput: css({
+    width: '90px',
+  }),
+  deleteTimeRange: css({
+    margin: `${theme.spacing(1)} 0 0 ${theme.spacing(0.5)}`,
+  }),
+  addTimeRange: css({
+    marginBottom: theme.spacing(2),
+  }),
 });

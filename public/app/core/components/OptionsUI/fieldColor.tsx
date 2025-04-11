@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import React, { CSSProperties, FC } from 'react';
+import { CSSProperties, FC } from 'react';
 
 import {
   StandardEditorProps,
@@ -14,6 +14,8 @@ import {
   getFieldColorMode,
 } from '@grafana/data';
 import { useStyles2, useTheme2, Field, RadioButtonGroup, Select } from '@grafana/ui';
+
+import { t } from '../../internationalization';
 
 import { ColorValueEditor } from './color';
 
@@ -98,7 +100,7 @@ export const FieldColorEditor = ({ value, onChange, item, id }: Props) => {
         <div style={{ marginBottom: theme.spacing(2) }}>
           <Select minMenuHeight={200} options={options} value={mode} onChange={onModeChange} inputId={id} />
         </div>
-        <Field label="Color series by">
+        <Field label={t('options-ui.field-color.color-by-label', 'Color series by')}>
           <RadioButtonGroup value={value?.seriesBy ?? 'last'} options={seriesModes} onChange={onSeriesModeChange} />
         </Field>
       </>

@@ -12,10 +12,10 @@ import (
 	"github.com/grafana/grafana/pkg/services/annotations/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/services/annotations"
-	"github.com/grafana/grafana/pkg/services/auth/identity"
 	"github.com/grafana/grafana/pkg/services/sqlstore"
 	"github.com/grafana/grafana/pkg/services/tag"
 	"github.com/grafana/grafana/pkg/setting"
@@ -245,7 +245,7 @@ func tagSet[T any](fn func(T) int64, list []T) map[int64]struct{} {
 	return set
 }
 
-func (r *xormRepositoryImpl) Get(ctx context.Context, query *annotations.ItemQuery, accessResources *accesscontrol.AccessResources) ([]*annotations.ItemDTO, error) {
+func (r *xormRepositoryImpl) Get(ctx context.Context, query annotations.ItemQuery, accessResources *accesscontrol.AccessResources) ([]*annotations.ItemDTO, error) {
 	var sql bytes.Buffer
 	params := make([]interface{}, 0)
 	items := make([]*annotations.ItemDTO, 0)
@@ -267,10 +267,10 @@ func (r *xormRepositoryImpl) Get(ctx context.Context, query *annotations.ItemQue
 				annotation.updated,
 				usr.email,
 				usr.login,
-				alert.name as alert_name
+				r.title as alert_name
 			FROM annotation
 			LEFT OUTER JOIN ` + r.db.GetDialect().Quote("user") + ` as usr on usr.id = annotation.user_id
-			LEFT OUTER JOIN alert on alert.id = annotation.alert_id
+			LEFT OUTER JOIN alert_rule as r on r.id = annotation.alert_id
 			INNER JOIN (
 				SELECT a.id from annotation a
 			`)
@@ -279,7 +279,7 @@ func (r *xormRepositoryImpl) Get(ctx context.Context, query *annotations.ItemQue
 		params = append(params, query.OrgID)
 
 		if query.AnnotationID != 0 {
-			// fmt.Print("annotation query")
+			// fmt.Println("annotation query")
 			sql.WriteString(` AND a.id = ?`)
 			params = append(params, query.AnnotationID)
 		}
@@ -287,6 +287,9 @@ func (r *xormRepositoryImpl) Get(ctx context.Context, query *annotations.ItemQue
 		if query.AlertID != 0 {
 			sql.WriteString(` AND a.alert_id = ?`)
 			params = append(params, query.AlertID)
+		} else if query.AlertUID != "" {
+			sql.WriteString(` AND a.alert_id = (SELECT id FROM alert_rule WHERE uid = ? and org_id = ?)`)
+			params = append(params, query.AlertUID, query.OrgID)
 		}
 
 		if query.DashboardID != 0 {
@@ -309,9 +312,10 @@ func (r *xormRepositoryImpl) Get(ctx context.Context, query *annotations.ItemQue
 			params = append(params, query.To, query.From)
 		}
 
-		if query.Type == "alert" {
+		switch query.Type {
+		case "alert":
 			sql.WriteString(` AND a.alert_id > 0`)
-		} else if query.Type == "annotation" {
+		case "annotation":
 			sql.WriteString(` AND a.alert_id = 0`)
 		}
 
@@ -330,10 +334,11 @@ func (r *xormRepositoryImpl) Get(ctx context.Context, query *annotations.ItemQue
 			}
 
 			if len(tags) > 0 {
+				// "at" is a keyword in Spanner and needs to be quoted.
 				tagsSubQuery := fmt.Sprintf(`
-			SELECT SUM(1) FROM annotation_tag at
-			INNER JOIN tag on tag.id = at.tag_id
-			WHERE at.annotation_id = a.id
+			SELECT SUM(1) FROM annotation_tag `+r.db.Quote("at")+`
+			INNER JOIN tag on tag.id = `+r.db.Quote("at")+`.tag_id
+			WHERE `+r.db.Quote("at")+`.annotation_id = a.id
 				AND (
 				%s
 				)
@@ -351,14 +356,16 @@ func (r *xormRepositoryImpl) Get(ctx context.Context, query *annotations.ItemQue
 		if err != nil {
 			return err
 		}
-		sql.WriteString(fmt.Sprintf(" AND (%s)", acFilter))
-
-		if query.Limit == 0 {
-			query.Limit = 100
+		if acFilter != "" {
+			sql.WriteString(fmt.Sprintf(" AND (%s)", acFilter))
 		}
 
 		// order of ORDER BY arguments match the order of a sql index for performance
-		sql.WriteString(" ORDER BY a.org_id, a.epoch_end DESC, a.epoch DESC" + r.db.GetDialect().Limit(query.Limit) + " ) dt on dt.id = annotation.id")
+		orderBy := " ORDER BY a.org_id, a.epoch_end DESC, a.epoch DESC"
+		if query.Limit > 0 {
+			orderBy += r.db.GetDialect().Limit(query.Limit)
+		}
+		sql.WriteString(orderBy + " ) dt on dt.id = annotation.id")
 
 		if err := sess.SQL(sql.String(), params...).Find(&items); err != nil {
 			items = nil
@@ -372,6 +379,10 @@ func (r *xormRepositoryImpl) Get(ctx context.Context, query *annotations.ItemQue
 }
 
 func (r *xormRepositoryImpl) getAccessControlFilter(user identity.Requester, accessResources *accesscontrol.AccessResources) (string, error) {
+	if accessResources.SkipAccessControlFilter {
+		return "", nil
+	}
+
 	var filters []string
 
 	if accessResources.CanAccessOrgAnnotations {
@@ -440,7 +451,7 @@ func (r *xormRepositoryImpl) Delete(ctx context.Context, params *annotations.Del
 	})
 }
 
-func (r *xormRepositoryImpl) GetTags(ctx context.Context, query *annotations.TagsQuery) (annotations.FindTagsResult, error) {
+func (r *xormRepositoryImpl) GetTags(ctx context.Context, query annotations.TagsQuery) (annotations.FindTagsResult, error) {
 	var items []*annotations.Tag
 	err := r.db.WithDbSession(ctx, func(dbSession *db.Session) error {
 		if query.Limit == 0 {

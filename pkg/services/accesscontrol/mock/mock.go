@@ -4,24 +4,25 @@ import (
 	"context"
 	"errors"
 
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
-	"github.com/grafana/grafana/pkg/services/auth/identity"
+	"github.com/grafana/grafana/pkg/services/pluginsintegration/pluginaccesscontrol"
 	"github.com/grafana/grafana/pkg/services/user"
 )
 
 type fullAccessControl interface {
 	accesscontrol.AccessControl
 	accesscontrol.Service
-	plugins.RoleRegistry
+	pluginaccesscontrol.RoleRegistry
 	RegisterFixedRoles(context.Context) error
 }
 
 type Calls struct {
 	Evaluate                       []interface{}
+	GetRoleByName                  []interface{}
 	GetUserPermissions             []interface{}
-	GetUserPermissionsInOrg        []interface{}
 	ClearUserPermissionCache       []interface{}
 	DeclareFixedRoles              []interface{}
 	DeclarePluginRoles             []interface{}
@@ -37,6 +38,9 @@ type Calls struct {
 }
 
 type Mock struct {
+	accesscontrol.Service
+	accesscontrol.AccessControl
+
 	// Unless an override is provided, permissions will be returned by GetUserPermissions
 	permissions []accesscontrol.Permission
 	// Unless an override is provided, builtInRoles will be returned by GetUserBuiltInRoles
@@ -47,8 +51,8 @@ type Mock struct {
 
 	// Override functions
 	EvaluateFunc                       func(context.Context, identity.Requester, accesscontrol.Evaluator) (bool, error)
+	GetRoleByNameFunc                  func(context.Context, int64, string) (*accesscontrol.RoleDTO, error)
 	GetUserPermissionsFunc             func(context.Context, identity.Requester, accesscontrol.Options) ([]accesscontrol.Permission, error)
-	GetUserPermissionsInOrgFunc        func(context.Context, identity.Requester, int64) ([]accesscontrol.Permission, error)
 	ClearUserPermissionCacheFunc       func(identity.Requester)
 	DeclareFixedRolesFunc              func(...accesscontrol.RoleRegistration) error
 	DeclarePluginRolesFunc             func(context.Context, string, string, []plugins.RoleRegistration) error
@@ -79,6 +83,18 @@ func New() *Mock {
 	}
 
 	return mock
+}
+
+func (m *Mock) GetRoleByName(ctx context.Context, orgID int64, roleName string) (*accesscontrol.RoleDTO, error) {
+	m.Calls.GetRoleByName = append(m.Calls.GetRoleByName, []interface{}{ctx, orgID, roleName})
+	if m.GetRoleByNameFunc != nil {
+		return m.GetRoleByNameFunc(ctx, orgID, roleName)
+	}
+	return nil, nil
+}
+
+func (m *Mock) Run(ctx context.Context) error {
+	return nil
 }
 
 func (m *Mock) GetUsageStats(ctx context.Context) map[string]interface{} {
@@ -112,7 +128,7 @@ func (m *Mock) Evaluate(ctx context.Context, usr identity.Requester, evaluator a
 		if err != nil {
 			return false, err
 		}
-		permissions = accesscontrol.GroupScopesByAction(userPermissions)
+		permissions = accesscontrol.GroupScopesByActionContext(ctx, userPermissions)
 	}
 
 	if evaluator.Evaluate(permissions) {
@@ -137,16 +153,6 @@ func (m *Mock) GetUserPermissions(ctx context.Context, user identity.Requester, 
 	// Use override if provided
 	if m.GetUserPermissionsFunc != nil {
 		return m.GetUserPermissionsFunc(ctx, user, opts)
-	}
-	// Otherwise return the Permissions list
-	return m.permissions, nil
-}
-
-func (m *Mock) GetUserPermissionsInOrg(ctx context.Context, user identity.Requester, orgID int64) ([]accesscontrol.Permission, error) {
-	m.Calls.GetUserPermissionsInOrg = append(m.Calls.GetUserPermissionsInOrg, []interface{}{ctx, user, orgID})
-	// Use override if provided
-	if m.GetUserPermissionsInOrgFunc != nil {
-		return m.GetUserPermissionsInOrgFunc(ctx, user, orgID)
 	}
 	// Otherwise return the Permissions list
 	return m.permissions, nil
@@ -265,4 +271,9 @@ func (m *Mock) SyncUserRoles(ctx context.Context, orgID int64, cmd accesscontrol
 		return m.SyncUserRolesFunc(ctx, orgID, cmd)
 	}
 	return nil
+}
+
+// WithoutResolvers implements fullAccessControl.
+func (m *Mock) WithoutResolvers() accesscontrol.AccessControl {
+	return m
 }

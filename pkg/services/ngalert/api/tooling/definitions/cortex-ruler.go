@@ -8,6 +8,42 @@ import (
 	"github.com/prometheus/common/model"
 )
 
+// swagger:route Get /ruler/grafana/api/v1/rule/{RuleUID} ruler RouteGetRuleByUID
+//
+// Get rule by UID
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       202: GettableExtendedRuleNode
+//       403: ForbiddenError
+//       404: description: Not found.
+
+// swagger:route Delete /ruler/grafana/api/v1/trash/rule/guid/{RuleGUID} ruler RouteDeleteRuleFromTrashByGUID
+//
+// Permanently delete a rule from trash by GUID
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       202: Ack
+//       403: ForbiddenError
+//       404: description: Not found.
+
+// swagger:route Get /ruler/grafana/api/v1/rule/{RuleUID}/versions ruler RouteGetRuleVersionsByUID
+//
+// Get rule versions by UID
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       202: GettableRuleVersions
+//       403: ForbiddenError
+//       404: description: Not found.
+
 // swagger:route Get /ruler/grafana/api/v1/rules ruler RouteGetGrafanaRulesConfig
 //
 // List rule groups
@@ -24,9 +60,12 @@ import (
 //
 // List rules in provisioning format
 //
-//     Consumes:
+//     Produces:
 //     - application/json
 //     - application/yaml
+//     - application/terraform+hcl
+//     - text/yaml
+//     - text/hcl
 //
 //     Responses:
 //       200: AlertingFileExport
@@ -64,7 +103,13 @@ import (
 //
 //     Consumes:
 //     - application/json
+//
+//     Produces:
+//     - application/json
 //     - application/yaml
+//     - application/terraform+hcl
+//     - text/yaml
+//     - text/hcl
 //
 //     Responses:
 //       200: AlertingFileExport
@@ -134,6 +179,7 @@ import (
 //     Responses:
 //       202: RuleGroupConfigResponse
 //       403: ForbiddenError
+//		 404: NotFound
 
 // swagger:route Get /ruler/{DatasourceUID}/api/v1/rules/{Namespace}/{Groupname} ruler RouteGetRulegGroupConfig
 //
@@ -197,6 +243,18 @@ type PathGetRulesParams struct {
 	PanelID int64
 }
 
+// swagger:parameters RouteGetRuleByUID RouteGetRuleVersionsByUID
+type PathGetRuleByUIDParams struct {
+	// in: path
+	RuleUID string
+}
+
+// swagger:parameters RouteDeleteRuleFromTrashByGUID
+type PathDeleteRuleFromTrashByGUIDParams struct {
+	// in: path
+	RuleGUID string
+}
+
 // swagger:model
 type RuleGroupConfigResponse struct {
 	GettableRuleGroupConfig
@@ -210,6 +268,14 @@ type PostableRuleGroupConfig struct {
 	Name     string                     `yaml:"name" json:"name"`
 	Interval model.Duration             `yaml:"interval,omitempty" json:"interval,omitempty"`
 	Rules    []PostableExtendedRuleNode `yaml:"rules" json:"rules"`
+
+	// fields below are used by Mimir/Loki rulers
+
+	SourceTenants                 []string        `yaml:"source_tenants,omitempty" json:"source_tenants,omitempty"`
+	EvaluationDelay               *model.Duration `yaml:"evaluation_delay,omitempty" json:"evaluation_delay,omitempty"`
+	QueryOffset                   *model.Duration `yaml:"query_offset,omitempty" json:"query_offset,omitempty"`
+	AlignEvaluationTimeOnInterval bool            `yaml:"align_evaluation_time_on_interval,omitempty" json:"align_evaluation_time_on_interval,omitempty"`
+	Limit                         int             `yaml:"limit,omitempty" json:"limit,omitempty"`
 }
 
 func (c *PostableRuleGroupConfig) UnmarshalJSON(b []byte) error {
@@ -248,15 +314,29 @@ func (c *PostableRuleGroupConfig) validate() error {
 	if hasGrafRules && hasLotexRules {
 		return fmt.Errorf("cannot mix Grafana & Prometheus style rules")
 	}
+
+	if hasGrafRules && (len(c.SourceTenants) > 0 || c.EvaluationDelay != nil || c.QueryOffset != nil || c.AlignEvaluationTimeOnInterval || c.Limit > 0) {
+		return fmt.Errorf("fields source_tenants, evaluation_delay, query_offset, align_evaluation_time_on_interval and limit are not supported for Grafana rules")
+	}
 	return nil
 }
 
 // swagger:model
+type GettableRuleVersions []GettableExtendedRuleNode
+
+// swagger:model
 type GettableRuleGroupConfig struct {
-	Name          string                     `yaml:"name" json:"name"`
-	Interval      model.Duration             `yaml:"interval,omitempty" json:"interval,omitempty"`
-	SourceTenants []string                   `yaml:"source_tenants,omitempty" json:"source_tenants,omitempty"`
-	Rules         []GettableExtendedRuleNode `yaml:"rules" json:"rules"`
+	Name     string                     `yaml:"name" json:"name"`
+	Interval model.Duration             `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Rules    []GettableExtendedRuleNode `yaml:"rules" json:"rules"`
+
+	// fields below are used by Mimir/Loki rulers
+
+	SourceTenants                 []string        `yaml:"source_tenants,omitempty" json:"source_tenants,omitempty"`
+	EvaluationDelay               *model.Duration `yaml:"evaluation_delay,omitempty" json:"evaluation_delay,omitempty"`
+	QueryOffset                   *model.Duration `yaml:"query_offset,omitempty" json:"query_offset,omitempty"`
+	AlignEvaluationTimeOnInterval bool            `yaml:"align_evaluation_time_on_interval,omitempty" json:"align_evaluation_time_on_interval,omitempty"`
+	Limit                         int             `yaml:"limit,omitempty" json:"limit,omitempty"`
 }
 
 func (c *GettableRuleGroupConfig) UnmarshalJSON(b []byte) error {
@@ -318,7 +398,7 @@ const (
 type PostableExtendedRuleNode struct {
 	// note: this works with yaml v3 but not v2 (the inline tag isn't accepted on pointers in v2)
 	*ApiRuleNode `yaml:",inline"`
-	//GrafanaManagedAlert yaml.Node `yaml:"grafana_alert,omitempty"`
+	// GrafanaManagedAlert yaml.Node `yaml:"grafana_alert,omitempty"`
 	GrafanaManagedAlert *PostableGrafanaRule `yaml:"grafana_alert,omitempty" json:"grafana_alert,omitempty"`
 }
 
@@ -345,7 +425,7 @@ func (n *PostableExtendedRuleNode) validate() error {
 	}
 
 	if n.GrafanaManagedAlert != nil {
-		if n.ApiRuleNode != nil && (n.ApiRuleNode.Expr != "" || n.ApiRuleNode.Record != "") {
+		if n.ApiRuleNode != nil && (n.Expr != "" || n.Record != "") {
 			return fmt.Errorf("cannot have both Prometheus style rules and Grafana rules together")
 		}
 	}
@@ -355,7 +435,7 @@ func (n *PostableExtendedRuleNode) validate() error {
 type GettableExtendedRuleNode struct {
 	// note: this works with yaml v3 but not v2 (the inline tag isn't accepted on pointers in v2)
 	*ApiRuleNode `yaml:",inline"`
-	//GrafanaManagedAlert yaml.Node `yaml:"grafana_alert,omitempty"`
+	// GrafanaManagedAlert yaml.Node `yaml:"grafana_alert,omitempty"`
 	GrafanaManagedAlert *GettableGrafanaRule `yaml:"grafana_alert,omitempty" json:"grafana_alert,omitempty"`
 }
 
@@ -381,7 +461,7 @@ func (n *GettableExtendedRuleNode) validate() error {
 	}
 
 	if n.GrafanaManagedAlert != nil {
-		if n.ApiRuleNode != nil && (n.ApiRuleNode.Expr != "" || n.ApiRuleNode.Record != "") {
+		if n.ApiRuleNode != nil && (n.Expr != "" || n.Record != "") {
 			return fmt.Errorf("cannot have both Prometheus style rules and Grafana rules together")
 		}
 	}
@@ -405,6 +485,17 @@ const (
 	AlertingErrState ExecutionErrorState = "Alerting"
 	ErrorErrState    ExecutionErrorState = "Error"
 )
+
+// swagger:model
+type AlertRuleMetadata struct {
+	EditorSettings AlertRuleEditorSettings `json:"editor_settings" yaml:"editor_settings"`
+}
+
+// swagger:model
+type AlertRuleEditorSettings struct {
+	SimplifiedQueryAndExpressionsSection bool `json:"simplified_query_and_expressions_section" yaml:"simplified_query_and_expressions_section"`
+	SimplifiedNotificationsSection       bool `json:"simplified_notifications_section" yaml:"simplified_notifications_section"`
+}
 
 // swagger:model
 type AlertRuleNotificationSettings struct {
@@ -451,6 +542,22 @@ type AlertRuleNotificationSettings struct {
 }
 
 // swagger:model
+type Record struct {
+	// Name of the recorded metric.
+	// required: true
+	// example: grafana_alerts_ratio
+	Metric string `json:"metric" yaml:"metric"`
+	// Which expression node should be used as the input for the recorded metric.
+	// required: true
+	// example: A
+	From string `json:"from" yaml:"from"`
+	// Which data source should be used to write the output of the recording rule, specified by UID.
+	// required: false
+	// example: my-prom
+	TargetDatasourceUID string `json:"target_datasource_uid,omitempty" yaml:"target_datasource_uid,omitempty"`
+}
+
+// swagger:model
 type PostableGrafanaRule struct {
 	Title                string                         `json:"title" yaml:"title"`
 	Condition            string                         `json:"condition" yaml:"condition"`
@@ -460,26 +567,43 @@ type PostableGrafanaRule struct {
 	ExecErrState         ExecutionErrorState            `json:"exec_err_state" yaml:"exec_err_state"`
 	IsPaused             *bool                          `json:"is_paused" yaml:"is_paused"`
 	NotificationSettings *AlertRuleNotificationSettings `json:"notification_settings" yaml:"notification_settings"`
+	Record               *Record                        `json:"record" yaml:"record"`
+	Metadata             *AlertRuleMetadata             `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	// Number of consecutive evaluation intervals with no data for a dimension must pass
+	// before the alert state is considered stale and automatically resolved.
+	// If set to 0, the value is reset to the default.
+	// required: false
+	// example: 3
+	MissingSeriesEvalsToResolve *int `json:"missing_series_evals_to_resolve,omitempty" yaml:"missing_series_evals_to_resolve,omitempty"`
 }
 
 // swagger:model
 type GettableGrafanaRule struct {
-	ID                   int64                          `json:"id" yaml:"id"`
-	OrgID                int64                          `json:"orgId" yaml:"orgId"`
-	Title                string                         `json:"title" yaml:"title"`
-	Condition            string                         `json:"condition" yaml:"condition"`
-	Data                 []AlertQuery                   `json:"data" yaml:"data"`
-	Updated              time.Time                      `json:"updated" yaml:"updated"`
-	IntervalSeconds      int64                          `json:"intervalSeconds" yaml:"intervalSeconds"`
-	Version              int64                          `json:"version" yaml:"version"`
-	UID                  string                         `json:"uid" yaml:"uid"`
-	NamespaceUID         string                         `json:"namespace_uid" yaml:"namespace_uid"`
-	RuleGroup            string                         `json:"rule_group" yaml:"rule_group"`
-	NoDataState          NoDataState                    `json:"no_data_state" yaml:"no_data_state"`
-	ExecErrState         ExecutionErrorState            `json:"exec_err_state" yaml:"exec_err_state"`
-	Provenance           Provenance                     `json:"provenance,omitempty" yaml:"provenance,omitempty"`
-	IsPaused             bool                           `json:"is_paused" yaml:"is_paused"`
-	NotificationSettings *AlertRuleNotificationSettings `json:"notification_settings,omitempty" yaml:"notification_settings,omitempty"`
+	Title                       string                         `json:"title" yaml:"title"`
+	Condition                   string                         `json:"condition" yaml:"condition"`
+	Data                        []AlertQuery                   `json:"data" yaml:"data"`
+	Updated                     time.Time                      `json:"updated" yaml:"updated"`
+	UpdatedBy                   *UserInfo                      `json:"updated_by" yaml:"updated_by"`
+	IntervalSeconds             int64                          `json:"intervalSeconds" yaml:"intervalSeconds"`
+	Version                     int64                          `json:"version" yaml:"version"`
+	UID                         string                         `json:"uid" yaml:"uid"`
+	NamespaceUID                string                         `json:"namespace_uid" yaml:"namespace_uid"`
+	RuleGroup                   string                         `json:"rule_group" yaml:"rule_group"`
+	NoDataState                 NoDataState                    `json:"no_data_state" yaml:"no_data_state"`
+	ExecErrState                ExecutionErrorState            `json:"exec_err_state" yaml:"exec_err_state"`
+	Provenance                  Provenance                     `json:"provenance,omitempty" yaml:"provenance,omitempty"`
+	IsPaused                    bool                           `json:"is_paused" yaml:"is_paused"`
+	NotificationSettings        *AlertRuleNotificationSettings `json:"notification_settings,omitempty" yaml:"notification_settings,omitempty"`
+	Record                      *Record                        `json:"record,omitempty" yaml:"record,omitempty"`
+	Metadata                    *AlertRuleMetadata             `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	GUID                        string                         `json:"guid" yaml:"guid"`
+	MissingSeriesEvalsToResolve *int                           `json:"missing_series_evals_to_resolve,omitempty" yaml:"missing_series_evals_to_resolve,omitempty"`
+}
+
+// UserInfo represents user-related information, including a unique identifier and a name.
+type UserInfo struct {
+	UID  string `json:"uid"`
+	Name string `json:"name"`
 }
 
 // AlertQuery represents a single query associated with an alert definition.

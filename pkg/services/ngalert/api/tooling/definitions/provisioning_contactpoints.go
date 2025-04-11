@@ -15,6 +15,13 @@ import (
 //
 // Export all contact points in provisioning file format.
 //
+//     Produces:
+//     - application/json
+//     - application/yaml
+//     - application/terraform+hcl
+//     - text/yaml
+//     - text/hcl
+//
 //     Responses:
 //       200: AlertingFileExport
 //       403: PermissionDenied
@@ -99,7 +106,7 @@ type EmbeddedContactPoint struct {
 	Name string `json:"name" binding:"required"`
 	// required: true
 	// example: webhook
-	// enum: alertmanager, dingding, discord, email, googlechat, kafka, line, opsgenie, pagerduty, pushover, sensugo, slack, teams, telegram, threema, victorops, webhook, wecom
+	// enum: alertmanager,dingding,discord,email,googlechat,kafka,line,opsgenie,pagerduty,pushover,sensugo,slack,teams,telegram,threema,victorops,webhook,wecom
 	Type string `json:"type" binding:"required"`
 	// required: true
 	Settings *simplejson.Json `json:"settings" binding:"required"`

@@ -1,13 +1,16 @@
 package converter
 
 import (
+	"errors"
 	"fmt"
-	"strings"
+	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	sdkjsoniter "github.com/grafana/grafana-plugin-sdk-go/data/utils/jsoniter"
+	"github.com/influxdata/influxql"
 	jsoniter "github.com/json-iterator/go"
 
 	"github.com/grafana/grafana/pkg/tsdb/influxdb/influxql/util"
@@ -33,18 +36,40 @@ l1Fields:
 			if rsp.Error != nil {
 				return rsp
 			}
-		case "":
+		case "error":
+			v, err := iter.ReadString()
+			if err != nil {
+				rsp.Error = err
+			} else {
+				rsp.Error = errors.New(v)
+			}
+			return rsp
+		case "code":
+			// we only care of the message
+			_, err := iter.Read()
 			if err != nil {
 				return rspErr(err)
 			}
+		case "message":
+			v, err := iter.Read()
+			if err != nil {
+				return rspErr(err)
+			}
+			return rspErr(fmt.Errorf("%s", v))
+		case "":
 			break l1Fields
 		default:
 			v, err := iter.Read()
-			if err != nil {
-				rsp.Error = err
-				return rsp
-			}
+			// TODO: log this properly
 			fmt.Printf("[ROOT] unsupported key: %s / %v\n\n", l1Field, v)
+			if err != nil {
+				if rsp != nil {
+					rsp.Error = err
+					return rsp
+				} else {
+					return rspErr(err)
+				}
+			}
 		}
 	}
 
@@ -338,18 +363,16 @@ func typeOf(value interface{}) data.FieldType {
 	case *bool:
 		return data.FieldTypeNullableBool
 	default:
-		fmt.Printf("unknown value type: %v", v)
+		slog.Error("unknown influx value type", "value", v)
 		return data.FieldTypeNullableJSON
 	}
 }
 
 func handleTimeSeriesFormatWithTimeColumn(valueFields data.Fields, tags map[string]string, columns []string, measurement string, frameName []byte, query *models.Query) []*data.Frame {
 	frames := make([]*data.Frame, 0, len(columns)-1)
-	for i, v := range columns {
-		if v == "time" {
-			continue
-		}
-		formattedFrameName := string(util.FormatFrameName(measurement, v, tags, *query, frameName[:]))
+	// don't iterate over first column as it is a time column already
+	for i := 1; i < len(columns); i++ {
+		formattedFrameName := string(util.FormatFrameName(measurement, columns[i], tags, *query, frameName[:]))
 		valueFields[i].Labels = tags
 		valueFields[i].Config = &data.FieldConfig{DisplayNameFromDS: formattedFrameName}
 
@@ -360,14 +383,32 @@ func handleTimeSeriesFormatWithTimeColumn(valueFields data.Fields, tags map[stri
 }
 
 func handleTimeSeriesFormatWithoutTimeColumn(valueFields data.Fields, columns []string, measurement string, query *models.Query) *data.Frame {
-	// Frame without time column
-	if len(columns) >= 2 && strings.Contains(strings.ToLower(query.RawQuery), strings.ToLower("SHOW TAG VALUES")) {
+	switch query.Statement.(type) {
+	case *influxql.ShowMeasurementCardinalityStatement,
+		*influxql.ShowSeriesCardinalityStatement,
+		*influxql.ShowFieldKeyCardinalityStatement,
+		*influxql.ShowTagValuesCardinalityStatement,
+		*influxql.ShowTagKeyCardinalityStatement:
+		// Handle all CARDINALITY queries
+		var stringArray []*string
+		for _, v := range valueFields {
+			if f, ok := v.At(0).(*float64); ok {
+				str := strconv.FormatFloat(*f, 'f', -1, 64)
+				stringArray = append(stringArray, util.ParseString(str))
+			} else {
+				stringArray = append(stringArray, util.ParseString(v.At(0)))
+			}
+		}
+		return data.NewFrame(measurement, data.NewField("Value", nil, stringArray))
+
+	case *influxql.ShowTagValuesStatement:
+		// Handle SHOW TAG VALUES (non-CARDINALITY)
 		return data.NewFrame(measurement, valueFields[1])
-	}
-	if len(columns) >= 1 {
+
+	default:
+		// Handle generic queries with at least one column
 		return data.NewFrame(measurement, valueFields[0])
 	}
-	return nil
 }
 
 func handleTableFormatFirstFrame(rsp *backend.DataResponse, measurement string, query *models.Query) {
@@ -421,26 +462,24 @@ func handleTableFormatValueFields(rsp *backend.DataResponse, valueFields data.Fi
 	// number of fields we currently have in the first frame
 	// we handled first value field and then tags.
 	si := len(tags) + 1
-	for i, v := range valueFields {
-		// first value field is always handled first, before tags.
-		// no need to create another one again here
-		if i == 0 {
-			continue
-		}
-
+	l := len(valueFields)
+	// first value field is always handled first, before tags.
+	// no need to create another one again here
+	for i := 1; i < l; i++ {
 		if len(rsp.Frames[0].Fields) == si {
-			rsp.Frames[0].Fields = append(rsp.Frames[0].Fields, v)
+			rsp.Frames[0].Fields = append(rsp.Frames[0].Fields, valueFields[i])
 		} else {
-			for vi := 0; vi < v.Len(); vi++ {
-				if v.Type() == data.FieldTypeNullableJSON {
+			ll := valueFields[i].Len()
+			for vi := 0; vi < ll; vi++ {
+				if valueFields[i].Type() == data.FieldTypeNullableJSON {
 					// add nil explicitly.
 					// we don't know if it is a float pointer nil or string pointer nil or etc
 					rsp.Frames[0].Fields[si].Append(nil)
 				} else {
-					if v.Type() != rsp.Frames[0].Fields[si].Type() {
-						maybeFixValueFieldType(rsp.Frames[0].Fields, v.Type(), si)
+					if valueFields[i].Type() != rsp.Frames[0].Fields[si].Type() {
+						maybeFixValueFieldType(rsp.Frames[0].Fields, valueFields[i].Type(), si)
 					}
-					rsp.Frames[0].Fields[si].Append(v.At(vi))
+					rsp.Frames[0].Fields[si].Append(valueFields[i].At(vi))
 				}
 			}
 		}

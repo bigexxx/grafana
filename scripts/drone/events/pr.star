@@ -25,10 +25,6 @@ load(
     "lint_backend_pipeline",
 )
 load(
-    "scripts/drone/pipelines/lint_frontend.star",
-    "lint_frontend_pipeline",
-)
-load(
     "scripts/drone/pipelines/shellcheck.star",
     "shellcheck_pipeline",
 )
@@ -41,16 +37,16 @@ load(
     "test_backend",
 )
 load(
-    "scripts/drone/pipelines/test_frontend.star",
-    "test_frontend",
-)
-load(
     "scripts/drone/pipelines/verify_drone.star",
     "verify_drone",
 )
 load(
     "scripts/drone/pipelines/verify_starlark.star",
     "verify_starlark",
+)
+load(
+    "scripts/drone/pipelines/verify_storybook.star",
+    "verify_storybook",
 )
 
 ver_mode = "pr"
@@ -81,15 +77,9 @@ def pr_pipelines():
             ),
             ver_mode,
         ),
-        test_frontend(
+        verify_storybook(
             get_pr_trigger(
-                exclude_paths = ["pkg/**", "packaging/**", "go.sum", "go.mod"],
-            ),
-            ver_mode,
-        ),
-        lint_frontend_pipeline(
-            get_pr_trigger(
-                exclude_paths = ["pkg/**", "packaging/**", "go.sum", "go.mod"],
+                include_paths = ["packages/grafana-ui/**"],
             ),
             ver_mode,
         ),
@@ -106,6 +96,7 @@ def pr_pipelines():
                     "public/app/plugins/**/plugin.json",
                     "docs/sources/setup-grafana/configure-grafana/feature-toggles/**",
                     "devenv/**",
+                    "apps/**",
                 ],
             ),
             ver_mode,
@@ -113,6 +104,7 @@ def pr_pipelines():
         lint_backend_pipeline(
             get_pr_trigger(
                 include_paths = [
+                    ".golangci.toml",
                     "Makefile",
                     "pkg/**",
                     "packaging/**",
@@ -123,6 +115,7 @@ def pr_pipelines():
                     "public/app/plugins/**/plugin.json",
                     "devenv/**",
                     ".bingo/**",
+                    "apps/**",
                 ],
             ),
             ver_mode,

@@ -1,3 +1,4 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/querybuilder/operations.ts
 import { binaryScalarOperations } from './binaryScalarOperations';
 import { LabelParamEditor } from './components/LabelParamEditor';
 import {
@@ -28,6 +29,23 @@ export function getOperationDefinitions(): QueryBuilderOperationDef[] {
       renderer: functionRendererLeft,
       addOperationHandler: defaultAddOperationHandler,
     },
+    createFunction({ id: PromOperationId.HistogramAvg }),
+    createFunction({ id: PromOperationId.HistogramCount }),
+    createFunction({ id: PromOperationId.HistogramSum }),
+    {
+      id: PromOperationId.HistogramFraction,
+      name: 'Histogram fraction',
+      params: [
+        { name: 'Lower scalar', type: 'number' },
+        { name: 'Upper scalar', type: 'number' },
+      ],
+      defaultParams: [0.0, 0.2],
+      category: PromVisualQueryOperationCategory.Functions,
+      renderer: functionRendererLeft,
+      addOperationHandler: defaultAddOperationHandler,
+    },
+    createFunction({ id: PromOperationId.HistogramStddev }),
+    createFunction({ id: PromOperationId.HistogramStdvar }),
     {
       id: PromOperationId.LabelReplace,
       name: 'Label replace',
@@ -57,6 +75,20 @@ export function getOperationDefinitions(): QueryBuilderOperationDef[] {
     createRangeFunction(PromOperationId.Increase, true),
     createRangeFunction(PromOperationId.Idelta),
     createRangeFunction(PromOperationId.Delta),
+    createFunction({
+      id: PromOperationId.DoubleExponentialSmoothing,
+      params: [
+        getRangeVectorParamDef(),
+        { name: 'Smoothing Factor', type: 'number' },
+        { name: 'Trend Factor', type: 'number' },
+      ],
+      defaultParams: ['$__interval', 0.5, 0.5],
+      alternativesKey: 'range function',
+      category: PromVisualQueryOperationCategory.RangeFunctions,
+      renderer: rangeRendererRightWithParams,
+      addOperationHandler: addOperationWithRangeVector,
+      changeTypeHandler: operationTypeChangedHandlerForRangeFunction,
+    }),
     createFunction({
       id: PromOperationId.HoltWinters,
       params: [
@@ -177,7 +209,6 @@ export function getOperationDefinitions(): QueryBuilderOperationDef[] {
     //
     createFunction({ id: PromOperationId.Exp }),
     createFunction({ id: PromOperationId.Floor }),
-    createFunction({ id: PromOperationId.Group }),
     createFunction({ id: PromOperationId.Hour }),
     createFunction({
       id: PromOperationId.LabelJoin,
@@ -201,6 +232,7 @@ export function getOperationDefinitions(): QueryBuilderOperationDef[] {
       ],
       defaultParams: ['', ',', ''],
       renderer: labelJoinRenderer,
+      explainHandler: labelJoinExplainHandler,
       addOperationHandler: labelJoinAddOperationHandler,
     }),
     createFunction({ id: PromOperationId.Log10 }),
@@ -210,12 +242,6 @@ export function getOperationDefinitions(): QueryBuilderOperationDef[] {
     createFunction({
       id: PromOperationId.Pi,
       renderer: (model) => `${model.id}()`,
-    }),
-    createFunction({
-      id: PromOperationId.Quantile,
-      params: [{ name: 'Value', type: 'number' }],
-      defaultParams: [1],
-      renderer: functionRendererLeft,
     }),
     createFunction({ id: PromOperationId.Rad }),
     createRangeFunction(PromOperationId.Resets),
@@ -356,11 +382,21 @@ function addNestedQueryHandler(def: QueryBuilderOperationDef, query: PromVisualQ
 }
 
 function labelJoinRenderer(model: QueryBuilderOperation, def: QueryBuilderOperationDef, innerExpr: string) {
-  if (typeof model.params[1] !== 'string') {
-    throw 'The separator must be a string';
+  const paramZero = model.params[0] ?? '';
+  const paramOne = model.params[1] ?? '';
+
+  const separator = `"${paramOne}"`;
+  return `${model.id}(${innerExpr}, "${paramZero}", ${separator}, "${model.params.slice(2).join(separator)}")`;
+}
+
+function labelJoinExplainHandler(op: QueryBuilderOperation, def?: QueryBuilderOperationDef): string {
+  let explainMessage = def?.documentation ?? 'no docs';
+
+  if (typeof op.params[1] !== 'string') {
+    explainMessage += ' 🚨🚨🚨 The `separator` must be a string.';
   }
-  const separator = `"${model.params[1]}"`;
-  return `${model.id}(${innerExpr}, "${model.params[0]}", ${separator}, "${model.params.slice(2).join(separator)}")`;
+
+  return explainMessage;
 }
 
 function labelJoinAddOperationHandler<T extends QueryWithOperations>(def: QueryBuilderOperationDef, query: T) {

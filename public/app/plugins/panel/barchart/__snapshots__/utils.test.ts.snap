@@ -5,7 +5,7 @@ exports[`BarChart utils preparePlotConfigBuilder orientation 1`] = `
   "axes": [
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 15,
       "grid": {
         "show": false,
@@ -28,12 +28,12 @@ exports[`BarChart utils preparePlotConfigBuilder orientation 1`] = `
         "stroke": "rgba(240, 250, 255, 0.09)",
         "width": 1,
       },
-      "timeZone": undefined,
+      "timeZone": "browser",
       "values": [Function],
     },
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 5,
       "grid": {
         "show": true,
@@ -161,7 +161,7 @@ exports[`BarChart utils preparePlotConfigBuilder orientation 2`] = `
   "axes": [
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 15,
       "grid": {
         "show": false,
@@ -184,12 +184,12 @@ exports[`BarChart utils preparePlotConfigBuilder orientation 2`] = `
         "stroke": "rgba(240, 250, 255, 0.09)",
         "width": 1,
       },
-      "timeZone": undefined,
+      "timeZone": "browser",
       "values": [Function],
     },
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 5,
       "grid": {
         "show": true,
@@ -317,7 +317,7 @@ exports[`BarChart utils preparePlotConfigBuilder orientation 3`] = `
   "axes": [
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 15,
       "grid": {
         "show": false,
@@ -340,12 +340,12 @@ exports[`BarChart utils preparePlotConfigBuilder orientation 3`] = `
         "stroke": "rgba(240, 250, 255, 0.09)",
         "width": 1,
       },
-      "timeZone": undefined,
+      "timeZone": "browser",
       "values": [Function],
     },
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 5,
       "grid": {
         "show": true,
@@ -473,7 +473,7 @@ exports[`BarChart utils preparePlotConfigBuilder stacking 1`] = `
   "axes": [
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 15,
       "grid": {
         "show": false,
@@ -496,12 +496,12 @@ exports[`BarChart utils preparePlotConfigBuilder stacking 1`] = `
         "stroke": "rgba(240, 250, 255, 0.09)",
         "width": 1,
       },
-      "timeZone": undefined,
+      "timeZone": "browser",
       "values": [Function],
     },
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 5,
       "grid": {
         "show": true,
@@ -629,7 +629,7 @@ exports[`BarChart utils preparePlotConfigBuilder stacking 2`] = `
   "axes": [
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 15,
       "grid": {
         "show": false,
@@ -652,12 +652,12 @@ exports[`BarChart utils preparePlotConfigBuilder stacking 2`] = `
         "stroke": "rgba(240, 250, 255, 0.09)",
         "width": 1,
       },
-      "timeZone": undefined,
+      "timeZone": "browser",
       "values": [Function],
     },
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 5,
       "grid": {
         "show": true,
@@ -785,7 +785,7 @@ exports[`BarChart utils preparePlotConfigBuilder stacking 3`] = `
   "axes": [
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 15,
       "grid": {
         "show": false,
@@ -808,12 +808,12 @@ exports[`BarChart utils preparePlotConfigBuilder stacking 3`] = `
         "stroke": "rgba(240, 250, 255, 0.09)",
         "width": 1,
       },
-      "timeZone": undefined,
+      "timeZone": "browser",
       "values": [Function],
     },
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 5,
       "grid": {
         "show": true,
@@ -941,7 +941,7 @@ exports[`BarChart utils preparePlotConfigBuilder value visibility 1`] = `
   "axes": [
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 15,
       "grid": {
         "show": false,
@@ -964,12 +964,12 @@ exports[`BarChart utils preparePlotConfigBuilder value visibility 1`] = `
         "stroke": "rgba(240, 250, 255, 0.09)",
         "width": 1,
       },
-      "timeZone": undefined,
+      "timeZone": "browser",
       "values": [Function],
     },
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 5,
       "grid": {
         "show": true,
@@ -1097,7 +1097,7 @@ exports[`BarChart utils preparePlotConfigBuilder value visibility 2`] = `
   "axes": [
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 15,
       "grid": {
         "show": false,
@@ -1120,12 +1120,12 @@ exports[`BarChart utils preparePlotConfigBuilder value visibility 2`] = `
         "stroke": "rgba(240, 250, 255, 0.09)",
         "width": 1,
       },
-      "timeZone": undefined,
+      "timeZone": "browser",
       "values": [Function],
     },
     {
       "filter": undefined,
-      "font": "12px "Inter", "Helvetica", "Arial", sans-serif",
+      "font": "12px 'Inter', 'Helvetica', 'Arial', sans-serif",
       "gap": 5,
       "grid": {
         "show": true,

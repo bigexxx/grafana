@@ -14,11 +14,15 @@ import (
 )
 
 func TestIntegrationStore_UsageStats(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+
 	saToCreate := tests.TestUser{Login: "servicetestwithTeam@admin", IsServiceAccount: true}
 	db, store := setupTestDatabase(t)
-	sa := tests.SetupUserServiceAccount(t, db, saToCreate)
+	sa := tests.SetupUserServiceAccount(t, db, store.cfg, saToCreate)
 
-	db.Cfg.SATokenExpirationDayLimit = 4
+	store.cfg.SATokenExpirationDayLimit = 4
 
 	keyName := t.Name()
 	key, err := satokengen.New(keyName)

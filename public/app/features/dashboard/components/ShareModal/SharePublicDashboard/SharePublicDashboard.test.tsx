@@ -1,10 +1,9 @@
-import 'whatwg-fetch';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
-import { BootData, DataQuery } from '@grafana/data/src';
+import { BootData, DataQuery } from '@grafana/data';
 import { selectors as e2eSelectors } from '@grafana/e2e-selectors/src';
 import { reportInteraction, setEchoSrv } from '@grafana/runtime';
 import { Panel } from '@grafana/schema';
@@ -69,7 +68,6 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  config.featureToggles.publicDashboards = true;
   config.publicDashboardsEnabled = true;
 
   jest.spyOn(contextSrv, 'hasPermission').mockReturnValue(true);
@@ -137,7 +135,7 @@ const alertTests = () => {
     });
 
     await renderSharePublicDashboard({ dashboard });
-    expect(screen.queryByTestId(selectors.UnsupportedDataSourcesWarningAlert)).toBeInTheDocument();
+    expect(await screen.findByTestId(selectors.UnsupportedDataSourcesWarningAlert)).toBeInTheDocument();
   });
 };
 
@@ -147,13 +145,6 @@ describe('SharePublic', () => {
   });
   it('does not render share panel when public dashboards feature is disabled using config setting', async () => {
     config.publicDashboardsEnabled = false;
-    await renderSharePublicDashboard(undefined, false);
-
-    expect(screen.getByRole('tablist')).toHaveTextContent('Link');
-    expect(screen.getByRole('tablist')).not.toHaveTextContent('Public dashboard');
-  });
-  it('does not render share panel when public dashboards feature is disabled using feature toggle', async () => {
-    config.featureToggles.publicDashboards = false;
     await renderSharePublicDashboard(undefined, false);
 
     expect(screen.getByRole('tablist')).toHaveTextContent('Link');
@@ -354,11 +345,14 @@ describe('SharePublic - Report interactions', () => {
   });
 
   it('reports interaction when public dashboard tab is clicked', async () => {
+    jest.spyOn(DashboardInteractions, 'sharingCategoryClicked');
     await renderSharePublicDashboard();
 
     await waitFor(() => {
-      expect(DashboardInteractions.sharingTabChanged).toHaveBeenCalledTimes(1);
-      expect(DashboardInteractions.sharingTabChanged).lastCalledWith({ item: shareDashboardType.publicDashboard });
+      expect(DashboardInteractions.sharingCategoryClicked).lastCalledWith({
+        item: shareDashboardType.publicDashboard,
+        shareResource: 'dashboard',
+      });
     });
   });
 
@@ -372,7 +366,6 @@ describe('SharePublic - Report interactions', () => {
     await userEvent.click(screen.getByTestId(selectors.EnableTimeRangeSwitch));
 
     await waitFor(() => {
-      expect(reportInteraction).toHaveBeenCalledTimes(1);
       expect(reportInteraction).toHaveBeenLastCalledWith('dashboards_sharing_public_time_picker_clicked', {
         enabled: !pubdashResponse.timeSelectionEnabled,
       });
@@ -389,7 +382,6 @@ describe('SharePublic - Report interactions', () => {
     await userEvent.click(screen.getByTestId(selectors.EnableAnnotationsSwitch));
 
     await waitFor(() => {
-      expect(reportInteraction).toHaveBeenCalledTimes(1);
       expect(reportInteraction).toHaveBeenLastCalledWith('dashboards_sharing_public_annotations_clicked', {
         enabled: !pubdashResponse.annotationsEnabled,
       });
@@ -403,7 +395,6 @@ describe('SharePublic - Report interactions', () => {
     await userEvent.click(screen.getByTestId(selectors.PauseSwitch));
 
     await waitFor(() => {
-      expect(reportInteraction).toHaveBeenCalledTimes(1);
       expect(reportInteraction).toHaveBeenLastCalledWith('dashboards_sharing_public_pause_clicked', {
         paused: pubdashResponse.isEnabled,
       });

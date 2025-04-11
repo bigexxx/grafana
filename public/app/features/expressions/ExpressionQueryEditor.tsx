@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { DataSourceApi, QueryEditorProps, SelectableValue } from '@grafana/data';
 import { InlineField, Select } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { ClassicConditions } from './components/ClassicConditions';
 import { Math } from './components/Math';
@@ -44,7 +45,7 @@ function useExpressionsCache() {
       // We want to use the same value for Reduce, Resample and Threshold
       case ExpressionQueryType.reduce:
       case ExpressionQueryType.resample:
-      case ExpressionQueryType.resample:
+      case ExpressionQueryType.threshold:
         expressionCache.current.reduce = value;
         expressionCache.current.resample = value;
         expressionCache.current.threshold = value;
@@ -58,7 +59,7 @@ function useExpressionsCache() {
 }
 
 export function ExpressionQueryEditor(props: Props) {
-  const { query, queries, onRunQuery, onChange } = props;
+  const { query, queries, onRunQuery, onChange, app } = props;
   const { getCachedExpression, setCachedExpression } = useExpressionsCache();
 
   useEffect(() => {
@@ -83,7 +84,7 @@ export function ExpressionQueryEditor(props: Props) {
         return <Math onChange={onChange} query={query} labelWidth={labelWidth} onRunQuery={onRunQuery} />;
 
       case ExpressionQueryType.reduce:
-        return <Reduce refIds={refIds} onChange={onChange} labelWidth={labelWidth} query={query} />;
+        return <Reduce refIds={refIds} onChange={onChange} labelWidth={labelWidth} query={query} app={app} />;
 
       case ExpressionQueryType.resample:
         return <Resample query={query} labelWidth={labelWidth} onChange={onChange} refIds={refIds} />;
@@ -103,7 +104,10 @@ export function ExpressionQueryEditor(props: Props) {
 
   return (
     <div>
-      <InlineField label="Operation" labelWidth={labelWidth}>
+      <InlineField
+        label={t('expressions.expression-query-editor.label-operation', 'Operation')}
+        labelWidth={labelWidth}
+      >
         <Select options={expressionTypes} value={selected} onChange={onSelectExpressionType} width={25} />
       </InlineField>
       {renderExpressionType()}

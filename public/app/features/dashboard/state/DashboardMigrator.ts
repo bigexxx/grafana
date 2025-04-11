@@ -2,6 +2,7 @@ import { each, find, findIndex, flattenDeep, isArray, isBoolean, isNumber, isStr
 
 import {
   AnnotationQuery,
+  ConstantVariableModel,
   DataLink,
   DataLinkBuiltInVars,
   DataQuery,
@@ -19,17 +20,18 @@ import {
   SpecialValueMatch,
   standardEditorsRegistry,
   standardFieldConfigEditorRegistry,
+  TextBoxVariableModel,
   ThresholdsConfig,
   urlUtil,
   ValueMap,
   ValueMapping,
+  VariableHide,
 } from '@grafana/data';
-import { labelsToFieldsTransformer } from '@grafana/data/src/transformations/transformers/labelsToFields';
-import { mergeTransformer } from '@grafana/data/src/transformations/transformers/merge';
+import { labelsToFieldsTransformer, mergeTransformer } from '@grafana/data/internal';
 import { getDataSourceSrv, setDataSourceSrv } from '@grafana/runtime';
 import { DataTransformerConfig } from '@grafana/schema';
 import { AxisPlacement, GraphFieldConfig } from '@grafana/ui';
-import { migrateTableDisplayModeToCellOptions } from '@grafana/ui/src/components/Table/utils';
+import { migrateTableDisplayModeToCellOptions } from '@grafana/ui/internal';
 import { getAllOptionEditors, getAllStandardFieldConfigs } from 'app/core/components/OptionsUI/registry';
 import { config } from 'app/core/config';
 import {
@@ -59,10 +61,10 @@ import {
   migrateMultipleStatsAnnotationQuery,
   migrateMultipleStatsMetricsQuery,
 } from '../../../plugins/datasource/cloudwatch/migrations/dashboardMigrations';
-import { ConstantVariableModel, TextBoxVariableModel, VariableHide } from '../../variables/types';
 
 import { DashboardModel } from './DashboardModel';
 import { PanelModel } from './PanelModel';
+import { getPanelPluginToMigrateTo } from './getPanelPluginToMigrateTo';
 
 standardEditorsRegistry.setInit(getAllOptionEditors);
 standardFieldConfigEditorRegistry.setInit(getAllStandardFieldConfigs);
@@ -74,8 +76,12 @@ type PanelSchemeUpgradeHandler = (panel: PanelModel) => PanelModel;
  * To add a dashboard migration increment this number
  * and then add your migration at the bottom of 'updateSchema'
  * hint: search "Add migration here"
+ *
+ * This number also needs to be updated on the CUE schema:
+ * kinds/dashboard/dashboard_kind.cue
+ * Example PR: #87712
  */
-export const DASHBOARD_SCHEMA_VERSION = 39;
+export const DASHBOARD_SCHEMA_VERSION = 41;
 export class DashboardMigrator {
   dashboard: DashboardModel;
 
@@ -157,7 +163,7 @@ export class DashboardMigrator {
     if (oldVersion < 3) {
       // ensure panel IDs
       let maxId = this.dashboard.getNextPanelId();
-      panelUpgrades.push((panel: any) => {
+      panelUpgrades.push((panel: PanelModel) => {
         if (!panel.id) {
           panel.id = maxId;
           maxId += 1;
@@ -278,7 +284,7 @@ export class DashboardMigrator {
     // schema version 9 changes
     if (oldVersion < 9) {
       // move aliasYAxis changes
-      panelUpgrades.push((panel: any) => {
+      panelUpgrades.push((panel: PanelModel) => {
         if (panel.type !== 'singlestat' && panel.thresholds !== '') {
           return panel;
         }
@@ -620,6 +626,14 @@ export class DashboardMigrator {
           return panel;
         }
         panel.type = wasAngularTable ? 'table-old' : 'table';
+        // Hacky way to call the automigrate feature
+        if (panel.type === 'table-old') {
+          const newType = getPanelPluginToMigrateTo(panel);
+          if (newType) {
+            panel.autoMigrateFrom = panel.type;
+            panel.type = newType;
+          }
+        }
         return panel;
       });
     }
@@ -629,7 +643,7 @@ export class DashboardMigrator {
     }
 
     if (oldVersion < 26) {
-      panelUpgrades.push((panel: any) => {
+      panelUpgrades.push((panel: PanelModel) => {
         const wasReactText = panel.type === 'text2';
         if (!wasReactText) {
           return panel;
@@ -849,7 +863,7 @@ export class DashboardMigrator {
           // Update any overrides referencing the cell display mode
           if (panel.fieldConfig?.overrides) {
             for (const override of panel.fieldConfig.overrides) {
-              for (let j = 0; j < override.properties?.length ?? 0; j++) {
+              for (let j = 0; j < (override.properties?.length || 0); j++) {
                 let overrideDisplayMode = override.properties[j].value;
                 if (override.properties[j].id === 'custom.displayMode') {
                   override.properties[j].id = 'custom.cellOptions';
@@ -879,7 +893,7 @@ export class DashboardMigrator {
             let tableTransformOptions: TimeSeriesTableTransformerOptions = {};
 
             // For each {refIdtoStat} record which maps refId to a statistic
-            // we add that to the stat property of the the new
+            // we add that to the stat property of the new
             // RefIdTransformerOptions interface which includes multiple settings
             for (const [refId, stat] of Object.entries(transformation.options.refIdToStat)) {
               let newSettings: RefIdTransformerOptions = {};
@@ -896,6 +910,21 @@ export class DashboardMigrator {
 
         return panel;
       });
+    }
+
+    if (oldVersion < 40) {
+      // In old dashboards refresh property can be a boolean
+      if (typeof this.dashboard.refresh !== 'string') {
+        this.dashboard.refresh = '';
+      }
+    }
+
+    if (oldVersion < 41) {
+      // time_options is a legacy property that was not used since grafana version 5
+      //  therefore deprecating this property from the schema
+      if ('time_options' in this.dashboard.timepicker) {
+        delete this.dashboard.timepicker.time_options;
+      }
     }
 
     /**
@@ -1403,7 +1432,7 @@ function upgradeValueMappings(oldMappings: any, thresholds?: ThresholdsConfig): 
 }
 
 function migrateTooltipOptions(panel: PanelModel) {
-  if (panel.type === 'timeseries' || panel.type === 'xychart') {
+  if (panel.type === 'timeseries' || panel.type === 'xychart' || panel.type === 'xychart2') {
     if (panel.options.tooltipOptions) {
       panel.options = {
         ...panel.options,

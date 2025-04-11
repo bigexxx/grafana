@@ -1,5 +1,3 @@
-import React from 'react';
-
 import {
   FieldConfigEditorBuilder,
   FieldType,
@@ -12,52 +10,37 @@ import { AxisColorMode, AxisConfig, AxisPlacement, ScaleDistribution, ScaleDistr
 import { Field } from '../../components/Forms/Field';
 import { RadioButtonGroup } from '../../components/Forms/RadioButtonGroup/RadioButtonGroup';
 import { Input } from '../../components/Input/Input';
+import { Stack } from '../../components/Layout/Stack/Stack';
 import { Select } from '../../components/Select/Select';
 import { graphFieldOptions } from '../../components/uPlot/config';
+import { t } from '../../utils/i18n';
+
+const category = ['Axis'];
 
 /**
  * @alpha
  */
-export function addAxisConfig(
-  builder: FieldConfigEditorBuilder<AxisConfig>,
-  defaultConfig: AxisConfig,
-  hideScale?: boolean
-) {
-  const category = ['Axis'];
-
+export function addAxisConfig(builder: FieldConfigEditorBuilder<AxisConfig>, defaultConfig: AxisConfig) {
   // options for axis appearance
+  addAxisPlacement(builder);
+
+  builder.addTextInput({
+    path: 'axisLabel',
+    name: 'Label',
+    category,
+    defaultValue: '',
+    settings: {
+      placeholder: 'Optional text',
+      expandTemplateVars: true,
+    },
+    showIf: (c) => c.axisPlacement !== AxisPlacement.Hidden,
+    // Do not apply default settings to time and string fields which are used as x-axis fields in Time series and Bar chart panels
+    shouldApply: (f) => f.type !== FieldType.time && f.type !== FieldType.string,
+  });
+
+  addAxisWidth(builder);
+
   builder
-    .addRadio({
-      path: 'axisPlacement',
-      name: 'Placement',
-      category,
-      defaultValue: graphFieldOptions.axisPlacement[0].value,
-      settings: {
-        options: graphFieldOptions.axisPlacement,
-      },
-    })
-    .addTextInput({
-      path: 'axisLabel',
-      name: 'Label',
-      category,
-      defaultValue: '',
-      settings: {
-        placeholder: 'Optional text',
-        expandTemplateVars: true,
-      },
-      showIf: (c) => c.axisPlacement !== AxisPlacement.Hidden,
-      // Do not apply default settings to time and string fields which are used as x-axis fields in Time series and Bar chart panels
-      shouldApply: (f) => f.type !== FieldType.time && f.type !== FieldType.string,
-    })
-    .addNumberInput({
-      path: 'axisWidth',
-      name: 'Width',
-      category,
-      settings: {
-        placeholder: 'Auto',
-      },
-      showIf: (c) => c.axisPlacement !== AxisPlacement.Hidden,
-    })
     .addRadio({
       path: 'axisGridShow',
       name: 'Show grid lines',
@@ -100,8 +83,8 @@ export function addAxisConfig(
       path: 'scaleDistribution',
       name: 'Scale',
       category,
-      editor: ScaleDistributionEditor as any,
-      override: ScaleDistributionEditor as any,
+      editor: ScaleDistributionEditor,
+      override: ScaleDistributionEditor,
       defaultValue: { type: ScaleDistribution.Linear },
       shouldApply: (f) => f.type === FieldType.number,
       process: identityOverrideProcessor,
@@ -165,23 +148,22 @@ const LOG_DISTRIBUTION_OPTIONS: Array<SelectableValue<number>> = [
 export const ScaleDistributionEditor = ({ value, onChange }: StandardEditorProps<ScaleDistributionConfig>) => {
   const type = value?.type ?? ScaleDistribution.Linear;
   const log = value?.log ?? 2;
+
   return (
-    <>
-      <div style={{ marginBottom: 16 }}>
-        <RadioButtonGroup
-          value={type}
-          options={DISTRIBUTION_OPTIONS}
-          onChange={(v) => {
-            onChange({
-              ...value,
-              type: v!,
-              log: v === ScaleDistribution.Linear ? undefined : log,
-            });
-          }}
-        />
-      </div>
+    <Stack direction="column" gap={2}>
+      <RadioButtonGroup
+        value={type}
+        options={DISTRIBUTION_OPTIONS}
+        onChange={(v) => {
+          onChange({
+            ...value,
+            type: v!,
+            log: v === ScaleDistribution.Linear ? undefined : log,
+          });
+        }}
+      />
       {(type === ScaleDistribution.Log || type === ScaleDistribution.Symlog) && (
-        <Field label="Log base">
+        <Field label={t('grafana-ui.axis-builder.log-base', 'Log base')}>
           <Select
             options={LOG_DISTRIBUTION_OPTIONS}
             value={log}
@@ -195,8 +177,9 @@ export const ScaleDistributionEditor = ({ value, onChange }: StandardEditorProps
         </Field>
       )}
       {type === ScaleDistribution.Symlog && (
-        <Field label="Linear threshold">
+        <Field label={t('grafana-ui.axis-builder.linear-threshold', 'Linear threshold')} style={{ marginBottom: 0 }}>
           <Input
+            // eslint-disable-next-line @grafana/no-untranslated-strings
             placeholder="1"
             value={value?.linearThreshold}
             onChange={(v) => {
@@ -208,6 +191,35 @@ export const ScaleDistributionEditor = ({ value, onChange }: StandardEditorProps
           />
         </Field>
       )}
-    </>
+    </Stack>
   );
 };
+
+/** @internal */
+export function addAxisWidth(builder: FieldConfigEditorBuilder<AxisConfig>) {
+  builder.addNumberInput({
+    path: 'axisWidth',
+    name: 'Width',
+    category,
+    settings: {
+      placeholder: 'Auto',
+    },
+    showIf: (c) => c.axisPlacement !== AxisPlacement.Hidden,
+  });
+}
+
+/** @internal */
+export function addAxisPlacement(
+  builder: FieldConfigEditorBuilder<AxisConfig>,
+  optionsFilter = (placement: AxisPlacement) => true
+) {
+  builder.addRadio({
+    path: 'axisPlacement',
+    name: 'Placement',
+    category,
+    defaultValue: graphFieldOptions.axisPlacement[0].value,
+    settings: {
+      options: graphFieldOptions.axisPlacement.filter((placement) => optionsFilter(placement.value!)),
+    },
+  });
+}

@@ -11,6 +11,7 @@ import (
 	receiversTesting "github.com/grafana/alerting/receivers/testing"
 	"github.com/stretchr/testify/require"
 
+	apicompat "github.com/grafana/grafana/pkg/services/ngalert/api/compat"
 	"github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/provisioning"
@@ -38,7 +39,7 @@ func TestContactPointFromContactPointExports(t *testing.T) {
 					return string(d)
 				})
 			require.NoError(t, err)
-			ex, err := ReceiverExportFromEmbeddedContactPoint(emb)
+			ex, err := apicompat.ReceiverExportFromEmbeddedContactPoint(emb)
 			require.NoError(t, err)
 			export = append(export, ex)
 		}
@@ -62,7 +63,7 @@ func TestContactPointFromContactPointExports(t *testing.T) {
 				},
 			}
 
-			expected, err := notify.BuildReceiverConfiguration(context.Background(), recCfg, func(ctx context.Context, sjd map[string][]byte, key string, fallback string) string {
+			expected, err := notify.BuildReceiverConfiguration(context.Background(), recCfg, notify.DecodeSecretsFromBase64, func(ctx context.Context, sjd map[string][]byte, key string, fallback string) string {
 				return receiversTesting.DecryptForTesting(sjd)(key, fallback)
 			})
 			require.NoError(t, err)
@@ -73,7 +74,7 @@ func TestContactPointFromContactPointExports(t *testing.T) {
 			back, err := ContactPointToContactPointExport(result)
 			require.NoError(t, err)
 
-			actual, err := notify.BuildReceiverConfiguration(context.Background(), &back, func(ctx context.Context, sjd map[string][]byte, key string, fallback string) string {
+			actual, err := notify.BuildReceiverConfiguration(context.Background(), &back, notify.DecodeSecretsFromBase64, func(ctx context.Context, sjd map[string][]byte, key string, fallback string) string {
 				return receiversTesting.DecryptForTesting(sjd)(key, fallback)
 			})
 			require.NoError(t, err)
@@ -183,5 +184,31 @@ func TestContactPointFromContactPointExports(t *testing.T) {
 		require.Equal(t, int64(112), *result.OnCall[0].MaxAlerts)
 		require.Nil(t, result.OnCall[1].MaxAlerts)
 		require.Nil(t, result.OnCall[2].MaxAlerts)
+	})
+
+	t.Run("mqtt with optional numbers as string", func(t *testing.T) {
+		export := definitions.ContactPointExport{
+			Name: "test",
+			Receivers: []definitions.ReceiverExport{
+				{
+					Type:     "mqtt",
+					Settings: definitions.RawMessage(`{ "qos" : "112" }`),
+				},
+				{
+					Type:     "mqtt",
+					Settings: definitions.RawMessage(`{ "qos" : "test" }`),
+				},
+				{
+					Type:     "mqtt",
+					Settings: definitions.RawMessage(`{ "qos" : null }`),
+				},
+			},
+		}
+		result, err := ContactPointFromContactPointExport(export)
+		require.NoError(t, err)
+		require.Len(t, result.Mqtt, 3)
+		require.Equal(t, int64(112), *result.Mqtt[0].QoS)
+		require.Nil(t, result.Mqtt[1].QoS)
+		require.Nil(t, result.Mqtt[2].QoS)
 	})
 }

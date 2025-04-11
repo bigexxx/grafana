@@ -1,7 +1,7 @@
-import React, { useCallback } from 'react';
+import { useCallback } from 'react';
 
 import { SelectableValue, toOption } from '@grafana/data';
-import { AccessoryButton, EditorList, InputGroup } from '@grafana/experimental';
+import { AccessoryButton, EditorList, InputGroup } from '@grafana/plugin-ui';
 import { Select } from '@grafana/ui';
 
 import { QueryEditorGroupByExpression } from '../../expressions';
@@ -51,7 +51,7 @@ function makeRenderColumn({ options }: { options?: Array<SelectableValue<string>
           menuShouldPortal
           onChange={({ value }) => value && onChangeItem(setGroupByField(value))}
         />
-        <AccessoryButton aria-label="Remove group by column" icon="times" variant="secondary" onClick={onDeleteItem} />
+        <AccessoryButton title="Remove group by column" icon="times" variant="secondary" onClick={onDeleteItem} />
       </InputGroup>
     );
   };

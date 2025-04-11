@@ -1,12 +1,14 @@
 import { map } from 'rxjs/operators';
 
-import { guessFieldTypeForField } from '../../dataframe/processDataFrame';
 import { getFieldDisplayName } from '../../field/fieldState';
-import { DataFrame, Field, FieldType, TransformationApplicabilityLevels } from '../../types';
-import { DataTransformerInfo } from '../../types/transformations';
-import { reduceField, ReducerID } from '../fieldReducer';
+import { DataFrame, Field } from '../../types/dataFrame';
+import { DataTransformerInfo, TransformationApplicabilityLevels } from '../../types/transformations';
+import { getFieldTypeForReducer, reduceField, ReducerID } from '../fieldReducer';
 
 import { DataTransformerID } from './ids';
+import { findMaxFields } from './utils';
+
+const MINIMUM_FIELDS_REQUIRED = 2;
 
 export enum GroupByOperationID {
   aggregate = 'aggregate',
@@ -34,32 +36,19 @@ export const groupByTransformer: DataTransformerInfo<GroupByTransformerOptions> 
     fields: {},
   },
   isApplicable: (data: DataFrame[]) => {
-    let maxFields = 0;
-
     // Group by needs at least two fields
     // a field to group on and a field to aggregate
     // We make sure that at least one frame has at
     // least two fields
-    for (const frame of data) {
-      if (frame.fields.length > maxFields) {
-        maxFields = frame.fields.length;
-      }
-    }
+    const maxFields = findMaxFields(data);
 
-    return maxFields >= 2
+    return maxFields >= MINIMUM_FIELDS_REQUIRED
       ? TransformationApplicabilityLevels.Applicable
       : TransformationApplicabilityLevels.NotApplicable;
   },
   isApplicableDescription: (data: DataFrame[]) => {
-    let maxFields = 0;
-
-    for (const frame of data) {
-      if (frame.fields.length > maxFields) {
-        maxFields = frame.fields.length;
-      }
-    }
-
-    return `The Group by transformation requires a series with at least two fields to work. The maximum number of fields found on a series is ${maxFields}`;
+    const maxFields = findMaxFields(data);
+    return `The Group by transformation requires a series with at least ${MINIMUM_FIELDS_REQUIRED} fields to work. The maximum number of fields found on a series is ${maxFields}`;
   },
   /**
    * Return a modified copy of the series. If the transform is not or should not
@@ -122,16 +111,16 @@ export const groupByTransformer: DataTransformerInfo<GroupByTransformerOptions> 
               const aggregationField: Field = {
                 name: `${fieldName} (${aggregation})`,
                 values: valuesByAggregation[aggregation] ?? [],
-                type: FieldType.other,
+                type: getFieldTypeForReducer(aggregation, field.type),
                 config: {},
               };
 
-              aggregationField.type = detectFieldType(aggregation, field, aggregationField);
               fields.push(aggregationField);
             }
           }
 
           processed.push({
+            ...frame,
             fields,
             length: valuesByGroupKey.size,
           });
@@ -155,20 +144,6 @@ const shouldCalculateField = (field: Field, options: GroupByTransformerOptions):
     options?.fields[fieldName].aggregations.length > 0
   );
 };
-
-function detectFieldType(aggregation: string, sourceField: Field, targetField: Field): FieldType {
-  switch (aggregation) {
-    case ReducerID.allIsNull:
-      return FieldType.boolean;
-    case ReducerID.last:
-    case ReducerID.lastNotNull:
-    case ReducerID.first:
-    case ReducerID.firstNotNull:
-      return sourceField.type;
-    default:
-      return guessFieldTypeForField(targetField) ?? FieldType.string;
-  }
-}
 
 /**
  * Groups values together by key. This will create a mapping of strings

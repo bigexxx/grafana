@@ -1,7 +1,10 @@
-import React, { ReactNode, useState } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { ReactNode, useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 
-import { Collapse, Field, Link, MultiSelect, Select, useStyles2 } from '@grafana/ui';
+import { Collapse, Field, Link, MultiSelect, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
+import { ContactPointSelector } from 'app/features/alerting/unified/components/notification-policies/ContactPointSelector';
+import { handleContactPointSelect } from 'app/features/alerting/unified/components/notification-policies/utils';
 import { RouteWithID } from 'app/plugins/datasource/alertmanager/types';
 
 import { FormAmRoute } from '../../types/amroutes';
@@ -9,14 +12,12 @@ import {
   amRouteToFormAmRoute,
   commonGroupByOptions,
   mapMultiSelectValueToStrings,
-  mapSelectValueToString,
   promDurationValidator,
   repeatIntervalValidator,
-  stringsToSelectableValues,
   stringToSelectableValue,
+  stringsToSelectableValues,
 } from '../../utils/amroutes';
 import { makeAMLink } from '../../utils/misc';
-import { AmRouteReceiver } from '../receivers/grafanaAppReceivers/types';
 
 import { PromDurationInput } from './PromDurationInput';
 import { getFormStyles } from './formStyles';
@@ -26,17 +27,10 @@ export interface AmRootRouteFormProps {
   alertManagerSourceName: string;
   actionButtons: ReactNode;
   onSubmit: (route: Partial<FormAmRoute>) => void;
-  receivers: AmRouteReceiver[];
   route: RouteWithID;
 }
 
-export const AmRootRouteForm = ({
-  actionButtons,
-  alertManagerSourceName,
-  onSubmit,
-  receivers,
-  route,
-}: AmRootRouteFormProps) => {
+export const AmRootRouteForm = ({ actionButtons, alertManagerSourceName, onSubmit, route }: AmRootRouteFormProps) => {
   const styles = useStyles2(getFormStyles);
   const [isTimingOptionsExpanded, setIsTimingOptionsExpanded] = useState(false);
   const [groupByOptions, setGroupByOptions] = useState(stringsToSelectableValues(route.group_by));
@@ -58,42 +52,46 @@ export const AmRootRouteForm = ({
   });
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
-      <Field label="Default contact point" invalid={!!errors.receiver} error={errors.receiver?.message}>
-        <>
-          <div className={styles.container} data-testid="am-receiver-select">
-            <Controller
-              render={({ field: { onChange, ref, ...field } }) => (
-                <Select
-                  aria-label="Default contact point"
-                  {...field}
-                  className={styles.input}
-                  onChange={(value) => onChange(mapSelectValueToString(value))}
-                  options={receivers}
-                />
-              )}
-              control={control}
-              name="receiver"
-              rules={{ required: { value: true, message: 'Required.' } }}
-            />
-            <span>or</span>
-            <Link
-              className={styles.linkText}
-              href={makeAMLink('/alerting/notifications/receivers/new', alertManagerSourceName)}
-            >
-              Create a contact point
-            </Link>
-          </div>
-        </>
+      <Field
+        label={t('alerting.am-root-route-form.label-default-contact-point', 'Default contact point')}
+        invalid={Boolean(errors.receiver) ? true : undefined}
+        error={errors.receiver?.message}
+      >
+        <div className={styles.container} data-testid="am-receiver-select">
+          <Controller
+            render={({ field: { onChange, ref, value, ...field } }) => (
+              <ContactPointSelector
+                selectProps={{
+                  ...field,
+                  onChange: (changeValue) => handleContactPointSelect(changeValue, onChange),
+                }}
+                selectedContactPointName={value}
+              />
+            )}
+            control={control}
+            name="receiver"
+            rules={{ required: { value: true, message: 'Required.' } }}
+          />
+          <span>
+            <Trans i18nKey="alerting.am-root-route-form.or">or</Trans>
+          </span>
+          <Link
+            className={styles.linkText}
+            href={makeAMLink('/alerting/notifications/receivers/new', alertManagerSourceName)}
+          >
+            <Trans i18nKey="alerting.am-root-route-form.create-a-contact-point">Create a contact point</Trans>
+          </Link>
+        </div>
       </Field>
       <Field
-        label="Group by"
-        description="Group alerts when you receive a notification based on labels."
+        label={t('alerting.am-root-route-form.am-group-select-label-group-by', 'Group by')}
+        description="Combine multiple alerts into a single notification by grouping them by the same label values."
         data-testid="am-group-select"
       >
         <Controller
           render={({ field: { onChange, ref, ...field } }) => (
             <MultiSelect
-              aria-label="Group by"
+              aria-label={t('alerting.am-root-route-form.aria-label-group-by', 'Group by')}
               {...field}
               allowCustomValue
               className={styles.input}
@@ -113,13 +111,13 @@ export const AmRootRouteForm = ({
         collapsible
         className={styles.collapse}
         isOpen={isTimingOptionsExpanded}
-        label="Timing options"
+        label={t('alerting.am-root-route-form.label-timing-options', 'Timing options')}
         onToggle={setIsTimingOptionsExpanded}
       >
         <div className={styles.timingFormContainer}>
           <Field
-            label="Group wait"
-            description="The waiting time until the initial notification is sent for a new group created by an incoming alert. Default 30 seconds."
+            label={t('alerting.am-root-route-form.am-group-wait-label-group-wait', 'Group wait')}
+            description="The waiting time before sending the first notification for a new group of alerts. Default 30 seconds."
             invalid={!!errors.groupWaitValue}
             error={errors.groupWaitValue?.message}
             data-testid="am-group-wait"
@@ -128,12 +126,12 @@ export const AmRootRouteForm = ({
               {...register('groupWaitValue', { validate: promDurationValidator })}
               placeholder={TIMING_OPTIONS_DEFAULTS.group_wait}
               className={styles.promDurationInput}
-              aria-label="Group wait"
+              aria-label={t('alerting.am-root-route-form.aria-label-group-wait', 'Group wait')}
             />
           </Field>
           <Field
-            label="Group interval"
-            description="The waiting time to send a batch of new alerts for that group after the first notification was sent. Default 5 minutes."
+            label={t('alerting.am-root-route-form.am-group-interval-label-group-interval', 'Group interval')}
+            description="The wait time before sending a notification about changes in the alert group after the first notification has been sent. Default is 5 minutes."
             invalid={!!errors.groupIntervalValue}
             error={errors.groupIntervalValue?.message}
             data-testid="am-group-interval"
@@ -142,12 +140,12 @@ export const AmRootRouteForm = ({
               {...register('groupIntervalValue', { validate: promDurationValidator })}
               placeholder={TIMING_OPTIONS_DEFAULTS.group_interval}
               className={styles.promDurationInput}
-              aria-label="Group interval"
+              aria-label={t('alerting.am-root-route-form.aria-label-group-interval', 'Group interval')}
             />
           </Field>
           <Field
-            label="Repeat interval"
-            description="The waiting time to resend an alert after they have successfully been sent. Default 4 hours. Should be a multiple of Group interval."
+            label={t('alerting.am-root-route-form.am-repeat-interval-label-repeat-interval', 'Repeat interval')}
+            description="The wait time before resending a notification that has already been sent successfully. Default is 4 hours. Should be a multiple of Group interval."
             invalid={!!errors.repeatIntervalValue}
             error={errors.repeatIntervalValue?.message}
             data-testid="am-repeat-interval"
@@ -161,7 +159,7 @@ export const AmRootRouteForm = ({
               })}
               placeholder={TIMING_OPTIONS_DEFAULTS.repeat_interval}
               className={styles.promDurationInput}
-              aria-label="Repeat interval"
+              aria-label={t('alerting.am-root-route-form.aria-label-repeat-interval', 'Repeat interval')}
             />
           </Field>
         </div>

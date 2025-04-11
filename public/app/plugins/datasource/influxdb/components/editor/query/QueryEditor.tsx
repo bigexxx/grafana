@@ -1,7 +1,6 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
-import { QueryEditorProps } from '@grafana/data/src';
+import { QueryEditorProps } from '@grafana/data';
 
 import InfluxDatasource from '../../../datasource';
 import { buildRawQuery } from '../../../queryUtils';
@@ -20,7 +19,7 @@ export const QueryEditor = ({ query, onChange, onRunQuery, datasource }: Props) 
     case InfluxVersion.Flux:
       return (
         <div className="gf-form-query-content">
-          <FluxQueryEditor query={query} onChange={onChange} onRunQuery={onRunQuery} datasource={datasource} />
+          <FluxQueryEditor query={query} onChange={onChange} datasource={datasource} />
         </div>
       );
     case InfluxVersion.SQL:

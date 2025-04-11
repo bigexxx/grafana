@@ -2,7 +2,7 @@ import { debounce } from 'lodash';
 import { MapBrowserEvent } from 'ol';
 import { toLonLat } from 'ol/proj';
 
-import { DataFrame, DataHoverClearEvent } from '@grafana/data/src';
+import { DataFrame, DataHoverClearEvent } from '@grafana/data';
 
 import { GeomapPanel } from '../GeomapPanel';
 import { GeomapHoverPayload, GeomapLayerHover } from '../event';
@@ -45,7 +45,7 @@ export const pointerMoveListener = (evt: MapBrowserEvent<MouseEvent>, panel: Geo
 
   const { hoverPayload } = panel;
   hoverPayload.pageX = mouse.pageX;
-  hoverPayload.pageY = mouse.pageY;
+  hoverPayload.pageY = mouse.pageY - window.scrollY;
   hoverPayload.point = {
     lat: hover[1],
     lon: hover[0],

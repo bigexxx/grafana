@@ -1,10 +1,8 @@
-import React, { Component } from 'react';
+import { Component } from 'react';
 
 import { DataFrame, TimeRange } from '@grafana/data';
-import { PanelContextRoot } from '@grafana/ui/src/components/PanelChrome/PanelContext';
-import { hasVisibleLegendSeries, PlotLegend } from '@grafana/ui/src/components/uPlot/PlotLegend';
-import { UPlotConfigBuilder } from '@grafana/ui/src/components/uPlot/config/UPlotConfigBuilder';
-import { withTheme2 } from '@grafana/ui/src/themes/ThemeContext';
+import { withTheme2 } from '@grafana/ui';
+import { hasVisibleLegendSeries, PlotLegend, UPlotConfigBuilder } from '@grafana/ui/internal';
 
 import { GraphNG, GraphNGProps, PropDiffFn } from '../GraphNG/GraphNG';
 
@@ -15,11 +13,7 @@ const propsToDiff: Array<string | PropDiffFn> = ['legend', 'options', 'theme'];
 type TimeSeriesProps = Omit<GraphNGProps, 'prepConfig' | 'propsToDiff' | 'renderLegend'>;
 
 export class UnthemedTimeSeries extends Component<TimeSeriesProps> {
-  static contextType = PanelContextRoot;
-  declare context: React.ContextType<typeof PanelContextRoot>;
-
   prepConfig = (alignedFrame: DataFrame, allFrames: DataFrame[], getTimeRange: () => TimeRange) => {
-    const { eventsScope, sync } = this.context;
     const { theme, timeZone, options, renderers, tweakAxis, tweakScale } = this.props;
 
     return preparePlotConfigBuilder({
@@ -27,12 +21,10 @@ export class UnthemedTimeSeries extends Component<TimeSeriesProps> {
       theme,
       timeZones: Array.isArray(timeZone) ? timeZone : [timeZone],
       getTimeRange,
-      sync,
       allFrames,
       renderers,
       tweakScale,
       tweakAxis,
-      eventsScope,
       hoverProximity: options?.tooltip?.hoverProximity,
       orientation: options?.orientation,
     });

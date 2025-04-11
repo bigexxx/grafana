@@ -1,5 +1,3 @@
-import React from 'react';
-
 import {
   FieldConfigEditorBuilder,
   StandardEditorProps,
@@ -12,8 +10,9 @@ import { GraphFieldConfig, StackingConfig, StackingMode } from '@grafana/schema'
 import { RadioButtonGroup } from '../../components/Forms/RadioButtonGroup/RadioButtonGroup';
 import { IconButton } from '../../components/IconButton/IconButton';
 import { Input } from '../../components/Input/Input';
-import { HorizontalGroup } from '../../components/Layout/Layout';
+import { Stack } from '../../components/Layout/Stack/Stack';
 import { graphFieldOptions } from '../../components/uPlot/config';
+import { t } from '../../utils/i18n';
 
 export const StackingEditor = ({
   value,
@@ -22,7 +21,7 @@ export const StackingEditor = ({
   item,
 }: StandardEditorProps<StackingConfig, { options: Array<SelectableValue<StackingMode>> }>) => {
   return (
-    <HorizontalGroup>
+    <Stack>
       <RadioButtonGroup
         value={value?.mode || StackingMode.None}
         options={item.settings?.options ?? []}
@@ -36,8 +35,14 @@ export const StackingEditor = ({
       {context.isOverride && value?.mode && value?.mode !== StackingMode.None && (
         <Input
           type="text"
-          placeholder="Group"
-          suffix={<IconButton name="question-circle" tooltip="Name of the stacking group" tooltipPlacement="top" />}
+          placeholder={t('grafana-ui.stacking-builder.group', 'Group')}
+          suffix={
+            <IconButton
+              name="question-circle"
+              tooltip={t('grafana-ui.stacking-builder.group-tooltip', 'Name of the stacking group')}
+              tooltipPlacement="top"
+            />
+          }
           defaultValue={value?.group}
           onChange={(v) => {
             onChange({
@@ -47,7 +52,7 @@ export const StackingEditor = ({
           }}
         />
       )}
-    </HorizontalGroup>
+    </Stack>
   );
 };
 

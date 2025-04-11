@@ -15,6 +15,7 @@ import (
 	"github.com/grafana/grafana/pkg/login/social"
 	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
+	"github.com/grafana/grafana/pkg/services/authn"
 	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
 	"github.com/grafana/grafana/pkg/services/datasources"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
@@ -22,7 +23,6 @@ import (
 	"github.com/grafana/grafana/pkg/services/licensing"
 	"github.com/grafana/grafana/pkg/services/pluginsintegration/pluginsettings"
 	"github.com/grafana/grafana/pkg/services/pluginsintegration/pluginstore"
-	"github.com/grafana/grafana/pkg/services/secrets/kvstore"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/tsdb/grafanads"
 	"github.com/grafana/grafana/pkg/util"
@@ -31,6 +31,9 @@ import (
 // Returns a file that is easy to check for changes
 // Any changes to the file means we should refresh the frontend
 func (hs *HTTPServer) GetFrontendAssets(c *contextmodel.ReqContext) {
+	c, span := hs.injectSpan(c, "api.GetFrontendAssets")
+	defer span.End()
+
 	hash := sha256.New()
 	keys := map[string]any{}
 
@@ -38,7 +41,6 @@ func (hs *HTTPServer) GetFrontendAssets(c *contextmodel.ReqContext) {
 	hash.Reset()
 	_, _ = hash.Write([]byte(setting.BuildVersion))
 	_, _ = hash.Write([]byte(setting.BuildCommit))
-	_, _ = hash.Write([]byte(fmt.Sprintf("%d", setting.BuildStamp)))
 	keys["version"] = fmt.Sprintf("%x", hash.Sum(nil))
 
 	// Plugin configs
@@ -97,14 +99,18 @@ func (hs *HTTPServer) GetFrontendSettings(c *contextmodel.ReqContext) {
 //
 //nolint:gocyclo
 func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.FrontendSettingsDTO, error) {
-	availablePlugins, err := hs.availablePlugins(c.Req.Context(), c.SignedInUser.GetOrgID())
+	c, span := hs.injectSpan(c, "api.getFrontendSettings")
+	defer span.End()
+
+	availablePlugins, err := hs.availablePlugins(c.Req.Context(), c.GetOrgID())
 	if err != nil {
 		return nil, err
 	}
 
 	apps := make(map[string]*plugins.AppDTO, 0)
 	for _, ap := range availablePlugins[plugins.TypeApp] {
-		apps[ap.Plugin.ID] = newAppDTO(
+		apps[ap.Plugin.ID] = hs.newAppDTO(
+			c.Req.Context(),
 			ap.Plugin,
 			ap.Settings,
 		)
@@ -134,36 +140,46 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 		}
 
 		panels[panel.ID] = plugins.PanelDTO{
-			ID:            panel.ID,
-			Name:          panel.Name,
-			AliasIDs:      panel.AliasIDs,
-			Info:          panel.Info,
-			Module:        panel.Module,
-			BaseURL:       panel.BaseURL,
-			SkipDataQuery: panel.SkipDataQuery,
-			HideFromList:  panel.HideFromList,
-			ReleaseState:  string(panel.State),
-			Signature:     string(panel.Signature),
-			Sort:          getPanelSort(panel.ID),
-			Angular:       panel.Angular,
+			ID:              panel.ID,
+			Name:            panel.Name,
+			AliasIDs:        panel.AliasIDs,
+			Info:            panel.Info,
+			Module:          panel.Module,
+			ModuleHash:      hs.pluginAssets.ModuleHash(c.Req.Context(), panel),
+			BaseURL:         panel.BaseURL,
+			SkipDataQuery:   panel.SkipDataQuery,
+			HideFromList:    panel.HideFromList,
+			ReleaseState:    string(panel.State),
+			Signature:       string(panel.Signature),
+			Sort:            getPanelSort(panel.ID),
+			Angular:         panel.Angular,
+			LoadingStrategy: hs.pluginAssets.LoadingStrategy(c.Req.Context(), panel),
+			Translations:    panel.Translations,
 		}
 	}
 
-	hideVersion := hs.Cfg.AnonymousHideVersion && !c.IsSignedIn
+	hideVersion := hs.Cfg.Anonymous.HideVersion && !c.IsSignedIn
 	version := setting.BuildVersion
 	commit := setting.BuildCommit
+	commitShort := getShortCommitHash(setting.BuildCommit, 10)
 	buildstamp := setting.BuildStamp
+	versionString := fmt.Sprintf(`%s v%s (%s)`, setting.ApplicationName, version, commitShort)
 
 	if hideVersion {
 		version = ""
+		versionString = setting.ApplicationName
 		commit = ""
+		commitShort = ""
 		buildstamp = 0
 	}
 
 	hasAccess := accesscontrol.HasAccess(hs.AccessControl, c)
-	secretsManagerPluginEnabled := kvstore.EvaluateRemoteSecretsPlugin(c.Req.Context(), hs.secretsPluginManager, hs.Cfg) == nil
 	trustedTypesDefaultPolicyEnabled := (hs.Cfg.CSPEnabled && strings.Contains(hs.Cfg.CSPTemplate, "require-trusted-types-for")) || (hs.Cfg.CSPReportOnlyEnabled && strings.Contains(hs.Cfg.CSPReportOnlyTemplate, "require-trusted-types-for"))
-	isCloudMigrationTarget := hs.Features.IsEnabled(c.Req.Context(), featuremgmt.FlagOnPremToCloudMigrations) && hs.Cfg.CloudMigrationIsTarget
+	isCloudMigrationTarget := hs.Features.IsEnabled(c.Req.Context(), featuremgmt.FlagOnPremToCloudMigrations) && hs.Cfg.CloudMigration.IsTarget
+	featureToggles := hs.Features.GetEnabled(c.Req.Context())
+	// this is needed for backwards compatibility with external plugins
+	// we should remove this once we can be sure that no external plugins rely on this
+	featureToggles["topnav"] = true
 
 	frontendSettings := &dtos.FrontendSettingsDTO{
 		DefaultDatasource:                   defaultDS,
@@ -178,10 +194,8 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 		LdapEnabled:                         hs.Cfg.LDAPAuthEnabled,
 		JwtHeaderName:                       hs.Cfg.JWTAuth.HeaderName,
 		JwtUrlLogin:                         hs.Cfg.JWTAuth.URLLogin,
-		AlertingErrorOrTimeout:              hs.Cfg.AlertingErrorOrTimeout,
-		AlertingNoDataOrNullValues:          hs.Cfg.AlertingNoDataOrNullValues,
-		AlertingMinInterval:                 hs.Cfg.AlertingMinInterval,
 		LiveEnabled:                         hs.Cfg.LiveMaxConnections != 0,
+		LiveMessageSizeLimit:                hs.Cfg.LiveMessageSizeLimit,
 		AutoAssignOrg:                       hs.Cfg.AutoAssignOrg,
 		VerifyEmailEnabled:                  hs.Cfg.VerifyEmailEnabled,
 		SigV4AuthEnabled:                    hs.Cfg.SigV4AuthEnabled,
@@ -200,6 +214,8 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 		RudderstackSdkUrl:                   hs.Cfg.RudderstackSDKURL,
 		RudderstackConfigUrl:                hs.Cfg.RudderstackConfigURL,
 		RudderstackIntegrationsUrl:          hs.Cfg.RudderstackIntegrationsURL,
+		AnalyticsConsoleReporting:           hs.Cfg.FrontendAnalyticsConsoleReporting,
+		DashboardPerformanceMetrics:         hs.Cfg.DashboardPerformanceMetrics,
 		FeedbackLinksEnabled:                hs.Cfg.FeedbackLinksEnabled,
 		ApplicationInsightsConnectionString: hs.Cfg.ApplicationInsightsConnectionString,
 		ApplicationInsightsEndpointUrl:      hs.Cfg.ApplicationInsightsEndpointUrl,
@@ -210,26 +226,35 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 		ExternalUserMngInfo:                 hs.Cfg.ExternalUserMngInfo,
 		ExternalUserMngLinkUrl:              hs.Cfg.ExternalUserMngLinkUrl,
 		ExternalUserMngLinkName:             hs.Cfg.ExternalUserMngLinkName,
-		ViewersCanEdit:                      hs.Cfg.ViewersCanEdit,
-		AngularSupportEnabled:               hs.Cfg.AngularSupportEnabled,
-		EditorsCanAdmin:                     hs.Cfg.EditorsCanAdmin,
-		DisableSanitizeHtml:                 hs.Cfg.DisableSanitizeHtml,
-		TrustedTypesDefaultPolicyEnabled:    trustedTypesDefaultPolicyEnabled,
-		CSPReportOnlyEnabled:                hs.Cfg.CSPReportOnlyEnabled,
-		DateFormats:                         hs.Cfg.DateFormats,
-		SecureSocksDSProxyEnabled:           hs.Cfg.SecureSocksDSProxy.Enabled && hs.Cfg.SecureSocksDSProxy.ShowUI,
-		DisableFrontendSandboxForPlugins:    hs.Cfg.DisableFrontendSandboxForPlugins,
-		PublicDashboardAccessToken:          c.PublicDashboardAccessToken,
-		PublicDashboardsEnabled:             hs.Cfg.PublicDashboardsEnabled,
-		CloudMigrationIsTarget:              isCloudMigrationTarget,
-		SharedWithMeFolderUID:               folder.SharedWithMeFolderUID,
-		RootFolderUID:                       accesscontrol.GeneralFolderUID,
-		LocalFileSystemAvailable:            hs.Cfg.LocalFileSystemAvailable,
+		ExternalUserMngAnalytics:            hs.Cfg.ExternalUserMngAnalytics,
+		ExternalUserMngAnalyticsParams:      hs.Cfg.ExternalUserMngAnalyticsParams,
+		//nolint:staticcheck // ViewersCanEdit is deprecated but still used for backward compatibility
+		ViewersCanEdit:                   hs.Cfg.ViewersCanEdit,
+		DisableSanitizeHtml:              hs.Cfg.DisableSanitizeHtml,
+		TrustedTypesDefaultPolicyEnabled: trustedTypesDefaultPolicyEnabled,
+		CSPReportOnlyEnabled:             hs.Cfg.CSPReportOnlyEnabled,
+		DateFormats:                      hs.Cfg.DateFormats,
+		SecureSocksDSProxyEnabled:        hs.Cfg.SecureSocksDSProxy.Enabled && hs.Cfg.SecureSocksDSProxy.ShowUI,
+		EnableFrontendSandboxForPlugins:  hs.Cfg.EnableFrontendSandboxForPlugins,
+		PublicDashboardAccessToken:       c.PublicDashboardAccessToken,
+		PublicDashboardsEnabled:          hs.Cfg.PublicDashboardsEnabled,
+		CloudMigrationIsTarget:           isCloudMigrationTarget,
+		CloudMigrationPollIntervalMs:     int(hs.Cfg.CloudMigration.FrontendPollInterval.Milliseconds()),
+		SharedWithMeFolderUID:            folder.SharedWithMeFolderUID,
+		RootFolderUID:                    accesscontrol.GeneralFolderUID,
+		LocalFileSystemAvailable:         hs.Cfg.LocalFileSystemAvailable,
+		ReportingStaticContext:           hs.Cfg.ReportingStaticContext,
+		ExploreDefaultTimeOffset:         hs.Cfg.ExploreDefaultTimeOffset,
+		ExploreHideLogsDownload:          hs.Cfg.ExploreHideLogsDownload,
+
+		DefaultDatasourceManageAlertsUIToggle: hs.Cfg.DefaultDatasourceManageAlertsUIToggle,
 
 		BuildInfo: dtos.FrontendSettingsBuildInfoDTO{
 			HideVersion:   hideVersion,
 			Version:       version,
+			VersionString: versionString,
 			Commit:        commit,
+			CommitShort:   commitShort,
 			Buildstamp:    buildstamp,
 			Edition:       hs.License.Edition(),
 			LatestVersion: hs.grafanaUpdateChecker.LatestVersion(),
@@ -245,31 +270,35 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 			EnabledFeatures: hs.License.EnabledFeatures(),
 		},
 
-		FeatureToggles:                   hs.Features.GetEnabled(c.Req.Context()),
-		AnonymousEnabled:                 hs.Cfg.AnonymousEnabled,
-		AnonymousDeviceLimit:             hs.Cfg.AnonymousDeviceLimit,
+		FeatureToggles:                   featureToggles,
+		AnonymousEnabled:                 hs.Cfg.Anonymous.Enabled,
+		AnonymousDeviceLimit:             hs.Cfg.Anonymous.DeviceLimit,
 		RendererAvailable:                hs.RenderService.IsAvailable(c.Req.Context()),
 		RendererVersion:                  hs.RenderService.Version(),
 		RendererDefaultImageWidth:        hs.Cfg.RendererDefaultImageWidth,
 		RendererDefaultImageHeight:       hs.Cfg.RendererDefaultImageHeight,
 		RendererDefaultImageScale:        hs.Cfg.RendererDefaultImageScale,
-		SecretsManagerPluginEnabled:      secretsManagerPluginEnabled,
 		Http2Enabled:                     hs.Cfg.Protocol == setting.HTTP2Scheme,
 		GrafanaJavascriptAgent:           hs.Cfg.GrafanaJavascriptAgent,
 		PluginCatalogURL:                 hs.Cfg.PluginCatalogURL,
 		PluginAdminEnabled:               hs.Cfg.PluginAdminEnabled,
 		PluginAdminExternalManageEnabled: hs.Cfg.PluginAdminEnabled && hs.Cfg.PluginAdminExternalManageEnabled,
 		PluginCatalogHiddenPlugins:       hs.Cfg.PluginCatalogHiddenPlugins,
+		PluginCatalogManagedPlugins:      hs.managedPluginsService.ManagedPlugins(c.Req.Context()),
+		PluginCatalogPreinstalledPlugins: hs.Cfg.PreinstallPlugins,
 		ExpressionsEnabled:               hs.Cfg.ExpressionsEnabled,
 		AwsAllowedAuthProviders:          hs.Cfg.AWSAllowedAuthProviders,
 		AwsAssumeRoleEnabled:             hs.Cfg.AWSAssumeRoleEnabled,
 		SupportBundlesEnabled:            isSupportBundlesEnabled(hs),
 
 		Azure: dtos.FrontendSettingsAzureDTO{
-			Cloud:                   hs.Cfg.Azure.Cloud,
-			ManagedIdentityEnabled:  hs.Cfg.Azure.ManagedIdentityEnabled,
-			WorkloadIdentityEnabled: hs.Cfg.Azure.WorkloadIdentityEnabled,
-			UserIdentityEnabled:     hs.Cfg.Azure.UserIdentityEnabled,
+			Cloud:                                  hs.Cfg.Azure.Cloud,
+			Clouds:                                 hs.Cfg.Azure.CustomClouds(),
+			ManagedIdentityEnabled:                 hs.Cfg.Azure.ManagedIdentityEnabled,
+			WorkloadIdentityEnabled:                hs.Cfg.Azure.WorkloadIdentityEnabled,
+			UserIdentityEnabled:                    hs.Cfg.Azure.UserIdentityEnabled,
+			UserIdentityFallbackCredentialsEnabled: hs.Cfg.Azure.UserIdentityFallbackCredentialsEnabled,
+			AzureEntraPasswordCredentialsEnabled:   hs.Cfg.Azure.AzureEntraPasswordCredentialsEnabled,
 		},
 
 		Caching: dtos.FrontendSettingsCachingDTO{
@@ -308,12 +337,10 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 		frontendSettings.UnifiedAlerting.AlertStateHistoryPrimary = hs.Cfg.UnifiedAlerting.StateHistory.MultiPrimary
 	}
 
+	frontendSettings.UnifiedAlerting.RecordingRulesEnabled = hs.Cfg.UnifiedAlerting.RecordingRules.Enabled
+
 	if hs.Cfg.UnifiedAlerting.Enabled != nil {
 		frontendSettings.UnifiedAlertingEnabled = *hs.Cfg.UnifiedAlerting.Enabled
-	}
-
-	if hs.Cfg.AlertingEnabled != nil {
-		frontendSettings.AlertingEnabled = *(hs.Cfg.AlertingEnabled)
 	}
 
 	// It returns false if the provider is not enabled or the skip org role sync is false.
@@ -327,7 +354,6 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 	oauthProviders := hs.SocialService.GetOAuthInfoProviders()
 	frontendSettings.Auth = dtos.FrontendSettingsAuthDTO{
 		AuthProxyEnableLoginToken:     hs.Cfg.AuthProxy.EnableLoginToken,
-		OAuthSkipOrgRoleUpdateSync:    hs.Cfg.OAuthSkipOrgRoleUpdateSync,
 		SAMLSkipOrgRoleSync:           hs.Cfg.SAMLSkipOrgRoleSync,
 		LDAPSkipOrgRoleSync:           hs.Cfg.LDAPSkipOrgRoleSync,
 		JWTAuthSkipOrgRoleSync:        hs.Cfg.JWTAuth.SkipOrgRoleSync,
@@ -340,6 +366,25 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 		OktaSkipOrgRoleSync:           parseSkipOrgRoleSyncEnabled(oauthProviders[social.OktaProviderName]),
 		DisableLogin:                  hs.Cfg.DisableLogin,
 		BasicAuthStrongPasswordPolicy: hs.Cfg.BasicAuthStrongPasswordPolicy,
+		DisableSignoutMenu:            hs.Cfg.DisableSignoutMenu,
+	}
+
+	if hs.Cfg.PasswordlessMagicLinkAuth.Enabled && hs.Features.IsEnabled(c.Req.Context(), featuremgmt.FlagPasswordlessMagicLinkAuthentication) {
+		hasEnabledProviders := hs.samlEnabled() || hs.authnService.IsClientEnabled(authn.ClientLDAP)
+
+		if !hasEnabledProviders {
+			oauthInfos := hs.SocialService.GetOAuthInfoProviders()
+			for _, provider := range oauthInfos {
+				if provider.Enabled {
+					hasEnabledProviders = true
+					break
+				}
+			}
+		}
+
+		if !hasEnabledProviders {
+			frontendSettings.Auth.PasswordlessEnabled = true
+		}
 	}
 
 	if hs.pluginsCDNService != nil && hs.pluginsCDNService.IsEnabled() {
@@ -359,7 +404,7 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
 	}
 
 	// Set the kubernetes namespace
-	frontendSettings.Namespace = hs.namespacer(c.SignedInUser.OrgID)
+	frontendSettings.Namespace = hs.namespacer(c.OrgID)
 
 	// experimental scope features
 	if hs.Features.IsEnabled(c.Req.Context(), featuremgmt.FlagScopeFilters) {
@@ -374,10 +419,20 @@ func isSupportBundlesEnabled(hs *HTTPServer) bool {
 	return hs.Cfg.SectionWithEnvOverrides("support_bundles").Key("enabled").MustBool(true)
 }
 
+func getShortCommitHash(commitHash string, maxLength int) string {
+	if len(commitHash) > maxLength {
+		return commitHash[:maxLength]
+	}
+	return commitHash
+}
+
 func (hs *HTTPServer) getFSDataSources(c *contextmodel.ReqContext, availablePlugins AvailablePlugins) (map[string]plugins.DataSourceDTO, error) {
+	c, span := hs.injectSpan(c, "api.getFSDataSources")
+	defer span.End()
+
 	orgDataSources := make([]*datasources.DataSource, 0)
-	if c.SignedInUser.GetOrgID() != 0 {
-		query := datasources.GetDataSourcesQuery{OrgID: c.SignedInUser.GetOrgID(), DataSourceLimit: hs.Cfg.DataSourceLimit}
+	if c.GetOrgID() != 0 {
+		query := datasources.GetDataSourcesQuery{OrgID: c.GetOrgID(), DataSourceLimit: hs.Cfg.DataSourceLimit}
 		dataSources, err := hs.DataSourcesService.GetDataSources(c.Req.Context(), &query)
 		if err != nil {
 			return nil, err
@@ -387,7 +442,7 @@ func (hs *HTTPServer) getFSDataSources(c *contextmodel.ReqContext, availablePlug
 			// If RBAC is enabled, it will filter out all datasources for a public user, so we need to skip it
 			orgDataSources = dataSources
 		} else {
-			filtered, err := hs.dsGuardian.New(c.SignedInUser.OrgID, c.SignedInUser).FilterDatasourcesByQueryPermissions(dataSources)
+			filtered, err := hs.dsGuardian.New(c.SignedInUser.OrgID, c.SignedInUser).FilterDatasourcesByReadPermissions(dataSources)
 			if err != nil {
 				return nil, err
 			}
@@ -405,14 +460,15 @@ func (hs *HTTPServer) getFSDataSources(c *contextmodel.ReqContext, availablePlug
 		}
 
 		dsDTO := plugins.DataSourceDTO{
-			ID:        ds.ID,
-			UID:       ds.UID,
-			Type:      ds.Type,
-			Name:      ds.Name,
-			URL:       url,
-			IsDefault: ds.IsDefault,
-			Access:    string(ds.Access),
-			ReadOnly:  ds.ReadOnly,
+			ID:         ds.ID,
+			UID:        ds.UID,
+			Type:       ds.Type,
+			Name:       ds.Name,
+			URL:        url,
+			IsDefault:  ds.IsDefault,
+			Access:     string(ds.Access),
+			ReadOnly:   ds.ReadOnly,
+			APIVersion: ds.APIVersion,
 		}
 
 		ap, exists := availablePlugins.Get(plugins.TypeDataSource, ds.Type)
@@ -425,11 +481,15 @@ func (hs *HTTPServer) getFSDataSources(c *contextmodel.ReqContext, availablePlug
 		dsDTO.Preload = plugin.Preload
 		dsDTO.Module = plugin.Module
 		dsDTO.PluginMeta = &plugins.PluginMetaDTO{
-			JSONData:  plugin.JSONData,
-			Signature: plugin.Signature,
-			Module:    plugin.Module,
-			BaseURL:   plugin.BaseURL,
-			Angular:   plugin.Angular,
+			JSONData:                  plugin.JSONData,
+			Signature:                 plugin.Signature,
+			Module:                    plugin.Module,
+			ModuleHash:                hs.pluginAssets.ModuleHash(c.Req.Context(), plugin),
+			BaseURL:                   plugin.BaseURL,
+			Angular:                   plugin.Angular,
+			MultiValueFilterOperators: plugin.MultiValueFilterOperators,
+			LoadingStrategy:           hs.pluginAssets.LoadingStrategy(c.Req.Context(), plugin),
+			Translations:              plugin.Translations,
 		}
 
 		if ds.JsonData == nil {
@@ -491,7 +551,7 @@ func (hs *HTTPServer) getFSDataSources(c *contextmodel.ReqContext, availablePlug
 			dsDTO.Database = ds.Database
 		}
 
-		if ds.Type == datasources.DS_PROMETHEUS {
+		if ds.Type == datasources.DS_PROMETHEUS || ds.Type == datasources.DS_AMAZON_PROMETHEUS || ds.Type == datasources.DS_AZURE_PROMETHEUS {
 			// add unproxied server URL for link to Prometheus web UI
 			ds.JsonData.Set("directUrl", ds.URL)
 		}
@@ -511,8 +571,10 @@ func (hs *HTTPServer) getFSDataSources(c *contextmodel.ReqContext, availablePlug
 					JSONData:  ds.JSONData,
 					Signature: ds.Signature,
 					Module:    ds.Module,
-					BaseURL:   ds.BaseURL,
-					Angular:   ds.Angular,
+					// ModuleHash: hs.pluginAssets.ModuleHash(c.Req.Context(), ds),
+					BaseURL:      ds.BaseURL,
+					Angular:      ds.Angular,
+					Translations: ds.Translations,
 				},
 			}
 			if ds.Name == grafanads.DatasourceName {
@@ -526,13 +588,18 @@ func (hs *HTTPServer) getFSDataSources(c *contextmodel.ReqContext, availablePlug
 	return dataSources, nil
 }
 
-func newAppDTO(plugin pluginstore.Plugin, settings pluginsettings.InfoDTO) *plugins.AppDTO {
+func (hs *HTTPServer) newAppDTO(ctx context.Context, plugin pluginstore.Plugin, settings pluginsettings.InfoDTO) *plugins.AppDTO {
 	app := &plugins.AppDTO{
-		ID:      plugin.ID,
-		Version: plugin.Info.Version,
-		Path:    plugin.Module,
-		Preload: false,
-		Angular: plugin.Angular,
+		ID:              plugin.ID,
+		Version:         plugin.Info.Version,
+		Path:            plugin.Module,
+		Preload:         false,
+		Angular:         plugin.Angular,
+		LoadingStrategy: hs.pluginAssets.LoadingStrategy(ctx, plugin),
+		Extensions:      plugin.Extensions,
+		Dependencies:    plugin.Dependencies,
+		ModuleHash:      hs.pluginAssets.ModuleHash(ctx, plugin),
+		Translations:    plugin.Translations,
 	}
 
 	if settings.Enabled {
@@ -606,6 +673,9 @@ func (ap AvailablePlugins) Get(pluginType plugins.Type, pluginID string) (*avail
 }
 
 func (hs *HTTPServer) availablePlugins(ctx context.Context, orgID int64) (AvailablePlugins, error) {
+	ctx, span := hs.tracer.Start(ctx, "api.availablePlugins")
+	defer span.End()
+
 	ap := make(AvailablePlugins)
 
 	pluginSettingMap, err := hs.pluginSettings(ctx, orgID)
@@ -651,6 +721,9 @@ func (hs *HTTPServer) availablePlugins(ctx context.Context, orgID int64) (Availa
 }
 
 func (hs *HTTPServer) pluginSettings(ctx context.Context, orgID int64) (map[string]*pluginsettings.InfoDTO, error) {
+	ctx, span := hs.tracer.Start(ctx, "api.pluginSettings")
+	defer span.End()
+
 	pluginSettings := make(map[string]*pluginsettings.InfoDTO)
 
 	// fill settings from database
@@ -675,6 +748,7 @@ func (hs *HTTPServer) pluginSettings(ctx context.Context, orgID int64) (map[stri
 			OrgID:         orgID,
 			Enabled:       plugin.AutoEnabled,
 			Pinned:        plugin.AutoEnabled,
+			AutoEnabled:   plugin.AutoEnabled,
 			PluginVersion: plugin.Info.Version,
 		}
 

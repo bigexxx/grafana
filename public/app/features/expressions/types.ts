@@ -26,7 +26,7 @@ export const getExpressionLabel = (type: ExpressionQueryType) => {
     case ExpressionQueryType.resample:
       return 'Resample';
     case ExpressionQueryType.classic:
-      return 'Classic condition';
+      return 'Classic condition (legacy)';
     case ExpressionQueryType.threshold:
       return 'Threshold';
     case ExpressionQueryType.sql:
@@ -53,7 +53,7 @@ export const expressionTypes: Array<SelectableValue<ExpressionQueryType>> = [
   },
   {
     value: ExpressionQueryType.classic,
-    label: 'Classic condition',
+    label: 'Classic condition (legacy)',
     description:
       'Takes one or more time series returned from a query or an expression and checks if any of the series match the condition. Disables multi-dimensional alerts for this rule.',
   },
@@ -66,7 +66,7 @@ export const expressionTypes: Array<SelectableValue<ExpressionQueryType>> = [
   {
     value: ExpressionQueryType.sql,
     label: 'SQL',
-    description: 'Transform data using SQL. Supports Aggregate/Analytics functions from DuckDB',
+    description: 'Transform data using SQL. Supports MySQL syntax.',
   },
 ].filter((expr) => {
   if (expr.value === ExpressionQueryType.sql) {
@@ -79,6 +79,7 @@ export const reducerTypes: Array<SelectableValue<string>> = [
   { value: ReducerID.min, label: 'Min', description: 'Get the minimum value' },
   { value: ReducerID.max, label: 'Max', description: 'Get the maximum value' },
   { value: ReducerID.mean, label: 'Mean', description: 'Get the average value' },
+  { value: ReducerID.median, label: 'Median', description: 'Get the median value' },
   { value: ReducerID.sum, label: 'Sum', description: 'Get the sum of all values' },
   { value: ReducerID.count, label: 'Count', description: 'Get the number of values' },
   { value: ReducerID.last, label: 'Last', description: 'Get the last value' },
@@ -125,8 +126,14 @@ export const upsamplingTypes: Array<SelectableValue<string>> = [
 export const thresholdFunctions: Array<SelectableValue<EvalFunction>> = [
   { value: EvalFunction.IsAbove, label: 'Is above' },
   { value: EvalFunction.IsBelow, label: 'Is below' },
+  { value: EvalFunction.IsEqual, label: 'Is equal to' },
+  { value: EvalFunction.IsNotEqual, label: 'Is not equal to' },
+  { value: EvalFunction.IsGreaterThanEqual, label: 'Is above or equal to' },
+  { value: EvalFunction.IsLessThanEqual, label: 'Is below or equal to' },
   { value: EvalFunction.IsWithinRange, label: 'Is within range' },
   { value: EvalFunction.IsOutsideRange, label: 'Is outside range' },
+  { value: EvalFunction.IsWithinRangeIncluded, label: 'Is within range included' },
+  { value: EvalFunction.IsOutsideRangeIncluded, label: 'Is outside range included' },
 ];
 
 /**
@@ -142,6 +149,11 @@ export interface ExpressionQuery extends DataQuery {
   upsampler?: string;
   conditions?: ClassicCondition[];
   settings?: ExpressionQuerySettings;
+}
+
+export interface SqlExpressionQuery extends ExpressionQuery {
+  /** Format `alerting` is expected when using SQL expressions in alert rules */
+  format?: 'alerting';
 }
 
 export interface ThresholdExpressionQuery extends ExpressionQuery {

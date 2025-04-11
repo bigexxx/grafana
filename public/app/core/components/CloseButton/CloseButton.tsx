@@ -1,8 +1,10 @@
 import { css } from '@emotion/css';
-import React from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { IconButton, useStyles2 } from '@grafana/ui';
+
+import { t } from '../../internationalization';
 
 type Props = {
   onClick: () => void;
@@ -19,7 +21,7 @@ export const CloseButton = ({ onClick, 'aria-label': ariaLabel, style }: Props) 
       name="times"
       onClick={onClick}
       style={style}
-      tooltip="Close"
+      tooltip={t('close-button.tooltip', 'Close')}
     />
   );
 };

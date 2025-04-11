@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react';
-import React from 'react';
 
 import { DATA_TEST_ID, LayerDragDropList, LayerDragDropListProps } from './LayerDragDropList';
 
@@ -39,13 +38,13 @@ describe('LayerDragDropList', () => {
   it('renders draggable icon', () => {
     renderScenario({});
 
-    expect(screen.getAllByLabelText('Drag and drop icon').length).toEqual(2);
+    expect(screen.getAllByLabelText('Drag and drop to reorder').length).toEqual(2);
   });
 
   it('does not render draggable icon', () => {
     renderScenario({ excludeBaseLayer: true });
 
-    expect(screen.queryAllByLabelText('Drag and drop icon').length).toEqual(0);
+    expect(screen.queryAllByLabelText('Drag and drop to reorder').length).toEqual(0);
   });
 
   function renderScenario(overrides: Partial<LayerDragDropListProps<testLayer>>) {

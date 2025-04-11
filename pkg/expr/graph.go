@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"golang.org/x/exp/maps"
 	"gonum.org/v1/gonum/graph/simple"
 	"gonum.org/v1/gonum/graph/topo"
 
@@ -75,8 +77,6 @@ func (dp *DataPipeline) execute(c context.Context, now time.Time, s *Service) (m
 		executeDSNodesGrouped(c, now, vars, s, dsNodes)
 	}
 
-	s.allowLongFrames = hasSqlExpression(*dp)
-
 	for _, node := range *dp {
 		if groupByDSFlag && node.NodeType() == TypeDatasourceNode {
 			continue // already executed via executeDSNodesGrouped
@@ -88,7 +88,7 @@ func (dp *DataPipeline) execute(c context.Context, now time.Time, s *Service) (m
 			if res, ok := vars[neededVar]; ok {
 				if res.Error != nil {
 					errResult := mathexp.Results{
-						Error: makeDependencyError(node.RefID(), neededVar),
+						Error: MakeDependencyError(node.RefID(), neededVar),
 					}
 					vars[node.RefID()] = errResult
 					hasDepError = true
@@ -121,6 +121,56 @@ func (dp *DataPipeline) execute(c context.Context, now time.Time, s *Service) (m
 		vars[node.RefID()] = res
 	}
 	return vars, nil
+}
+
+// GetDatasourceTypes returns an unique list of data source types used in the query. Machine learning node is encoded as `ml_<type>`, e.g. ml_outlier
+func (dp *DataPipeline) GetDatasourceTypes() []string {
+	if dp == nil {
+		return nil
+	}
+	m := make(map[string]struct{}, 2)
+	for _, node := range *dp {
+		name := ""
+		switch t := node.(type) {
+		case *DSNode:
+			if t.datasource != nil {
+				name = t.datasource.Type
+			}
+		case *MLNode:
+			name = fmt.Sprintf("ml_%s", t.command.Type())
+		}
+		if name == "" {
+			continue
+		}
+		m[name] = struct{}{}
+	}
+	result := maps.Keys(m)
+	slices.Sort(result)
+	return result
+}
+
+// GetCommandTypes returns a sorted unique list of all server-side expression commands used in the pipeline.
+func (dp *DataPipeline) GetCommandTypes() []string {
+	if dp == nil {
+		return nil
+	}
+	m := make(map[string]struct{}, 5) // 5 is big enough to cover most of the cases
+	for _, node := range *dp {
+		name := ""
+		switch t := node.(type) {
+		case *CMDNode:
+			if t.Command != nil {
+				name = t.Command.Type()
+			}
+		}
+		if name == "" {
+			continue
+		}
+		m[name] = struct{}{}
+	}
+	result := maps.Keys(m)
+	slices.Sort(result)
+	return result
 }
 
 // BuildPipeline builds a graph of the nodes, and returns the nodes in an
@@ -227,7 +277,7 @@ func (s *Service) buildGraph(req *Request) (*simple.DirectedGraph, error) {
 		case TypeDatasourceNode:
 			node, err = s.buildDSNode(dp, rn, req)
 		case TypeCMDNode:
-			node, err = buildCMDNode(rn, s.features)
+			node, err = buildCMDNode(rn, s.features, s.cfg.SQLExpressionCellLimit)
 		case TypeMLNode:
 			if s.features.IsEnabledGlobally(featuremgmt.FlagMlExpressions) {
 				node, err = s.buildMLNode(dp, rn, req)
@@ -269,10 +319,24 @@ func buildGraphEdges(dp *simple.DirectedGraph, registry map[string]Node) error {
 			neededNode, ok := registry[neededVar]
 			if !ok {
 				_, ok := cmdNode.Command.(*SQLCommand)
+				// If the SSE is a SQL expression, and the node can't be found, it might be a CTE table name
+				// CTEs are calculated during the evaluation of the SQL, so we won't have a node for them
+				// So we `continue` in order to support CTE functionality
+				// TODO: remove CTE table names from the list of table names during parsing of the SQL
 				if ok {
 					continue
 				}
 				return fmt.Errorf("unable to find dependent node '%v'", neededVar)
+			}
+
+			// If the input is SQL, conversion is handled differently
+			if _, ok := cmdNode.Command.(*SQLCommand); ok {
+				if dsNode, ok := neededNode.(*DSNode); ok {
+					dsNode.isInputToSQLExpr = true
+				} else {
+					// Only allow data source nodes as SQL expression inputs for now
+					return fmt.Errorf("only data source queries may be inputs to a sql expression, %v is the input for %v", neededVar, cmdNode.RefID())
+				}
 			}
 
 			if neededNode.ID() == cmdNode.ID() {
@@ -288,6 +352,13 @@ func buildGraphEdges(dp *simple.DirectedGraph, registry map[string]Node) error {
 			if neededNode.NodeType() == TypeCMDNode {
 				if neededNode.(*CMDNode).CMDType == TypeClassicConditions {
 					return fmt.Errorf("classic conditions may not be the input for other expressions, but %v is the input for %v", neededVar, cmdNode.RefID())
+				}
+			}
+
+			if neededNode.NodeType() == TypeCMDNode {
+				if neededNode.(*CMDNode).CMDType == TypeSQL {
+					// Do not allow SQL expressions to be inputs for other expressions for now
+					return fmt.Errorf("sql expressions can not be the input for other expressions, but %v in the input for %v", neededVar, cmdNode.RefID())
 				}
 			}
 
@@ -318,37 +389,3 @@ func GetCommandsFromPipeline[T Command](pipeline DataPipeline) []T {
 	}
 	return results
 }
-
-func hasSqlExpression(dp DataPipeline) bool {
-	for _, node := range dp {
-		if node.NodeType() == TypeCMDNode {
-			cmdNode := node.(*CMDNode)
-			_, ok := cmdNode.Command.(*SQLCommand)
-			if ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// func graphHasSqlExpresssion(dp *simple.DirectedGraph) bool {
-// 	node := dp.Nodes()
-// 	for node.Next() {
-// 		if cmdNode, ok := node.Node().(*CMDNode); ok {
-// 			// res[dpNode.RefID()] = dpNode
-// 			_, ok := cmdNode.Command.(*SQLCommand)
-// 			if ok {
-// 				return true
-// 			}
-// 		}
-// 		// if node.NodeType() == TypeCMDNode {
-// 		// 	cmdNode := node.(*CMDNode)
-// 		// 	_, ok := cmdNode.Command.(*SQLCommand)
-// 		// 	if ok {
-// 		// 		return true
-// 		// 	}
-// 		// }
-// 	}
-// 	return false
-// }

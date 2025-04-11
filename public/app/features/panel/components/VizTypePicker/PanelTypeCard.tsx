@@ -1,11 +1,13 @@
 import { css, cx } from '@emotion/css';
-import React, { MouseEventHandler } from 'react';
+import { MouseEventHandler } from 'react';
+import * as React from 'react';
 import Skeleton from 'react-loading-skeleton';
 
 import { GrafanaTheme2, isUnsignedPluginSignature, PanelPluginMeta, PluginState } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { IconButton, PluginSignatureBadge, useStyles2 } from '@grafana/ui';
-import { SkeletonComponent, attachSkeleton } from '@grafana/ui/src/unstable';
+import { SkeletonComponent, attachSkeleton } from '@grafana/ui/unstable';
+import { t } from 'app/core/internationalization';
 import { PluginStateInfo } from 'app/features/plugins/components/PluginStateInfo';
 
 interface Props {
@@ -70,8 +72,11 @@ const PanelTypeCardComponent = ({
             onDelete();
           }}
           className={styles.deleteButton}
-          aria-label="Delete button on panel type card"
-          tooltip="Delete"
+          aria-label={t(
+            'panel.panel-type-card.aria-label-delete-button-on-panel-type-card',
+            'Delete button on panel type card'
+          )}
+          tooltip={t('panel.panel-type-card.tooltip-delete', 'Delete')}
         />
       )}
     </div>
@@ -138,9 +143,11 @@ const getStyles = (theme: GrafanaTheme2) => {
       padding: theme.spacing(1),
       width: '100%',
       overflow: 'hidden',
-      transition: theme.transitions.create(['background'], {
-        duration: theme.transitions.duration.short,
-      }),
+      [theme.transitions.handleMotion('no-preference', 'reduce')]: {
+        transition: theme.transitions.create(['background'], {
+          duration: theme.transitions.duration.short,
+        }),
+      },
 
       '&:hover': {
         background: theme.colors.emphasize(theme.colors.background.secondary, 0.03),

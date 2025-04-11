@@ -1,3 +1,4 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/querybuilder/types.ts
 import { VisualQueryBinary } from './shared/LokiAndPromQueryModellerBase';
 import { QueryBuilderLabelFilter, QueryBuilderOperation } from './shared/types';
 
@@ -58,15 +59,25 @@ export enum PromOperationId {
   Deg = 'deg',
   Delta = 'delta',
   Deriv = 'deriv',
+  DoubleExponentialSmoothing = 'double_exponential_smoothing',
   DropCommonLabels = 'drop_common_labels',
   Exp = 'exp',
   Floor = 'floor',
   Group = 'group',
   HistogramQuantile = 'histogram_quantile',
+  HistogramAvg = 'histogram_avg',
+  HistogramCount = 'histogram_count',
+  HistogramSum = 'histogram_sum',
+  HistogramFraction = 'histogram_fraction',
+  HistogramStddev = 'histogram_stddev',
+  HistogramStdvar = 'histogram_stdvar',
+  // Renamed as DoubleExponentialSmoothing with Prometheus v3.x
+  // https://github.com/prometheus/prometheus/pull/14930
   HoltWinters = 'holt_winters',
   Hour = 'hour',
   Idelta = 'idelta',
   Increase = 'increase',
+  Info = 'info',
   Irate = 'irate',
   LabelJoin = 'label_join',
   LabelReplace = 'label_replace',

@@ -3,10 +3,13 @@ package serverlock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/log"
@@ -48,6 +51,7 @@ func (sl *ServerLockService) LockAndExecute(ctx context.Context, actionName stri
 	rowLock, err := sl.getOrCreate(ctx, actionName)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, fmt.Sprintf("failed to getOrCreate serverlock: %v", err))
 		return err
 	}
 
@@ -60,6 +64,7 @@ func (sl *ServerLockService) LockAndExecute(ctx context.Context, actionName stri
 	acquiredLock, err := sl.acquireLock(ctx, rowLock)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, fmt.Sprintf("failed to acquire serverlock: %v", err))
 		return err
 	}
 
@@ -147,6 +152,7 @@ func (sl *ServerLockService) LockExecuteAndRelease(ctx context.Context, actionNa
 	// could not get the lock, returning
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, fmt.Sprintf("failed to acquire serverlock: %v", err))
 		return err
 	}
 
@@ -155,6 +161,7 @@ func (sl *ServerLockService) LockExecuteAndRelease(ctx context.Context, actionNa
 	err = sl.releaseLock(ctx, actionName)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, fmt.Sprintf("failed to release serverlock: %v", err))
 		ctxLogger.Error("Failed to release the lock", "error", err)
 	}
 
@@ -191,7 +198,8 @@ func (sl *ServerLockService) LockExecuteAndReleaseWithRetries(ctx context.Contex
 		// could not get the lock
 		if err != nil {
 			var lockedErr *ServerLockExistsError
-			if errors.As(err, &lockedErr) {
+			var deadlockErr *mysql.MySQLError
+			if errors.As(err, &lockedErr) || (errors.As(err, &deadlockErr) && deadlockErr.Number == 1213) {
 				// if the lock is already taken, wait and try again
 				if lockChecks == 1 { // only warn on first lock check
 					ctxLogger.Warn("another instance has the lock, waiting for it to be released", "actionName", actionName)
@@ -207,6 +215,7 @@ func (sl *ServerLockService) LockExecuteAndReleaseWithRetries(ctx context.Contex
 				continue
 			}
 			span.RecordError(err)
+			span.SetStatus(codes.Error, fmt.Sprintf("failed to acquire serverlock: %v", err))
 			return err
 		}
 
@@ -218,6 +227,7 @@ func (sl *ServerLockService) LockExecuteAndReleaseWithRetries(ctx context.Contex
 
 	if err := sl.releaseLock(ctx, actionName); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, fmt.Sprintf("failed to release serverlock: %v", err))
 		ctxLogger.Error("Failed to release the lock", "error", err)
 	}
 
@@ -342,18 +352,32 @@ func (sl *ServerLockService) executeFunc(ctx context.Context, actionName string,
 }
 
 func (sl *ServerLockService) createLock(ctx context.Context,
-	lockRow *serverLock, dbSession *sqlstore.DBSession) (*serverLock, error) {
+	lockRow *serverLock, dbSession *sqlstore.DBSession,
+) (*serverLock, error) {
 	affected := int64(1)
 	rawSQL := `INSERT INTO server_lock (operation_uid, last_execution, version) VALUES (?, ?, ?)`
 	if sl.SQLStore.GetDBType() == migrator.Postgres {
-		rawSQL += ` RETURNING id`
+		rawSQL += ` ON CONFLICT DO NOTHING RETURNING id`
 		var id int64
 		_, err := dbSession.SQL(rawSQL, lockRow.OperationUID, lockRow.LastExecution, 0).Get(&id)
 		if err != nil {
 			return nil, err
 		}
+		if id == 0 {
+			// Considering the default isolation level (READ COMMITTED), an entry could be added to the table
+			// between the SELECT and the INSERT. And inserting a row with the same operation_uid would violate the unique
+			// constraint. In this case, the ON CONFLICT DO NOTHING clause will prevent generating an error.
+			// And the returning id will be 0 which means that there wasn't any row inserted (another server has the lock),
+			// therefore we return the ServerLockExistsError.
+			// https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED
+			return nil, &ServerLockExistsError{actionName: lockRow.OperationUID}
+		}
 		lockRow.Id = id
 	} else {
+		if sl.SQLStore.GetDBType() == migrator.Spanner {
+			rawSQL += " THEN RETURN id" // Required for successful LastInsertId call.
+		}
+
 		res, err := dbSession.Exec(
 			rawSQL,
 			lockRow.OperationUID, lockRow.LastExecution, 0)

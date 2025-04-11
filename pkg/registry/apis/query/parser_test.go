@@ -15,6 +15,7 @@ import (
 
 	query "github.com/grafana/grafana/pkg/apis/query/v0alpha1"
 	"github.com/grafana/grafana/pkg/expr"
+	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/tracing"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 )
@@ -29,7 +30,7 @@ type parserTestObject struct {
 func TestQuerySplitting(t *testing.T) {
 	ctx := context.Background()
 	parser := newQueryParser(expr.NewExpressionQueryReader(featuremgmt.WithFeatures()),
-		&legacyDataSourceRetriever{}, tracing.InitializeTracerForTest())
+		&legacyDataSourceRetriever{}, tracing.InitializeTracerForTest(), log.NewNopLogger())
 
 	t.Run("missing datasource flavors", func(t *testing.T) {
 		split, err := parser.parseRequest(ctx, &query.QueryDataRequest{
@@ -45,7 +46,7 @@ func TestQuerySplitting(t *testing.T) {
 		require.Empty(t, split.Requests)
 	})
 
-	t.Run("applies default time range", func(t *testing.T) {
+	t.Run("applies zero time range if time range is missing", func(t *testing.T) {
 		split, err := parser.parseRequest(ctx, &query.QueryDataRequest{
 			QueryDataRequest: data.QueryDataRequest{
 				TimeRange: data.TimeRange{}, // missing
@@ -62,10 +63,61 @@ func TestQuerySplitting(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Len(t, split.Requests, 1)
-		require.Equal(t, "now-6h", split.Requests[0].Request.From)
+		require.Equal(t, "0", split.Requests[0].Request.From)
+		require.Equal(t, "0", split.Requests[0].Request.To)
+	})
+	t.Run("applies query time range if present", func(t *testing.T) {
+		split, err := parser.parseRequest(ctx, &query.QueryDataRequest{
+			QueryDataRequest: data.QueryDataRequest{
+				TimeRange: data.TimeRange{}, // missing
+				Queries: []data.DataQuery{{
+					CommonQueryProperties: data.CommonQueryProperties{
+						RefID: "A",
+						Datasource: &data.DataSourceRef{
+							Type: "x",
+							UID:  "abc",
+						},
+						TimeRange: &data.TimeRange{
+							From: "now-1d",
+							To:   "now",
+						},
+					},
+				}},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, split.Requests, 1)
+		require.Equal(t, "now-1d", split.Requests[0].Request.From)
 		require.Equal(t, "now", split.Requests[0].Request.To)
 	})
 
+	t.Run("applies query time range if all time ranges are present", func(t *testing.T) {
+		split, err := parser.parseRequest(ctx, &query.QueryDataRequest{
+			QueryDataRequest: data.QueryDataRequest{
+				TimeRange: data.TimeRange{
+					From: "now-1h",
+					To:   "now",
+				},
+				Queries: []data.DataQuery{{
+					CommonQueryProperties: data.CommonQueryProperties{
+						RefID: "A",
+						Datasource: &data.DataSourceRef{
+							Type: "x",
+							UID:  "abc",
+						},
+						TimeRange: &data.TimeRange{
+							From: "now-1d",
+							To:   "now",
+						},
+					},
+				}},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, split.Requests, 1)
+		require.Equal(t, "now-1d", split.Requests[0].Request.From)
+		require.Equal(t, "now", split.Requests[0].Request.To)
+	})
 	t.Run("verify tests", func(t *testing.T) {
 		files, err := os.ReadDir("testdata")
 		require.NoError(t, err)
@@ -75,41 +127,77 @@ func TestQuerySplitting(t *testing.T) {
 				continue
 			}
 
-			fpath := path.Join("testdata", file.Name())
-			// nolint:gosec
-			body, err := os.ReadFile(fpath)
-			require.NoError(t, err)
-			harness := &parserTestObject{}
-			err = json.Unmarshal(body, harness)
-			require.NoError(t, err)
+			t.Run(file.Name(), func(t *testing.T) {
+				fpath := path.Join("testdata", file.Name())
+				// nolint:gosec
+				body, err := os.ReadFile(fpath)
+				require.NoError(t, err)
+				harness := &parserTestObject{}
+				err = json.Unmarshal(body, harness)
+				require.NoError(t, err)
 
-			changed := false
-			parsed, err := parser.parseRequest(ctx, &harness.Request)
-			if err != nil {
-				if !assert.Equal(t, harness.Error, err.Error(), "File %s", file) {
-					changed = true
-				}
-			} else {
-				x, _ := json.Marshal(parsed)
-				y, _ := json.Marshal(harness.Expect)
-				if !assert.JSONEq(t, string(y), string(x), "File %s", file) {
-					changed = true
-				}
-			}
-
-			if changed {
-				harness.Error = ""
-				harness.Expect = parsed
+				changed := false
+				parsed, err := parser.parseRequest(ctx, &harness.Request)
 				if err != nil {
-					harness.Error = err.Error()
+					if !assert.Equal(t, harness.Error, err.Error(), "File %s", file) {
+						changed = true
+					}
+				} else {
+					x, _ := json.Marshal(parsed)
+					y, _ := json.Marshal(harness.Expect)
+					if !assert.JSONEq(t, string(y), string(x), "File %s", file) {
+						changed = true
+					}
 				}
-				jj, err := json.MarshalIndent(harness, "", "  ")
-				require.NoError(t, err)
-				err = os.WriteFile(fpath, jj, 0600)
-				require.NoError(t, err)
-			}
+
+				if changed {
+					harness.Error = ""
+					harness.Expect = parsed
+					if err != nil {
+						harness.Error = err.Error()
+					}
+					jj, err := json.MarshalIndent(harness, "", "  ")
+					require.NoError(t, err)
+					err = os.WriteFile(fpath, jj, 0600)
+					require.NoError(t, err)
+				}
+			})
 		}
 	})
+}
+
+func TestSqlInputs(t *testing.T) {
+	parser := newQueryParser(
+		expr.NewExpressionQueryReader(featuremgmt.WithFeatures(featuremgmt.FlagSqlExpressions)),
+		nil,
+		tracing.InitializeTracerForTest(),
+		log.NewNopLogger(),
+	)
+
+	parsedRequestInfo, err := parser.parseRequest(context.Background(), &query.QueryDataRequest{
+		QueryDataRequest: data.QueryDataRequest{
+			Queries: []data.DataQuery{
+				data.NewDataQuery(map[string]any{
+					"refId": "A",
+					"datasource": &data.DataSourceRef{
+						Type: "prometheus",
+						UID:  "local-prom",
+					},
+				}),
+				data.NewDataQuery(map[string]any{
+					"refId": "B",
+					"datasource": &data.DataSourceRef{
+						Type: "__expr__",
+						UID:  "__expr__",
+					},
+					"type":       "sql",
+					"expression": "Select time, value + 10 from A",
+				}),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, parsedRequestInfo.SqlInputs["B"], struct{}{})
 }
 
 type legacyDataSourceRetriever struct{}

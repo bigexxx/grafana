@@ -1,8 +1,8 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
 import { DataLink, GrafanaTheme2, LinkModel } from '@grafana/data';
 import { Dropdown, Icon, Menu, ToolbarButton, useStyles2, PanelChrome } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 interface Props {
   panelLinks: DataLink[];
@@ -38,7 +38,12 @@ export function PanelLinks({ panelLinks, onShowPanelLinks }: Props) {
   } else {
     return (
       <Dropdown overlay={getLinksContent}>
-        <ToolbarButton icon="external-link-alt" iconSize="md" aria-label="panel links" className={styles.menuTrigger} />
+        <ToolbarButton
+          icon="external-link-alt"
+          iconSize="md"
+          aria-label={t('dashboard.panel-links.aria-label-panel-links', 'Panel links')}
+          className={styles.menuTrigger}
+        />
       </Dropdown>
     );
   }

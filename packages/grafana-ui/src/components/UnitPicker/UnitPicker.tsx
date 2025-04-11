@@ -1,7 +1,8 @@
-import React, { PureComponent } from 'react';
+import { PureComponent } from 'react';
 
 import { getValueFormats, SelectableValue } from '@grafana/data';
 
+import { t } from '../../utils/i18n';
 import { Cascader, CascaderOption } from '../Cascader/Cascader';
 
 export interface UnitPickerProps {
@@ -61,7 +62,8 @@ export class UnitPicker extends PureComponent<UnitPickerProps> {
         changeOnSelect={false}
         formatCreateLabel={formatCreateLabel}
         options={groupOptions}
-        placeholder="Choose"
+        placeholder={t('grafana-ui.unit-picker.placeholder', 'Choose')}
+        isClearable
         onSelect={this.props.onChange}
       />
     );

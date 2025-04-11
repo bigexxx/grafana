@@ -1,5 +1,3 @@
-include ../../../../../.bingo/Variables.mk
-
 .DEFAULT_GOAL := openapi
 
 API_DIR = definitions
@@ -7,6 +5,9 @@ GO_PKG_FILES = $(shell find $(API_DIR) -name *.go -print)
 
 PATH_DOWN = pkg/services/ngalert/api/tooling
 PATH_UP = ../../../../..
+
+GO ?= $(shell which go)
+SWAGGER = GODEBUG=gotypesalias=0 $(GO) tool swagger
 
 .DEFAULT_GOAL := all
 
@@ -25,7 +26,7 @@ ifneq ($(OS),Windows_NT)
 	endif
 endif
 
-spec.json spec-stable.json: $(GO_PKG_FILES) $(SWAGGER)
+spec.json spec-stable.json: $(GO_PKG_FILES)
 	SWAGGER_GENERATE_EXTENSION=false $(SWAGGER) generate spec -m -w $(API_DIR) -o spec.json && SWAGGER_GENERATE_EXTENSION=false $(SWAGGER) generate spec -m --include-tag=stable -o spec-stable.json
 
 post.json: spec.json
@@ -34,10 +35,10 @@ post.json: spec.json
 api.json: spec-stable.json
 	go run cmd/clean-swagger/main.go -if $(<) -of $@
 
-validate-stable: spec-stable.json $(SWAGGER)
+validate-stable: spec-stable.json
 	$(SWAGGER) validate $(<)
 
-validate: spec.json $(SWAGGER)
+validate: spec.json
 	$(SWAGGER) validate $(<)
 
 swagger-codegen-api:
@@ -60,7 +61,11 @@ fix:
 	sed $(SED_INPLACE) -e 's/apimodels\.\[\]PostableApiReceiver/apimodels.TestReceiversConfigParams/' $(GENERATED_GO_MATCHERS)
 	goimports -w -v $(GENERATED_GO_MATCHERS)
 
-clean:
+clean: clean-go
+	rm -f spec.json
+	rm -f spec-stable.json
+
+clean-go:
 	rm -rf ./go
 
 serve: post.json
@@ -69,6 +74,6 @@ serve: post.json
 serve-stable: api.json
 	docker run --rm -p 80:8080 -v $$(pwd):/tmp -e SWAGGER_FILE=/tmp/$(<) swaggerapi/swagger-editor
 
-gen: swagger-codegen-api fix copy-files clean
+gen: swagger-codegen-api fix copy-files clean-go
 
-all: post.json api.json gen
+all: clean spec.json spec-stable.json post.json api.json gen

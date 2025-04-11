@@ -1,13 +1,15 @@
 import { ComponentType } from 'react';
 
+import { throwIfAngular } from '../utils/throwIfAngular';
+
 import { KeyValue } from './data';
 import { NavModel } from './navModel';
 import { PluginMeta, GrafanaPlugin, PluginIncludeType } from './plugin';
 import {
-  type PluginExtensionLinkConfig,
-  PluginExtensionTypes,
-  PluginExtensionComponentConfig,
-  PluginExtensionConfig,
+  PluginExtensionExposedComponentConfig,
+  PluginExtensionAddedComponentConfig,
+  PluginExtensionAddedLinkConfig,
+  PluginExtensionAddedFunctionConfig,
 } from './pluginExtensions';
 
 /**
@@ -56,7 +58,10 @@ export interface AppPluginMeta<T extends KeyValue = KeyValue> extends PluginMeta
 }
 
 export class AppPlugin<T extends KeyValue = KeyValue> extends GrafanaPlugin<AppPluginMeta<T>> {
-  private _extensionConfigs: PluginExtensionConfig[] = [];
+  private _exposedComponentConfigs: PluginExtensionExposedComponentConfig[] = [];
+  private _addedComponentConfigs: PluginExtensionAddedComponentConfig[] = [];
+  private _addedLinkConfigs: PluginExtensionAddedLinkConfig[] = [];
+  private _addedFunctionConfigs: PluginExtensionAddedFunctionConfig[] = [];
 
   // Content under: /a/${plugin-id}/*
   root?: ComponentType<AppRootProps<T>>;
@@ -79,10 +84,8 @@ export class AppPlugin<T extends KeyValue = KeyValue> extends GrafanaPlugin<AppP
     return this;
   }
 
-  setComponentsFromLegacyExports(pluginExports: any) {
-    if (pluginExports.ConfigCtrl) {
-      this.angularConfigCtrl = pluginExports.ConfigCtrl;
-    }
+  setComponentsFromLegacyExports(pluginExports: System.Module) {
+    throwIfAngular(pluginExports);
 
     if (this.meta && this.meta.includes) {
       for (const include of this.meta.includes) {
@@ -98,26 +101,42 @@ export class AppPlugin<T extends KeyValue = KeyValue> extends GrafanaPlugin<AppP
     }
   }
 
-  get extensionConfigs() {
-    return this._extensionConfigs;
+  get exposedComponentConfigs() {
+    return this._exposedComponentConfigs;
   }
 
-  configureExtensionLink<Context extends object>(extension: Omit<PluginExtensionLinkConfig<Context>, 'type'>) {
-    this._extensionConfigs.push({
-      ...extension,
-      type: PluginExtensionTypes.link,
-    } as PluginExtensionLinkConfig);
+  get addedComponentConfigs() {
+    return this._addedComponentConfigs;
+  }
+
+  get addedLinkConfigs() {
+    return this._addedLinkConfigs;
+  }
+
+  get addedFunctionConfigs() {
+    return this._addedFunctionConfigs;
+  }
+
+  addLink<Context extends object>(linkConfig: PluginExtensionAddedLinkConfig<Context>) {
+    this._addedLinkConfigs.push(linkConfig as PluginExtensionAddedLinkConfig);
 
     return this;
   }
 
-  configureExtensionComponent<Context extends object>(
-    extension: Omit<PluginExtensionComponentConfig<Context>, 'type'>
-  ) {
-    this._extensionConfigs.push({
-      ...extension,
-      type: PluginExtensionTypes.component,
-    } as PluginExtensionComponentConfig);
+  addComponent<Props = {}>(addedComponentConfig: PluginExtensionAddedComponentConfig<Props>) {
+    this._addedComponentConfigs.push(addedComponentConfig as PluginExtensionAddedComponentConfig);
+
+    return this;
+  }
+
+  addFunction<Signature>(addedFunctionConfig: PluginExtensionAddedFunctionConfig<Signature>) {
+    this._addedFunctionConfigs.push(addedFunctionConfig);
+
+    return this;
+  }
+
+  exposeComponent<Props = {}>(componentConfig: PluginExtensionExposedComponentConfig<Props>) {
+    this._exposedComponentConfigs.push(componentConfig as PluginExtensionExposedComponentConfig);
 
     return this;
   }
@@ -128,6 +147,16 @@ export class AppPlugin<T extends KeyValue = KeyValue> extends GrafanaPlugin<AppP
  * @internal
  */
 export enum FeatureState {
+  /** @deprecated in favor of experimental */
   alpha = 'alpha',
+  /** @deprecated in favor of preview */
   beta = 'beta',
+  /** used to mark experimental features with high/unknown risk */
+  experimental = 'experimental',
+  /** used to mark features that are in public preview with medium/hight risk */
+  privatePreview = 'private preview',
+  /** used to mark features that are in public preview with low/medium risk, or as a shared badge for public and private previews */
+  preview = 'preview',
+  /** used to mark new GA features */
+  new = 'new',
 }

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Redirect, useLocation } from 'react-router-dom';
+import { forwardRef, useState } from 'react';
+import { Navigate, useLocation } from 'react-router-dom-v5-compat';
 
 import { Button, ConfirmModal } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 import { RuleIdentifier } from 'app/types/unified-alerting';
 
 import * as ruleId from '../../utils/rule-id';
@@ -33,13 +34,13 @@ export function RedirectToCloneRule({
       returnTo: redirectTo ? returnTo : '',
     });
 
-    return <Redirect to={`/alerting/new?` + queryParams.toString()} push />;
+    return <Navigate to={`/alerting/new?` + queryParams.toString()} replace={false} />;
   }
 
   return (
     <ConfirmModal
       isOpen={stage === 'confirm'}
-      title="Copy provisioned alert rule"
+      title={t('alerting.redirect-to-clone-rule.title-copy-provisioned-alert-rule', 'Copy provisioned alert rule')}
       body={
         <div>
           <p>
@@ -65,14 +66,14 @@ interface CloneRuleButtonProps {
   className?: string;
 }
 
-export const CloneRuleButton = React.forwardRef<HTMLButtonElement, CloneRuleButtonProps>(
+export const CloneRuleButton = forwardRef<HTMLButtonElement, CloneRuleButtonProps>(
   ({ text, ruleIdentifier, isProvisioned, className }, ref) => {
     const [redirectToClone, setRedirectToClone] = useState(false);
 
     return (
       <>
         <Button
-          title="Copy"
+          title={t('alerting.clone-rule-button.title-copy', 'Copy')}
           className={className}
           size="sm"
           key="clone"

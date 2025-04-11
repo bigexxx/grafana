@@ -1,5 +1,6 @@
-import React, { ChangeEvent, useEffect, useState } from 'react';
-import { identity, of, OperatorFunction } from 'rxjs';
+import { ChangeEvent, useEffect, useState } from 'react';
+import * as React from 'react';
+import { of, OperatorFunction } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 import {
@@ -13,15 +14,17 @@ import {
   TransformerRegistryItem,
   TransformerUIProps,
   TransformerCategory,
+  FieldMatcherID,
 } from '@grafana/data';
 import {
   CalculateFieldMode,
   CalculateFieldTransformerOptions,
   getNameFromOptions,
   defaultWindowOptions,
-} from '@grafana/data/src/transformations/transformers/calculateField';
+} from '@grafana/data/internal';
 import { getTemplateSrv, config as cfg } from '@grafana/runtime';
 import { InlineField, InlineSwitch, Input, Select } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { getTransformationContent } from '../../docs/getTransformationContent';
 
@@ -79,10 +82,8 @@ export const CalculateFieldTransformerEditor = (props: CalculateFieldTransformer
   }, [input, configuredOptions]);
 
   const getVariableNames = (): OperatorFunction<string[], string[]> => {
-    if (!cfg.featureToggles.transformationsVariableSupport) {
-      return identity;
-    }
     const templateSrv = getTemplateSrv();
+
     return (source) =>
       source.pipe(
         map((input) => {
@@ -170,10 +171,16 @@ export const CalculateFieldTransformerEditor = (props: CalculateFieldTransformer
   };
 
   const mode = options.mode ?? CalculateFieldMode.BinaryOperation;
+  // For binary operation with type matching, disable alias input
+  const disableAlias =
+    mode === CalculateFieldMode.BinaryOperation && options.binary?.left.matcher?.id === FieldMatcherID.byType;
 
   return (
     <>
-      <InlineField labelWidth={LABEL_WIDTH} label="Mode">
+      <InlineField
+        labelWidth={LABEL_WIDTH}
+        label={t('transformers.calculate-field-transformer-editor.label-mode', 'Mode')}
+      >
         <Select
           className="width-18"
           options={calculationModes}
@@ -212,7 +219,11 @@ export const CalculateFieldTransformerEditor = (props: CalculateFieldTransformer
       {mode === CalculateFieldMode.Index && (
         <IndexOptionsEditor options={options} onChange={props.onChange}></IndexOptionsEditor>
       )}
-      <InlineField labelWidth={LABEL_WIDTH} label="Alias">
+      <InlineField
+        labelWidth={LABEL_WIDTH}
+        label={t('transformers.calculate-field-transformer-editor.label-alias', 'Alias')}
+        disabled={disableAlias}
+      >
         <Input
           className="width-18"
           value={options.alias ?? ''}
@@ -220,7 +231,10 @@ export const CalculateFieldTransformerEditor = (props: CalculateFieldTransformer
           onChange={onAliasChanged}
         />
       </InlineField>
-      <InlineField labelWidth={LABEL_WIDTH} label="Replace all fields">
+      <InlineField
+        labelWidth={LABEL_WIDTH}
+        label={t('transformers.calculate-field-transformer-editor.label-replace-all-fields', 'Replace all fields')}
+      >
         <InlineSwitch value={!!options.replaceFields} onChange={onToggleReplaceFields} />
       </InlineField>
     </>

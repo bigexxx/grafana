@@ -57,6 +57,11 @@ func newModuleJSValidator() *ModuleJSValidator {
 }
 
 func (v *ModuleJSValidator) Validate(_ context.Context, p *plugins.Plugin) error {
+	// CDN plugins are ignored because the module.js is guaranteed to exist
+	if p.Class == plugins.ClassCDN {
+		return nil
+	}
+
 	if !p.IsRenderer() && !p.IsCorePlugin() {
 		f, err := p.FS.Open("module.js")
 		if err != nil {
@@ -104,9 +109,12 @@ func (a *AngularDetector) Validate(ctx context.Context, p *plugins.Plugin) error
 		}
 
 		// Do not initialize plugins if they're using Angular and Angular support is disabled
-		if p.Angular.Detected && !a.cfg.AngularSupportEnabled {
+		if p.Angular.Detected {
 			a.log.Error("Refusing to initialize plugin because it's using Angular, which has been disabled", "pluginId", p.ID)
-			return errors.New("angular plugins are not supported")
+			return (&plugins.Error{
+				PluginID:  p.ID,
+				ErrorCode: plugins.ErrorAngular,
+			}).WithMessage("angular plugins are not supported")
 		}
 	}
 	p.Angular.HideDeprecation = slices.Contains(a.cfg.HideAngularDeprecation, p.ID)

@@ -1,19 +1,11 @@
-import {
-  VizPanel,
-  SceneGridItem,
-  SceneGridRow,
-  SceneDataLayers,
-  sceneGraph,
-  SceneGridLayout,
-  behaviors,
-} from '@grafana/scenes';
+import { VizPanel, sceneGraph, behaviors, SceneObject, SceneGridRow } from '@grafana/scenes';
 
+import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
 import { DashboardScene } from '../scene/DashboardScene';
-import { LibraryVizPanel } from '../scene/LibraryVizPanel';
 import { VizPanelLinks } from '../scene/PanelLinks';
-import { PanelRepeaterGridItem } from '../scene/PanelRepeaterGridItem';
 
-import { getPanelIdForLibraryVizPanel, getPanelIdForVizPanel } from './utils';
+import { isClonedKey } from './clone';
+import { getDashboardSceneFor, getLayoutManagerFor, getPanelIdForVizPanel, getVizPanelKeyForPanelId } from './utils';
 
 function getTimePicker(scene: DashboardScene) {
   return scene.state.controls?.state.timePicker;
@@ -24,47 +16,58 @@ function getRefreshPicker(scene: DashboardScene) {
 }
 
 function getPanelLinks(panel: VizPanel) {
-  if (
-    panel.state.titleItems &&
-    Array.isArray(panel.state.titleItems) &&
-    panel.state.titleItems[0] instanceof VizPanelLinks
-  ) {
-    return panel.state.titleItems[0];
+  if (panel.state.titleItems && Array.isArray(panel.state.titleItems)) {
+    // search panel.state.titleItems for VizPanelLinks
+    const panelLink = panel.state.titleItems.find((item) => item instanceof VizPanelLinks);
+    return panelLink ?? null;
   }
 
   return null;
 }
 
 function getVizPanels(scene: DashboardScene): VizPanel[] {
-  const panels: VizPanel[] = [];
-
-  scene.state.body.forEachChild((child) => {
-    if (child instanceof SceneGridItem) {
-      if (child.state.body instanceof VizPanel) {
-        panels.push(child.state.body);
-      }
-    } else if (child instanceof SceneGridRow) {
-      child.forEachChild((child) => {
-        if (child instanceof SceneGridItem) {
-          if (child.state.body instanceof VizPanel) {
-            panels.push(child.state.body);
-          }
-        }
-      });
-    }
-  });
-
-  return panels;
+  return scene.state.body.getVizPanels();
 }
 
-function getDataLayers(scene: DashboardScene): SceneDataLayers {
+/**
+ * Will look for all panels in the entire scene starting from root
+ * and find the next free panel id
+ */
+export function getNextPanelId(scene: SceneObject): number {
+  let max = 0;
+
+  sceneGraph
+    .findAllObjects(scene.getRoot(), (obj) => obj instanceof VizPanel || obj instanceof SceneGridRow)
+    .forEach((panel) => {
+      if (isClonedKey(panel.state.key!)) {
+        return;
+      }
+
+      const panelId = getPanelIdForVizPanel(panel);
+      if (panelId > max) {
+        max = panelId;
+      }
+    });
+
+  return max + 1;
+}
+
+function getDataLayers(scene: DashboardScene): DashboardDataLayerSet {
   const data = sceneGraph.getData(scene);
 
-  if (!(data instanceof SceneDataLayers)) {
-    throw new Error('SceneDataLayers not found');
+  if (!(data instanceof DashboardDataLayerSet)) {
+    throw new Error('DashboardDataLayerSet not found');
   }
 
   return data;
+}
+
+function getAllSelectedObjects(scene: SceneObject): SceneObject[] {
+  return (
+    getDashboardSceneFor(scene)
+      .state.editPane.state.selection?.getSelectionEntries()
+      .map(([, ref]) => ref.resolve()) ?? []
+  );
 }
 
 export function getCursorSync(scene: DashboardScene) {
@@ -76,88 +79,18 @@ export function getCursorSync(scene: DashboardScene) {
 
   return;
 }
+// Functions to manage the lookup table in dashboard scene that will hold element_identifer : panel_id
+export function getElementIdentifierForVizPanel(vizPanel: VizPanel): string {
+  const scene = getDashboardSceneFor(vizPanel);
+  const panelId = getPanelIdForVizPanel(vizPanel);
+  let elementKey = scene.serializer.getElementIdForPanel(panelId);
 
-export function getNextPanelId(dashboard: DashboardScene): number {
-  let max = 0;
-  const body = dashboard.state.body;
-
-  if (!(body instanceof SceneGridLayout)) {
-    throw new Error('Dashboard body is not a SceneGridLayout');
+  if (!elementKey) {
+    // assign a panel-id key
+    elementKey = getVizPanelKeyForPanelId(panelId);
   }
-
-  for (const child of body.state.children) {
-    if (child instanceof PanelRepeaterGridItem) {
-      const vizPanel = child.state.source;
-
-      if (vizPanel) {
-        const panelId =
-          vizPanel instanceof LibraryVizPanel
-            ? getPanelIdForLibraryVizPanel(vizPanel)
-            : getPanelIdForVizPanel(vizPanel);
-
-        if (panelId > max) {
-          max = panelId;
-        }
-      }
-    }
-
-    if (child instanceof SceneGridItem) {
-      const vizPanel = child.state.body;
-
-      if (vizPanel) {
-        const panelId =
-          vizPanel instanceof LibraryVizPanel
-            ? getPanelIdForLibraryVizPanel(vizPanel)
-            : getPanelIdForVizPanel(vizPanel);
-
-        if (panelId > max) {
-          max = panelId;
-        }
-      }
-    }
-
-    if (child instanceof SceneGridRow) {
-      //rows follow the same key pattern --- e.g.: `panel-6`
-      const panelId = getPanelIdForVizPanel(child);
-
-      if (panelId > max) {
-        max = panelId;
-      }
-
-      for (const rowChild of child.state.children) {
-        if (rowChild instanceof SceneGridItem) {
-          const vizPanel = rowChild.state.body;
-
-          if (vizPanel) {
-            const panelId =
-              vizPanel instanceof LibraryVizPanel
-                ? getPanelIdForLibraryVizPanel(vizPanel)
-                : getPanelIdForVizPanel(vizPanel);
-
-            if (panelId > max) {
-              max = panelId;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  return max + 1;
+  return elementKey;
 }
-
-// Returns the LibraryVizPanel that corresponds to the given VizPanel if it exists
-export const getLibraryVizPanelFromVizPanel = (vizPanel: VizPanel): LibraryVizPanel | null => {
-  if (vizPanel.parent instanceof LibraryVizPanel) {
-    return vizPanel.parent;
-  }
-
-  if (vizPanel.parent instanceof PanelRepeaterGridItem && vizPanel.parent.state.source instanceof LibraryVizPanel) {
-    return vizPanel.parent.state.source;
-  }
-
-  return null;
-};
 
 export const dashboardSceneGraph = {
   getTimePicker,
@@ -165,6 +98,9 @@ export const dashboardSceneGraph = {
   getPanelLinks,
   getVizPanels,
   getDataLayers,
-  getNextPanelId,
+  getAllSelectedObjects,
   getCursorSync,
+  getLayoutManagerFor,
+  getNextPanelId,
+  getElementIdentifierForVizPanel,
 };

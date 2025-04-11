@@ -1,7 +1,9 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
+import * as React from 'react';
 import { useDebounce } from 'react-use';
 
 import { FilterInput } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 interface Props {
   value?: string;
@@ -40,7 +42,7 @@ export const SearchField = ({ value, onSearch }: Props) => {
           onSearch(e.currentTarget.value);
         }
       }}
-      placeholder="Search Grafana plugins"
+      placeholder={t('plugins.search-field.placeholder-search-grafana-plugins', 'Search Grafana plugins')}
       onChange={(value) => {
         setQuery(value);
       }}

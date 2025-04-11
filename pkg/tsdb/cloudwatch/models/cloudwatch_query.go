@@ -26,13 +26,13 @@ type (
 )
 
 const (
-	MetricEditorModeBuilder = dataquery.MetricEditorModeN0
-	MetricEditorModeRaw     = dataquery.MetricEditorModeN1
+	MetricEditorModeBuilder = dataquery.MetricEditorModeBuilder
+	MetricEditorModeRaw     = dataquery.MetricEditorModeCode
 )
 
 const (
-	MetricQueryTypeSearch = dataquery.MetricQueryTypeN0
-	MetricQueryTypeQuery  = dataquery.MetricQueryTypeN1
+	MetricQueryTypeSearch = dataquery.MetricQueryTypeSearch
+	MetricQueryTypeQuery  = dataquery.MetricQueryTypeInsights
 )
 
 const (
@@ -49,8 +49,20 @@ const (
 	chinaConsoleURL   = "console.amazonaws.cn"
 )
 
+type SQLExpressionGroupBy struct {
+	Expressions []dataquery.QueryEditorGroupByExpression `json:"expressions"`
+	Type        dataquery.QueryEditorArrayExpressionType `json:"type"`
+}
+
+type sqlExpression struct {
+	dataquery.SQLExpression
+	GroupBy *SQLExpressionGroupBy `json:"groupBy,omitempty"`
+}
+
 type CloudWatchQuery struct {
 	logger            log.Logger
+	StartTime         time.Time
+	EndTime           time.Time
 	RefId             string
 	Region            string
 	Id                string
@@ -58,6 +70,7 @@ type CloudWatchQuery struct {
 	MetricName        string
 	Statistic         string
 	Expression        string
+	Sql               sqlExpression
 	SqlExpression     string
 	ReturnData        bool
 	Dimensions        map[string][]string
@@ -209,8 +222,9 @@ var validMetricDataID = regexp.MustCompile(`^[a-z][a-zA-Z0-9_]*$`)
 
 type metricsDataQuery struct {
 	dataquery.CloudWatchMetricsQuery
-	Type              string `json:"type"`
-	TimezoneUTCOffset string `json:"timezoneUTCOffset"`
+	Sql               *sqlExpression `json:"sql,omitempty"`
+	Type              string         `json:"type"`
+	TimezoneUTCOffset string         `json:"timezoneUTCOffset"`
 }
 
 // ParseMetricDataQueries decodes the metric data queries json, validates, sets default values and returns an array of CloudWatchQueries.
@@ -238,6 +252,8 @@ func ParseMetricDataQueries(dataQueries []backend.DataQuery, startTime time.Time
 	for refId, mdq := range metricDataQueries {
 		cwQuery := &CloudWatchQuery{
 			logger:            logger,
+			StartTime:         startTime,
+			EndTime:           endTime,
 			RefId:             refId,
 			Id:                mdq.Id,
 			Region:            mdq.Region,
@@ -251,6 +267,10 @@ func ParseMetricDataQueries(dataQueries []backend.DataQuery, startTime time.Time
 
 		if mdq.MetricQueryType != nil {
 			cwQuery.MetricQueryType = *mdq.MetricQueryType
+		}
+
+		if mdq.Sql != nil {
+			cwQuery.Sql = *mdq.Sql
 		}
 
 		if mdq.SqlExpression != nil {
@@ -293,7 +313,7 @@ func (q *CloudWatchQuery) migrateLegacyQuery(query metricsDataQuery) {
 func (q *CloudWatchQuery) validateAndSetDefaults(refId string, metricsDataQuery metricsDataQuery, startTime, endTime time.Time,
 	defaultRegionValue string, crossAccountQueryingEnabled bool) error {
 	if metricsDataQuery.Statistic == nil && metricsDataQuery.Statistics == nil {
-		return fmt.Errorf("query must have either statistic or statistics field")
+		return backend.DownstreamError(fmt.Errorf("query must have either statistic or statistics field"))
 	}
 
 	var err error
@@ -367,7 +387,11 @@ func (q *CloudWatchQuery) validateAndSetDefaults(refId string, metricsDataQuery 
 func getStatistic(query metricsDataQuery) string {
 	// If there's not a statistic property in the json, we know it's the legacy format and then it has to be migrated
 	if query.Statistic == nil {
-		return query.Statistics[0]
+		if len(query.Statistics) > 0 {
+			return query.Statistics[0]
+		}
+		// if there isn't a statistic property in the legacy format fall back to Average
+		return "Average"
 	}
 	return *query.Statistic
 }
@@ -463,16 +487,14 @@ func getRetainedPeriods(timeSince time.Duration) []int {
 	}
 }
 
-func parseDimensions(dimensions map[string]any) (map[string][]string, error) {
+func parseDimensions(dimensions dataquery.Dimensions) (map[string][]string, error) {
 	parsedDimensions := make(map[string][]string)
 	for k, v := range dimensions {
 		// This is for backwards compatibility. Before 6.5 dimensions values were stored as strings and not arrays
-		if value, ok := v.(string); ok {
-			parsedDimensions[k] = []string{value}
-		} else if values, ok := v.([]any); ok {
-			for _, value := range values {
-				parsedDimensions[k] = append(parsedDimensions[k], value.(string))
-			}
+		if v.String != nil {
+			parsedDimensions[k] = []string{*v.String}
+		} else if len(v.ArrayOfString) > 0 {
+			parsedDimensions[k] = append(parsedDimensions[k], v.ArrayOfString...)
 		} else {
 			return nil, errors.New("unknown type as dimension value")
 		}

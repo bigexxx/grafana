@@ -52,6 +52,9 @@ func (d *PyroscopeDatasource) query(ctx context.Context, pCtx backend.PluginCont
 		return response
 	}
 
+	profileTypeId := qm.ProfileTypeId
+	labelSelector := qm.LabelSelector
+
 	responseMutex := sync.Mutex{}
 	g, gCtx := errgroup.WithContext(ctx)
 	if query.QueryType == queryTypeMetrics || query.QueryType == queryTypeBoth {
@@ -75,11 +78,12 @@ func (d *PyroscopeDatasource) query(ctx context.Context, pCtx backend.PluginCont
 			logger.Debug("Sending SelectSeriesRequest", "queryModel", qm, "function", logEntrypoint())
 			seriesResp, err := d.client.GetSeries(
 				gCtx,
-				qm.ProfileTypeId,
-				qm.LabelSelector,
+				profileTypeId,
+				labelSelector,
 				query.TimeRange.From.UnixMilli(),
 				query.TimeRange.To.UnixMilli(),
 				qm.GroupBy,
+				qm.Limit,
 				math.Max(query.Interval.Seconds(), parsedInterval.Seconds()),
 			)
 			if err != nil {
@@ -101,7 +105,7 @@ func (d *PyroscopeDatasource) query(ctx context.Context, pCtx backend.PluginCont
 			var profileResp *ProfileResponse
 			if len(qm.SpanSelector) > 0 {
 				logger.Debug("Calling GetSpanProfile", "queryModel", qm, "function", logEntrypoint())
-				prof, err := d.client.GetSpanProfile(gCtx, qm.ProfileTypeId, qm.LabelSelector, qm.SpanSelector, query.TimeRange.From.UnixMilli(), query.TimeRange.To.UnixMilli(), qm.MaxNodes)
+				prof, err := d.client.GetSpanProfile(gCtx, profileTypeId, labelSelector, qm.SpanSelector, query.TimeRange.From.UnixMilli(), query.TimeRange.To.UnixMilli(), qm.MaxNodes)
 				if err != nil {
 					span.RecordError(err)
 					span.SetStatus(codes.Error, err.Error())
@@ -111,7 +115,7 @@ func (d *PyroscopeDatasource) query(ctx context.Context, pCtx backend.PluginCont
 				profileResp = prof
 			} else {
 				logger.Debug("Calling GetProfile", "queryModel", qm, "function", logEntrypoint())
-				prof, err := d.client.GetProfile(gCtx, qm.ProfileTypeId, qm.LabelSelector, query.TimeRange.From.UnixMilli(), query.TimeRange.To.UnixMilli(), qm.MaxNodes)
+				prof, err := d.client.GetProfile(gCtx, profileTypeId, labelSelector, query.TimeRange.From.UnixMilli(), query.TimeRange.To.UnixMilli(), qm.MaxNodes)
 				if err != nil {
 					span.RecordError(err)
 					span.SetStatus(codes.Error, err.Error())
@@ -208,11 +212,7 @@ func levelsToTree(levels []*Level, names []string) *ProfileTree {
 	currentLevel := 1
 
 	// Cycle through each level
-	for {
-		if currentLevel >= len(levels) {
-			break
-		}
-
+	for currentLevel < len(levels) {
 		// If we still have levels to go, this should not happen. Something is probably wrong with the flamebearer data.
 		if len(parentsStack) == 0 {
 			logger.Error("ParentsStack is empty but we are not at the last level", "currentLevel", currentLevel, "function", logEntrypoint())
@@ -227,11 +227,7 @@ func levelsToTree(levels []*Level, names []string) *ProfileTree {
 		offset := int64(0)
 
 		// Cycle through bar in a level
-		for {
-			if itemIndex >= len(levels[currentLevel].Values) {
-				break
-			}
-
+		for itemIndex < len(levels[currentLevel].Values) {
 			itemStart := levels[currentLevel].Values[itemIndex+START_OFFSET] + offset
 			itemValue := levels[currentLevel].Values[itemIndex+VALUE_OFFSET]
 			selfValue := levels[currentLevel].Values[itemIndex+SELF_OFFSET]
@@ -300,11 +296,11 @@ func (pt *ProfileTree) String() string {
 				if len(n.Nodes) > 0 {
 					remaining = append(remaining,
 						&branch{
-							nodes: n.Nodes, Tree: current.Tree.AddBranch(fmt.Sprintf("%s: level %d self %d total %d", n.Name, n.Level, n.Self, n.Value)),
+							nodes: n.Nodes, Tree: current.AddBranch(fmt.Sprintf("%s: level %d self %d total %d", n.Name, n.Level, n.Self, n.Value)),
 						},
 					)
 				} else {
-					current.Tree.AddNode(fmt.Sprintf("%s: level %d self %d total %d", n.Name, n.Level, n.Self, n.Value))
+					current.AddNode(fmt.Sprintf("%s: level %d self %d total %d", n.Name, n.Level, n.Self, n.Value))
 				}
 			}
 		}
@@ -405,11 +401,7 @@ func walkTree(tree *ProfileTree, fn func(tree *ProfileTree)) {
 	fn(tree)
 	stack := tree.Nodes
 
-	for {
-		if len(stack) == 0 {
-			break
-		}
-
+	for len(stack) != 0 {
 		fn(stack[0])
 		if stack[0].Nodes != nil {
 			stack = append(stack[0].Nodes, stack[1:]...)

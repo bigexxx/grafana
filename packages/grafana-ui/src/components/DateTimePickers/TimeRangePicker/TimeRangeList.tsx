@@ -1,13 +1,14 @@
 import { css } from '@emotion/css';
-import React, { ReactNode } from 'react';
+import { useRef, ReactNode } from 'react';
 
-import { TimeOption } from '@grafana/data';
+import { GrafanaTheme2, TimeOption } from '@grafana/data';
 
 import { useStyles2 } from '../../../themes';
 import { t } from '../../../utils/i18n';
 
 import { TimePickerTitle } from './TimePickerTitle';
 import { TimeRangeOption } from './TimeRangeOption';
+import { useListFocus } from './hooks';
 
 interface Props {
   title?: string;
@@ -44,9 +45,18 @@ export const TimeRangeList = (props: Props) => {
 const Options = ({ options, value, onChange, title }: Props) => {
   const styles = useStyles2(getOptionsStyles);
 
+  const localRef = useRef<HTMLUListElement>(null);
+  const [handleKeys] = useListFocus({ localRef, options });
+
   return (
     <>
-      <ul aria-roledescription={t('time-picker.time-range.aria-role', 'Time range selection')}>
+      <ul
+        role="presentation"
+        onKeyDown={handleKeys}
+        ref={localRef}
+        aria-roledescription={t('time-picker.time-range.aria-role', 'Time range selection')}
+        className={styles.list}
+      >
         {options.map((option, index) => (
           <TimeRangeOption
             key={keyForOption(option, index)}
@@ -57,7 +67,6 @@ const Options = ({ options, value, onChange, title }: Props) => {
           />
         ))}
       </ul>
-      <div className={styles.grow} />
     </>
   );
 };
@@ -82,9 +91,8 @@ const getStyles = () => ({
   }),
 });
 
-const getOptionsStyles = () => ({
-  grow: css({
-    flexGrow: 1,
-    alignItems: 'flex-start',
+const getOptionsStyles = (theme: GrafanaTheme2) => ({
+  list: css({
+    padding: theme.spacing(0.5),
   }),
 });

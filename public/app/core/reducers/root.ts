@@ -2,7 +2,6 @@ import { ReducersMapObject } from '@reduxjs/toolkit';
 import { AnyAction, combineReducers } from 'redux';
 
 import sharedReducers from 'app/core/reducers';
-import { migrateToCloudAPI } from 'app/features/admin/migrate-to-cloud/api';
 import ldapReducers from 'app/features/admin/state/reducers';
 import alertingReducers from 'app/features/alerting/state/reducers';
 import apiKeysReducers from 'app/features/api-keys/state/reducers';
@@ -17,6 +16,7 @@ import exploreReducers from 'app/features/explore/state/main';
 import foldersReducers from 'app/features/folders/state/reducers';
 import invitesReducers from 'app/features/invites/state/reducers';
 import importDashboardReducers from 'app/features/manage-dashboards/state/reducers';
+import { cloudMigrationAPI } from 'app/features/migrate-to-cloud/api';
 import organizationReducers from 'app/features/org/state/reducers';
 import panelsReducers from 'app/features/panel/state/reducers';
 import { reducer as pluginsReducer } from 'app/features/plugins/admin/state/reducer';
@@ -27,7 +27,12 @@ import teamsReducers from 'app/features/teams/state/reducers';
 import usersReducers from 'app/features/users/state/reducers';
 import templatingReducers from 'app/features/variables/state/keyedVariablesReducer';
 
+import { advisorAPI } from '../../api/clients/advisor';
+import { folderAPI } from '../../api/clients/folder';
+import { iamAPI } from '../../api/clients/iam';
+import { provisioningAPI } from '../../api/clients/provisioning';
 import { alertingApi } from '../../features/alerting/unified/api/alertingApi';
+import { userPreferencesAPI } from '../../features/preferences/api';
 import { cleanUpAction } from '../actions/cleanUp';
 
 const rootReducers = {
@@ -56,7 +61,12 @@ const rootReducers = {
   [alertingApi.reducerPath]: alertingApi.reducer,
   [publicDashboardApi.reducerPath]: publicDashboardApi.reducer,
   [browseDashboardsAPI.reducerPath]: browseDashboardsAPI.reducer,
-  [migrateToCloudAPI.reducerPath]: migrateToCloudAPI.reducer,
+  [cloudMigrationAPI.reducerPath]: cloudMigrationAPI.reducer,
+  [iamAPI.reducerPath]: iamAPI.reducer,
+  [userPreferencesAPI.reducerPath]: userPreferencesAPI.reducer,
+  [provisioningAPI.reducerPath]: provisioningAPI.reducer,
+  [folderAPI.reducerPath]: folderAPI.reducer,
+  [advisorAPI.reducerPath]: advisorAPI.reducer,
 };
 
 const addedReducers = {};
@@ -71,7 +81,7 @@ export const createRootReducer = () => {
     ...addedReducers,
   });
 
-  return (state: any, action: AnyAction) => {
+  return (state: Parameters<typeof appReducer>[0], action: AnyAction) => {
     if (action.type !== cleanUpAction.type) {
       return appReducer(state, action);
     }

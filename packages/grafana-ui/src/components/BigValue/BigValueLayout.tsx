@@ -1,8 +1,9 @@
-import React, { CSSProperties } from 'react';
+import { CSSProperties } from 'react';
+import * as React from 'react';
 import tinycolor from 'tinycolor2';
 
-import { formattedValueToString, DisplayValue, FieldConfig, FieldType } from '@grafana/data';
-import { GraphDrawStyle, GraphFieldConfig } from '@grafana/schema';
+import { formattedValueToString, DisplayValue, FieldConfig, FieldType, ThemeVisualizationColors } from '@grafana/data';
+import { GraphDrawStyle, GraphFieldConfig, PercentChangeColorMode } from '@grafana/schema';
 
 import { getTextColorForAlphaBackground } from '../../utils';
 import { calculateFontSize } from '../../utils/measureText';
@@ -18,6 +19,7 @@ const VALUE_FONT_WEIGHT = 500;
 export abstract class BigValueLayout {
   titleFontSize: number;
   valueFontSize: number;
+  percentFontSize: number;
   chartHeight: number;
   chartWidth: number;
   valueColor: string;
@@ -40,6 +42,7 @@ export abstract class BigValueLayout {
     this.titleToAlignTo = this.textValues.titleToAlignTo;
     this.titleFontSize = 0;
     this.valueFontSize = 0;
+    this.percentFontSize = 0;
     this.chartHeight = 0;
     this.chartWidth = 0;
     this.maxTextWidth = width - this.panelPadding * 2;
@@ -54,6 +57,9 @@ export abstract class BigValueLayout {
       if (text.valueSize) {
         this.valueFontSize = text.valueSize;
         this.valueToAlignTo = '';
+      }
+      if (text.percentSize) {
+        this.percentFontSize = text.percentSize;
       }
     }
   }
@@ -103,16 +109,17 @@ export abstract class BigValueLayout {
     return styles;
   }
 
-  getPercentChangeStyles(percentChange: number): PercentChangeStyles {
+  getPercentChangeStyles(
+    percentChange: number,
+    percentChangeColorMode: PercentChangeColorMode | undefined,
+    valueStyles: React.CSSProperties
+  ): PercentChangeStyles {
     const VALUE_TO_PERCENT_CHANGE_RATIO = 2.5;
     const valueContainerStyles = this.getValueAndTitleContainerStyles();
-    const percentFontSize = Math.max(this.valueFontSize / VALUE_TO_PERCENT_CHANGE_RATIO, 12);
-    let iconSize = Math.max(this.valueFontSize / 3, 10);
-
-    const color =
-      percentChange > 0
-        ? this.props.theme.visualization.getColorByName('green')
-        : this.props.theme.visualization.getColorByName('red');
+    const percentFontSize = this.percentFontSize || Math.max(this.valueFontSize / VALUE_TO_PERCENT_CHANGE_RATIO, 12);
+    let iconSize = this.percentFontSize ? this.percentFontSize - 3 : Math.max(this.valueFontSize / 3, 10);
+    const themeVisualizationColors = this.props.theme.visualization;
+    const color = getPercentChangeColor(percentChange, percentChangeColorMode, valueStyles, themeVisualizationColors);
 
     const containerStyles: CSSProperties = {
       fontSize: percentFontSize,
@@ -596,4 +603,19 @@ function getTextValues(props: Props): BigValueTextValues {
 export interface PercentChangeStyles {
   containerStyles: CSSProperties;
   iconSize: number;
+}
+
+export function getPercentChangeColor(
+  percentChange: number,
+  percentChangeColorMode: PercentChangeColorMode | undefined,
+  valueStyles: CSSProperties,
+  themeVisualizationColors: ThemeVisualizationColors
+): string | undefined {
+  if (percentChangeColorMode === PercentChangeColorMode.SameAsValue) {
+    return valueStyles.color;
+  } else {
+    return percentChange * (percentChangeColorMode === PercentChangeColorMode.Inverted ? -1 : 1) > 0
+      ? themeVisualizationColors.getColorByName('green')
+      : themeVisualizationColors.getColorByName('red');
+  }
 }

@@ -1,59 +1,76 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { SceneComponentProps, SceneObjectBase, SceneObjectState } from '@grafana/scenes';
 import { Dropdown, Switch, ToolbarButton, useStyles2 } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
+
+import { MetricScene } from './MetricScene';
+import { MetricSelectScene } from './MetricSelect/MetricSelectScene';
+import { reportExploreMetrics } from './interactions';
+import { getTrailFor } from './utils';
 
 export interface DataTrailSettingsState extends SceneObjectState {
-  showQuery?: boolean;
-  showAdvanced?: boolean;
-  multiValueVars?: boolean;
+  stickyMainGraph?: boolean;
   isOpen?: boolean;
 }
 
 export class DataTrailSettings extends SceneObjectBase<DataTrailSettingsState> {
   constructor(state: Partial<DataTrailSettingsState>) {
     super({
-      showQuery: state.showQuery ?? false,
-      showAdvanced: state.showAdvanced ?? false,
+      stickyMainGraph: state.stickyMainGraph ?? true,
       isOpen: state.isOpen ?? false,
     });
   }
 
-  public onToggleShowQuery = () => {
-    this.setState({ showQuery: !this.state.showQuery });
-  };
-
-  public onToggleAdvanced = () => {
-    this.setState({ showAdvanced: !this.state.showAdvanced });
-  };
-
-  public onToggleMultiValue = () => {
-    this.setState({ multiValueVars: !this.state.multiValueVars });
+  public onToggleStickyMainGraph = () => {
+    const stickyMainGraph = !this.state.stickyMainGraph;
+    reportExploreMetrics('settings_changed', { stickyMainGraph });
+    this.setState({ stickyMainGraph });
   };
 
   public onToggleOpen = (isOpen: boolean) => {
     this.setState({ isOpen });
   };
 
+  public onTogglePreviews = () => {
+    const trail = getTrailFor(this);
+    trail.setState({ showPreviews: !trail.state.showPreviews });
+  };
+
   static Component = ({ model }: SceneComponentProps<DataTrailSettings>) => {
-    const { showQuery, showAdvanced, multiValueVars, isOpen } = model.useState();
+    const { stickyMainGraph, isOpen } = model.useState();
     const styles = useStyles2(getStyles);
+
+    const trail = getTrailFor(model);
+
+    const { showPreviews, topScene } = trail.useState();
 
     const renderPopover = () => {
       return (
         /* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */
         <div className={styles.popover} onClick={(evt) => evt.stopPropagation()}>
-          <div className={styles.heading}>Settings</div>
-          <div className={styles.options}>
-            <div>Multi value variables</div>
-            <Switch value={multiValueVars} onChange={model.onToggleMultiValue} />
-            <div>Advanced options</div>
-            <Switch value={showAdvanced} onChange={model.onToggleAdvanced} />
-            <div>Show query</div>
-            <Switch value={showQuery} onChange={model.onToggleShowQuery} />
+          <div className={styles.heading}>
+            <Trans i18nKey="trails.data-trail-settings.render-popover.settings">Settings</Trans>
           </div>
+          {topScene instanceof MetricScene && (
+            <div className={styles.options}>
+              <div>
+                <Trans i18nKey="trails.settings.always-keep-selected-metric-graph-in-view">
+                  Always keep selected metric graph in-view
+                </Trans>
+              </div>
+              <Switch value={stickyMainGraph} onChange={model.onToggleStickyMainGraph} />
+            </div>
+          )}
+          {topScene instanceof MetricSelectScene && (
+            <div className={styles.options}>
+              <div>
+                <Trans i18nKey="trails.settings.show-previews-of-metric-graphs">Show previews of metric graphs</Trans>
+              </div>
+              <Switch value={showPreviews} onChange={model.onTogglePreviews} />
+            </div>
+          )}
         </div>
       );
     };

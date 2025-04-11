@@ -1,31 +1,45 @@
 // Libraries
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
+import { useParams } from 'react-router-dom-v5-compat';
+import { usePrevious } from 'react-use';
 
 import { PageLayoutType } from '@grafana/data';
+import { UrlSyncContextProvider } from '@grafana/scenes';
+import { Box } from '@grafana/ui';
 import { Page } from 'app/core/components/Page/Page';
 import PageLoader from 'app/core/components/PageLoader/PageLoader';
 import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
+import { DashboardPageError } from 'app/features/dashboard/containers/DashboardPageError';
 import { DashboardPageRouteParams, DashboardPageRouteSearchParams } from 'app/features/dashboard/containers/types';
 import { DashboardRoutes } from 'app/types';
 
 import { DashboardPrompt } from '../saving/DashboardPrompt';
+import { DashboardPreviewBanner } from '../saving/provisioned/DashboardPreviewBanner';
 
 import { getDashboardScenePageStateManager } from './DashboardScenePageStateManager';
 
-export interface Props extends GrafanaRouteComponentProps<DashboardPageRouteParams, DashboardPageRouteSearchParams> {}
+export interface Props
+  extends Omit<GrafanaRouteComponentProps<DashboardPageRouteParams, DashboardPageRouteSearchParams>, 'match'> {}
 
-export function DashboardScenePage({ match, route, queryParams, history }: Props) {
+export function DashboardScenePage({ route, queryParams, location }: Props) {
+  const params = useParams();
+  const { type, slug, uid } = params;
+  // User by /admin/provisioning/:slug/dashboard/preview/* to load dashboards based on their file path in a remote repository
+  const path = params['*'];
+  const prevMatch = usePrevious({ params });
   const stateManager = getDashboardScenePageStateManager();
   const { dashboard, isLoading, loadError } = stateManager.useState();
   // After scene migration is complete and we get rid of old dashboard we should refactor dashboardWatcher so this route reload is not need
-  const routeReloadCounter = (history.location.state as any)?.routeReloadCounter;
+  const routeReloadCounter = (location.state as any)?.routeReloadCounter;
 
   useEffect(() => {
-    if (route.routeName === DashboardRoutes.Normal && match.params.type === 'snapshot') {
-      stateManager.loadSnapshot(match.params.slug!);
+    if (route.routeName === DashboardRoutes.Normal && type === 'snapshot') {
+      stateManager.loadSnapshot(slug!);
     } else {
       stateManager.loadDashboard({
-        uid: match.params.uid ?? '',
+        uid: (route.routeName === DashboardRoutes.Provisioning ? path : uid) ?? '',
+        type,
+        slug,
         route: route.routeName as DashboardRoutes,
         urlFolderUid: queryParams.folderUid,
       });
@@ -34,30 +48,39 @@ export function DashboardScenePage({ match, route, queryParams, history }: Props
     return () => {
       stateManager.clearState();
     };
-  }, [
-    stateManager,
-    match.params.uid,
-    route.routeName,
-    queryParams.folderUid,
-    routeReloadCounter,
-    match.params.slug,
-    match.params.type,
-  ]);
+  }, [stateManager, uid, route.routeName, queryParams.folderUid, routeReloadCounter, slug, type, path]);
 
   if (!dashboard) {
+    let errorElement;
+    if (loadError) {
+      errorElement = <DashboardPageError error={loadError} type={type} />;
+    }
+
     return (
-      <Page layout={PageLayoutType.Canvas} data-testid={'dashboard-scene-page'}>
-        {isLoading && <PageLoader />}
-        {loadError && <h2>{loadError}</h2>}
-      </Page>
+      errorElement || (
+        <Page navId="dashboards/browse" layout={PageLayoutType.Canvas} data-testid={'dashboard-scene-page'}>
+          <Box paddingY={4} display="flex" direction="column" alignItems="center">
+            {isLoading && <PageLoader />}
+          </Box>
+        </Page>
+      )
     );
   }
 
+  // Do not render anything when transitioning from one dashboard to another
+  // A bit tricky for transition to or from Home dashboard that does not have a uid in the url (but could have it in the dashboard model)
+  // if prevMatch is undefined we are going from normal route to home route or vice versa
+  if (type !== 'snapshot' && (!prevMatch || uid !== prevMatch?.params.uid)) {
+    console.log('skipping rendering');
+    return null;
+  }
+
   return (
-    <>
-      <dashboard.Component model={dashboard} />
+    <UrlSyncContextProvider scene={dashboard} updateUrlOnInit={true} createBrowserHistorySteps={true}>
+      <DashboardPreviewBanner queryParams={queryParams} route={route.routeName} slug={slug} path={path} />
+      <dashboard.Component model={dashboard} key={dashboard.state.key} />
       <DashboardPrompt dashboard={dashboard} />
-    </>
+    </UrlSyncContextProvider>
   );
 }
 

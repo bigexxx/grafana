@@ -5,7 +5,7 @@ import { AnyAction } from 'redux';
 import { SplitOpenOptions, TimeRange, EventBusSrv } from '@grafana/data';
 import { locationService } from '@grafana/runtime';
 import { generateExploreId, GetExploreUrlArguments } from 'app/core/utils/explore';
-import { PanelModel } from 'app/features/dashboard/state';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
 import { getTemplateSrv } from 'app/features/templating/template_srv';
 import { CorrelationEditorDetailsUpdate, ExploreItemState, ExploreState } from 'app/types/explore';
 
@@ -14,8 +14,9 @@ import { RichHistorySearchFilters, RichHistorySettings } from '../../../core/uti
 import { createAsyncThunk, ThunkResult } from '../../../types';
 import { withUniqueRefIds } from '../utils/queries';
 
+import { DEFAULT_RANGE } from './constants';
 import { initializeExplore, InitializeExploreOptions, paneReducer } from './explorePane';
-import { DEFAULT_RANGE, makeExplorePaneState } from './utils';
+import { makeExplorePaneState } from './utils';
 
 //
 // Actions and Payloads
@@ -26,7 +27,7 @@ export interface SyncTimesPayload {
 }
 export const syncTimesAction = createAction<SyncTimesPayload>('explore/syncTimes');
 
-export const richHistoryUpdatedAction = createAction<{ richHistoryResults: RichHistoryResults; exploreId: string }>(
+export const richHistoryUpdatedAction = createAction<{ richHistoryResults: RichHistoryResults }>(
   'explore/richHistoryUpdated'
 );
 export const richHistoryStorageFullAction = createAction('explore/richHistoryStorageFullAction');
@@ -34,7 +35,6 @@ export const richHistoryLimitExceededAction = createAction('explore/richHistoryL
 
 export const richHistorySettingsUpdatedAction = createAction<RichHistorySettings>('explore/richHistorySettingsUpdated');
 export const richHistorySearchFiltersUpdatedAction = createAction<{
-  exploreId: string;
   filters?: RichHistorySearchFilters;
 }>('explore/richHistorySearchFiltersUpdatedAction');
 
@@ -158,7 +158,7 @@ export const navigateToExplore = (
 /**
  * Global Explore state that handles multiple Explore areas and the split state
  */
-const initialExploreItemState = makeExplorePaneState();
+const initialExploreItemState = () => makeExplorePaneState();
 export const initialExploreState: ExploreState = {
   syncedTimes: false,
   panes: {},
@@ -168,6 +168,7 @@ export const initialExploreState: ExploreState = {
   largerExploreId: undefined,
   maxedExploreId: undefined,
   evenSplitPanes: true,
+  richHistory: [],
 };
 
 /**
@@ -243,21 +244,38 @@ export const exploreReducer = (state = initialExploreState, action: AnyAction): 
     };
   }
 
+  if (richHistoryUpdatedAction.match(action)) {
+    const { richHistory, total } = action.payload.richHistoryResults;
+    return {
+      ...state,
+      richHistory,
+      richHistoryTotal: total,
+    };
+  }
+
+  if (richHistorySearchFiltersUpdatedAction.match(action)) {
+    const richHistorySearchFilters = action.payload.filters;
+    return {
+      ...state,
+      richHistorySearchFilters,
+    };
+  }
+
   if (createNewSplitOpenPane.pending.match(action)) {
     return {
       ...state,
       panes: {
         ...state.panes,
-        [action.meta.arg.exploreId]: initialExploreItemState,
+        [action.meta.arg.exploreId]: initialExploreItemState(),
       },
     };
   }
 
-  if (initializeExplore.pending.match(action)) {
+  if (initializeExplore?.pending.match(action)) {
     const initialPanes = Object.entries(state.panes);
     const before = initialPanes.slice(0, action.meta.arg.position);
     const after = initialPanes.slice(before.length);
-    const panes = [...before, [action.meta.arg.exploreId, initialExploreItemState] as const, ...after].reduce(
+    const panes = [...before, [action.meta.arg.exploreId, initialExploreItemState()] as const, ...after].reduce(
       (acc, [id, pane]) => ({ ...acc, [id]: pane }),
       {}
     );

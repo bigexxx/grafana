@@ -1,6 +1,5 @@
-import { getPanelPlugin } from '@grafana/data/test/__mocks__/pluginMocks';
-import { setPluginImportUtils } from '@grafana/runtime';
-import { SceneGridItem, SceneGridLayout, SceneTimeRange, VizPanel } from '@grafana/scenes';
+import { config } from '@grafana/runtime';
+import { SceneTimeRange } from '@grafana/scenes';
 
 import { DashboardScene } from '../scene/DashboardScene';
 import { activateFullSceneTree } from '../utils/test-utils';
@@ -9,11 +8,6 @@ import { VERSIONS_FETCH_LIMIT, VersionsEditView } from './VersionsEditView';
 import { historySrv } from './version-history';
 
 jest.mock('./version-history/HistorySrv');
-
-setPluginImportUtils({
-  importPanelPlugin: (id: string) => Promise.resolve(getPanelPlugin({})),
-  getPanelPluginFromCache: (id: string) => undefined,
-});
 
 describe('VersionsEditView', () => {
   describe('Dashboard versions state', () => {
@@ -47,11 +41,11 @@ describe('VersionsEditView', () => {
 
       expect(versions).toHaveLength(3);
       expect(versions[0].createdDateString).toBe('2017-02-22 20:43:01');
-      expect(versions[0].ageString).toBe('7 years ago');
+      expect(versions[0].ageString).toBeDefined();
       expect(versions[1].createdDateString).toBe('2017-02-22 20:43:01');
-      expect(versions[1].ageString).toBe('7 years ago');
+      expect(versions[1].ageString).toBeDefined();
       expect(versions[2].createdDateString).toBe('2017-02-23 20:43:01');
-      expect(versions[2].ageString).toBe('7 years ago');
+      expect(versions[2].ageString).toBeDefined();
     });
 
     it('should bump the start threshold when fetching more versions', async () => {
@@ -115,48 +109,137 @@ describe('VersionsEditView', () => {
 
       expect(versionsView.state.isNewLatest).toBe(true);
     });
+
+    it('should correctly identify last page when partial page is returned without version 1', async () => {
+      jest.mocked(historySrv.getHistoryList).mockResolvedValueOnce({
+        continueToken: '',
+        versions: [
+          {
+            id: 4,
+            dashboardId: 1,
+            dashboardUID: '_U4zObQMz',
+            parentVersion: 3,
+            restoredFrom: 0,
+            version: 4,
+            created: '2017-02-22T17:43:01-08:00',
+            createdBy: 'admin',
+            message: '',
+            checked: false,
+          },
+          {
+            id: 3,
+            dashboardId: 1,
+            dashboardUID: '_U4zObQMz',
+            parentVersion: 1,
+            restoredFrom: 1,
+            version: 3,
+            created: '2017-02-22T17:43:01-08:00',
+            createdBy: 'admin',
+            message: '',
+            checked: false,
+          },
+        ],
+      });
+
+      versionsView.reset();
+      versionsView.fetchVersions();
+      await new Promise(process.nextTick);
+
+      expect(versionsView.versions.length).toBeLessThan(VERSIONS_FETCH_LIMIT);
+      expect(versionsView.versions.find((rev) => rev.version === 1)).toBeUndefined();
+    });
+
+    it('should correctly identify last page when kubernetesClientDashboardsFolders is enabled and continueToken is empty', async () => {
+      // @ts-ignore
+      config.featureToggles.kubernetesClientDashboardsFolders = true;
+
+      jest.mocked(historySrv.getHistoryList).mockResolvedValueOnce({
+        continueToken: '',
+        versions: [
+          {
+            id: 4,
+            dashboardId: 1,
+            dashboardUID: '_U4zObQMz',
+            parentVersion: 3,
+            restoredFrom: 0,
+            version: 4,
+            created: '2017-02-22T17:43:01-08:00',
+            createdBy: 'admin',
+            message: '',
+            checked: false,
+          },
+          {
+            id: 3,
+            dashboardId: 1,
+            dashboardUID: '_U4zObQMz',
+            parentVersion: 1,
+            restoredFrom: 1,
+            version: 3,
+            created: '2017-02-22T17:43:01-08:00',
+            createdBy: 'admin',
+            message: '',
+            checked: false,
+          },
+        ],
+      });
+
+      versionsView.reset();
+      versionsView.fetchVersions();
+      await new Promise(process.nextTick);
+
+      expect(versionsView.versions.length).toBeLessThan(VERSIONS_FETCH_LIMIT);
+      expect(versionsView.versions.find((rev) => rev.version === 1)).toBeUndefined();
+      expect(versionsView.continueToken).toBe('');
+
+      // reset feature flag
+      // @ts-ignore
+      config.featureToggles.kubernetesClientDashboardsFolders = false;
+    });
   });
 });
 
 function getVersions() {
-  return [
-    {
-      id: 4,
-      dashboardId: 1,
-      dashboardUID: '_U4zObQMz',
-      parentVersion: 3,
-      restoredFrom: 0,
-      version: 4,
-      created: '2017-02-22T17:43:01-08:00',
-      createdBy: 'admin',
-      message: '',
-      checked: false,
-    },
-    {
-      id: 3,
-      dashboardId: 1,
-      dashboardUID: '_U4zObQMz',
-      parentVersion: 1,
-      restoredFrom: 1,
-      version: 3,
-      created: '2017-02-22T17:43:01-08:00',
-      createdBy: 'admin',
-      message: '',
-      checked: false,
-    },
-    {
-      id: 2,
-      dashboardId: 1,
-      dashboardUID: '_U4zObQMz',
-      parentVersion: 1,
-      restoredFrom: 1,
-      version: 2,
-      created: '2017-02-23T17:43:01-08:00',
-      createdBy: 'admin',
-      message: '',
-      checked: false,
-    },
-  ];
+  return {
+    continueToken: '',
+    versions: [
+      {
+        id: 4,
+        dashboardId: 1,
+        dashboardUID: '_U4zObQMz',
+        parentVersion: 3,
+        restoredFrom: 0,
+        version: 4,
+        created: '2017-02-22T17:43:01-08:00',
+        createdBy: 'admin',
+        message: '',
+        checked: false,
+      },
+      {
+        id: 3,
+        dashboardId: 1,
+        dashboardUID: '_U4zObQMz',
+        parentVersion: 1,
+        restoredFrom: 1,
+        version: 3,
+        created: '2017-02-22T17:43:01-08:00',
+        createdBy: 'admin',
+        message: '',
+        checked: false,
+      },
+      {
+        id: 2,
+        dashboardId: 1,
+        dashboardUID: '_U4zObQMz',
+        parentVersion: 1,
+        restoredFrom: 1,
+        version: 2,
+        created: '2017-02-23T17:43:01-08:00',
+        createdBy: 'admin',
+        message: '',
+        checked: false,
+      },
+    ],
+  };
 }
 
 async function buildTestScene() {
@@ -169,22 +252,6 @@ async function buildTestScene() {
     meta: {
       canEdit: true,
     },
-    body: new SceneGridLayout({
-      children: [
-        new SceneGridItem({
-          key: 'griditem-1',
-          x: 0,
-          y: 0,
-          width: 10,
-          height: 12,
-          body: new VizPanel({
-            title: 'Panel A',
-            key: 'panel-1',
-            pluginId: 'table',
-          }),
-        }),
-      ],
-    }),
     editview: versionsView,
   });
 

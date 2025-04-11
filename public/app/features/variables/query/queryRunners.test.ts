@@ -5,10 +5,10 @@ import {
   DataSourceApi,
   getDefaultTimeRange,
   QueryVariableModel,
+  StandardVariableQuery,
+  VariableRefresh,
   VariableSupportType,
 } from '@grafana/data';
-
-import { VariableRefresh } from '../types';
 
 import { QueryRunners, RunnerArgs, variableDummyRefId } from './queryRunners';
 
@@ -167,9 +167,9 @@ describe('QueryRunners', () => {
         ({
           variables: {
             getType: () => VariableSupportType.Standard,
-            toDataQuery: (query: any) => ({ ...query, extra: 'extra' }),
+            toDataQuery: (query: StandardVariableQuery) => ({ ...query, extra: 'extra' }),
           },
-        } as DataSourceApi);
+        } as unknown as DataSourceApi);
       const runner = new QueryRunners().getRunnerForDatasource(datasource);
       const runRequest = jest.fn().mockReturnValue(of({}));
       const runnerArgs = {

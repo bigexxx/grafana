@@ -1,6 +1,5 @@
 import { FieldColorModeId, FieldConfigProperty, PanelPlugin } from '@grafana/data';
-import { config } from '@grafana/runtime';
-import { VisibilityMode } from '@grafana/schema';
+import { AxisPlacement, VisibilityMode } from '@grafana/schema';
 import { commonOptionsBuilder } from '@grafana/ui';
 
 import { StatusHistoryPanel } from './StatusHistoryPanel';
@@ -17,6 +16,14 @@ export const plugin = new PanelPlugin<Options, FieldConfig>(StatusHistoryPanel)
         defaultValue: {
           mode: FieldColorModeId.Thresholds,
         },
+      },
+      [FieldConfigProperty.Links]: {
+        settings: {
+          showOneClick: true,
+        },
+      },
+      [FieldConfigProperty.Actions]: {
+        hideFromDefaults: false,
       },
     },
     useCustomConfig: (builder) => {
@@ -43,6 +50,11 @@ export const plugin = new PanelPlugin<Options, FieldConfig>(StatusHistoryPanel)
         });
 
       commonOptionsBuilder.addHideFrom(builder);
+      commonOptionsBuilder.addAxisPlacement(
+        builder,
+        (placement) => placement === AxisPlacement.Auto || placement === AxisPlacement.Hidden
+      );
+      commonOptionsBuilder.addAxisWidth(builder);
     },
   })
   .setPanelOptions((builder) => {
@@ -78,10 +90,19 @@ export const plugin = new PanelPlugin<Options, FieldConfig>(StatusHistoryPanel)
           max: 1,
           step: 0.01,
         },
+      })
+      .addNumberInput({
+        path: 'perPage',
+        name: 'Page size (enable pagination)',
+        settings: {
+          min: 1,
+          step: 1,
+          integer: true,
+        },
       });
 
     commonOptionsBuilder.addLegendOptions(builder, false);
-    commonOptionsBuilder.addTooltipOptions(builder, !config.featureToggles.newVizTooltips);
+    commonOptionsBuilder.addTooltipOptions(builder);
   })
   .setSuggestionsSupplier(new StatusHistorySuggestionsSupplier())
   .setDataSupport({ annotations: true });

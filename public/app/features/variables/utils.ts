@@ -10,7 +10,7 @@ import {
   VariableWithOptions,
   QueryVariableModel,
 } from '@grafana/data';
-import { getTemplateSrv } from '@grafana/runtime';
+import { getTemplateSrv, locationService } from '@grafana/runtime';
 import { safeStringifyValue } from 'app/core/utils/explore';
 
 import { getState } from '../../store/store';
@@ -156,21 +156,19 @@ export function getLegacyQueryOptions(
 }
 
 export function getVariableRefresh(variable: VariableModel): VariableRefresh {
-  if (!variable || !variable.hasOwnProperty('refresh')) {
-    return VariableRefresh.never;
+  if (variable?.type === 'custom') {
+    return VariableRefresh.onDashboardLoad;
   }
 
-  const queryVariable = variable as QueryVariableModel;
-
   if (
-    queryVariable.refresh !== VariableRefresh.onTimeRangeChanged &&
-    queryVariable.refresh !== VariableRefresh.onDashboardLoad &&
-    queryVariable.refresh !== VariableRefresh.never
+    !variable ||
+    !('refresh' in variable) ||
+    (variable.refresh !== VariableRefresh.onTimeRangeChanged && variable.refresh !== VariableRefresh.onDashboardLoad)
   ) {
     return VariableRefresh.never;
   }
 
-  return queryVariable.refresh;
+  return variable.refresh;
 }
 
 export function getVariableTypes(): Array<{ label: string; value: VariableType }> {
@@ -281,14 +279,27 @@ export const toKeyedVariableIdentifier = (variable: VariableModel): KeyedVariabl
   return { type: variable.type, id: variable.id, rootStateKey: variable.rootStateKey };
 };
 
-export function toVariablePayload<T extends any = undefined>(
-  identifier: VariableIdentifier,
-  data?: T
-): VariablePayload<T>;
-export function toVariablePayload<T extends any = undefined>(model: VariableModel, data?: T): VariablePayload<T>;
-export function toVariablePayload<T extends any = undefined>(
+export function toVariablePayload<T = undefined>(identifier: VariableIdentifier, data?: T): VariablePayload<T>;
+export function toVariablePayload<T = undefined>(model: VariableModel, data?: T): VariablePayload<T>;
+export function toVariablePayload<T = undefined>(
   obj: VariableIdentifier | VariableModel,
   data?: T
 ): VariablePayload<T> {
   return { type: obj.type, id: obj.id, data: data as T };
+}
+
+export function getVariablesFromUrl() {
+  const variables = getTemplateSrv().getVariables();
+  const queryParams = locationService.getSearchObject();
+
+  return Object.keys(queryParams)
+    .filter(
+      (key) => key.indexOf(VARIABLE_PREFIX) !== -1 && variables.some((v) => v.name === key.replace(VARIABLE_PREFIX, ''))
+    )
+    .reduce<UrlQueryMap>((obj, key) => {
+      const variableName = key.replace(VARIABLE_PREFIX, '');
+      obj[variableName] = queryParams[key];
+
+      return obj;
+    }, {});
 }

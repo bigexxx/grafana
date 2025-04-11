@@ -11,6 +11,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/stretchr/testify/require"
 
+	"github.com/grafana/grafana/pkg/expr/metrics"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/tracing"
 	"github.com/grafana/grafana/pkg/plugins"
@@ -64,7 +65,7 @@ func framesPassThroughService(t *testing.T, frames data.Frames) (data.Frames, er
 			&datafakes.FakeCacheService{}, &datafakes.FakeDataSourceService{},
 			nil, pluginconfig.NewFakePluginRequestConfigProvider()),
 		tracer:  tracing.InitializeTracerForTest(),
-		metrics: newMetrics(nil),
+		metrics: metrics.NewSSEMetrics(nil),
 		converter: &ResultConverter{
 			Features: features,
 			Tracer:   tracing.InitializeTracerForTest(),
@@ -192,7 +193,7 @@ func TestHandleDataplaneNumeric(t *testing.T) {
 
 		for _, example := range validNoDataNumericExamples.AsSlice() {
 			t.Run(example.Info().ID, func(t *testing.T) {
-				res, err := handleDataplaneNumeric(example.Frames("A"))
+				res, err := handleDataplaneNumeric(example.Frames("A"), false)
 				require.NoError(t, err)
 				require.Len(t, res.Values, 1)
 			})
@@ -213,7 +214,7 @@ func TestHandleDataplaneNumeric(t *testing.T) {
 
 		for _, example := range numericExamples.AsSlice() {
 			t.Run(example.Info().ID, func(t *testing.T) {
-				res, err := handleDataplaneNumeric(example.Frames("A"))
+				res, err := handleDataplaneNumeric(example.Frames("A"), false)
 				require.NoError(t, err)
 				require.Len(t, res.Values, example.Info().ItemCount)
 			})

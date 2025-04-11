@@ -3,9 +3,7 @@ import { of } from 'rxjs';
 import {
   dataFrameToJSON,
   getDefaultTimeRange,
-  DataQueryRequest,
   DataSourceInstanceSettings,
-  dateTime,
   FieldType,
   createDataFrame,
 } from '@grafana/data';
@@ -21,6 +19,12 @@ jest.mock('@grafana/runtime', () => ({
   getBackendSrv: () => ({
     fetch: fetchMock,
   }),
+}));
+
+const uid = '0000';
+// mock uuidv4 to give back the same value every time
+jest.mock('uuid', () => ({
+  v4: () => uid,
 }));
 
 describe('MySQLDatasource', () => {
@@ -46,34 +50,6 @@ describe('MySQLDatasource', () => {
   const simpleTemplateSrv = {
     replace: (text: string) => text,
   };
-
-  describe('When performing a query with hidden target', () => {
-    it('should return empty result and backendSrv.fetch should not be called', async () => {
-      const options = {
-        range: {
-          from: dateTime(1432288354),
-          to: dateTime(1432288401),
-        },
-        targets: [
-          {
-            format: 'table',
-            rawQuery: true,
-            rawSql: 'select time, metric, value from grafana_metric',
-            refId: 'A',
-            datasource: 'gdev-ds',
-            hide: true,
-          },
-        ],
-      } as unknown as DataQueryRequest<SQLQuery>;
-
-      const { ds, fetchMock } = setupTestContext({});
-
-      await expect(ds.query(options)).toEmitValuesWith((received) => {
-        expect(received[0]).toEqual({ data: [] });
-        expect(fetchMock).not.toHaveBeenCalled();
-      });
-    });
-  });
 
   describe('When runSql returns an empty dataframe', () => {
     const response = {
@@ -164,7 +140,7 @@ describe('MySQLDatasource', () => {
     it('should return a list of fields when fetchFields is called', async () => {
       const fetchFieldsResponse = {
         results: {
-          fields: {
+          [`fields-${uid}`]: {
             refId: 'fields',
             frames: [
               dataFrameToJSON(
@@ -557,6 +533,6 @@ const createFetchResponse = <T>(data: T): FetchResponse<T> => ({
   type: 'basic',
   statusText: 'Ok',
   redirected: false,
-  headers: {} as unknown as Headers,
+  headers: new Headers(),
   ok: true,
 });

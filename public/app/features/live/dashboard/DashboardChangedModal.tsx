@@ -1,9 +1,9 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { locationService } from '@grafana/runtime';
 import { Button, Modal, useStyles2 } from '@grafana/ui';
+import { t, Trans } from 'app/core/internationalization';
 
 import { dashboardWatcher } from './dashboardWatcher';
 import { DashboardEvent, DashboardEventAction } from './types';
@@ -29,21 +29,22 @@ export function DashboardChangedModal({ onDismiss, event }: Props) {
   return (
     <Modal
       isOpen={true}
-      title="Dashboard changed"
+      title={t('live.dashboard-changed-modal.title-dashboard-changed', 'Dashboard changed')}
       icon="copy"
       onDismiss={onDismiss}
       onClickBackdrop={() => {}}
       className={styles.modal}
     >
       <div className={styles.description}>
-        The dashboad has been updated by another session. Do you want to continue editing or discard your local changes?
+        The dashboard has been updated by another session. Do you want to continue editing or discard your local
+        changes?
       </div>
       <Modal.ButtonRow>
         <Button onClick={onDismiss} variant="secondary" fill="outline">
-          Continue editing
+          <Trans i18nKey="live.dashboard-changed-modal.continue-editing">Continue editing</Trans>
         </Button>
         <Button onClick={onDiscardChanges} variant="destructive">
-          Discard local changes
+          <Trans i18nKey="live.dashboard-changed-modal.discard-local-changes">Discard local changes</Trans>
         </Button>
       </Modal.ButtonRow>
     </Modal>

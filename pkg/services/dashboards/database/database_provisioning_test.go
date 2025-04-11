@@ -10,7 +10,6 @@ import (
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/services/dashboards"
-	"github.com/grafana/grafana/pkg/services/quota/quotatest"
 	"github.com/grafana/grafana/pkg/services/tag/tagimpl"
 )
 
@@ -18,9 +17,8 @@ func TestIntegrationDashboardProvisioningTest(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
-	sqlStore := db.InitTestDB(t)
-	quotaService := quotatest.New(false, nil)
-	dashboardStore, err := ProvideDashboardStore(sqlStore, sqlStore.Cfg, testFeatureToggles, tagimpl.ProvideService(sqlStore), quotaService)
+	sqlStore, cfg := db.InitTestDBWithCfg(t)
+	dashboardStore, err := ProvideDashboardStore(sqlStore, cfg, testFeatureToggles, tagimpl.ProvideService(sqlStore))
 	require.NoError(t, err)
 
 	folderCmd := dashboards.SaveDashboardCommand{
@@ -71,6 +69,7 @@ func TestIntegrationDashboardProvisioningTest(t *testing.T) {
 					"title": "another_dashboard",
 				}),
 			}
+
 			provisioning := &dashboards.DashboardProvisioning{
 				Name:       "another_reader",
 				ExternalID: "/var/grafana.json",

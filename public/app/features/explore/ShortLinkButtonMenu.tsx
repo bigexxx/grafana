@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 import { IconName } from '@grafana/data';
 import { reportInteraction, config } from '@grafana/runtime';
-import { ToolbarButton, Dropdown, Menu, Stack, ToolbarButtonRow, MenuGroup } from '@grafana/ui';
-import { t } from 'app/core/internationalization';
+import { Dropdown, Menu, MenuGroup, ButtonGroup, Button } from '@grafana/ui';
+import { t, Trans } from 'app/core/internationalization';
 import { copyStringToClipboard } from 'app/core/utils/explore';
 import { createAndCopyShortLink } from 'app/core/utils/shortLinks';
 import { useSelector } from 'app/types';
@@ -83,7 +83,7 @@ export function ShortLinkButtonMenu() {
         {
           key: 'copy-short-link-abs-time',
           icon: 'clock-nine',
-          label: t('explore.toolbar.copy-shortened-link-abs-time', 'Copy Absolute Shortened URL'),
+          label: t('explore.toolbar.copy-shortened-link-abs-time', 'Copy absolute shortened URL'),
           shorten: true,
           getUrl: () => {
             return constructAbsoluteUrl(panes);
@@ -93,7 +93,7 @@ export function ShortLinkButtonMenu() {
         {
           key: 'copy-link-abs-time',
           icon: 'clock-nine',
-          label: t('explore.toolbar.copy-link-abs-time', 'Copy Absolute Shortened URL'),
+          label: t('explore.toolbar.copy-link-abs-time', 'Copy absolute URL'),
           shorten: false,
           getUrl: () => {
             return constructAbsoluteUrl(panes);
@@ -131,27 +131,28 @@ export function ShortLinkButtonMenu() {
 
   // we need the Toolbar button click to be an action separate from opening/closing the menu
   return (
-    <ToolbarButtonRow>
-      <Stack gap={0} direction="row" alignItems="center" wrap="nowrap">
-        <ToolbarButton
-          tooltip={lastSelected.label}
-          icon={lastSelected.icon}
-          iconOnly={true}
-          narrow={true}
-          onClick={() => {
-            const url = lastSelected.getUrl();
-            onCopyLink(lastSelected.shorten, lastSelected.absTime, url);
-          }}
-          aria-label={t('explore.toolbar.copy-shortened-link', 'Copy shortened URL')}
+    <ButtonGroup>
+      <Button
+        tooltip={lastSelected.label}
+        icon={lastSelected.icon}
+        size="sm"
+        variant="secondary"
+        onClick={() => {
+          const url = lastSelected.getUrl();
+          onCopyLink(lastSelected.shorten, lastSelected.absTime, url);
+        }}
+        aria-label={t('explore.toolbar.copy-shortened-link', 'Copy shortened URL')}
+      >
+        <Trans i18nKey="explore.toolbar.copy-shortened-link-label">Share</Trans>
+      </Button>
+      <Dropdown overlay={MenuActions} placement="bottom-end" onVisibleChange={setIsOpen}>
+        <Button
+          variant={'secondary'}
+          size="sm"
+          icon={isOpen ? 'angle-up' : 'angle-down'}
+          aria-label={t('explore.toolbar.copy-shortened-link-menu', 'Open copy link options')}
         />
-        <Dropdown overlay={MenuActions} placement="bottom-end" onVisibleChange={setIsOpen}>
-          <ToolbarButton
-            narrow={true}
-            isOpen={isOpen}
-            aria-label={t('explore.toolbar.copy-shortened-link-menu', 'Open copy link options')}
-          />
-        </Dropdown>
-      </Stack>
-    </ToolbarButtonRow>
+      </Dropdown>
+    </ButtonGroup>
   );
 }

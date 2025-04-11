@@ -45,6 +45,8 @@ export function shortenLine(line: Line, sourceNodeRadius: number, targetNodeRadi
 }
 
 export type NodeFields = {
+  fixedX?: Field;
+  fixedY?: Field;
   id?: Field;
   title?: Field;
   subTitle?: Field;
@@ -56,6 +58,7 @@ export type NodeFields = {
   icon?: Field;
   nodeRadius?: Field;
   highlighted?: Field;
+  isInstrumented?: Field;
 };
 
 export function getNodeFields(nodes: DataFrame): NodeFields {
@@ -76,6 +79,9 @@ export function getNodeFields(nodes: DataFrame): NodeFields {
     icon: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.icon),
     nodeRadius: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.nodeRadius.toLowerCase()),
     highlighted: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.highlighted.toLowerCase()),
+    fixedX: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.fixedX.toLowerCase()),
+    fixedY: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.fixedY.toLowerCase()),
+    isInstrumented: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.isInstrumented.toLowerCase()),
   };
 }
 
@@ -86,8 +92,13 @@ export type EdgeFields = {
   mainStat?: Field;
   secondaryStat?: Field;
   details: Field[];
+  /**
+   * @deprecated use `color` instead
+   */
   highlighted?: Field;
   thickness?: Field;
+  color?: Field;
+  strokeDasharray?: Field;
 };
 
 export function getEdgeFields(edges: DataFrame): EdgeFields {
@@ -103,8 +114,11 @@ export function getEdgeFields(edges: DataFrame): EdgeFields {
     mainStat: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.mainStat.toLowerCase()),
     secondaryStat: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.secondaryStat.toLowerCase()),
     details: findFieldsByPrefix(edges, NodeGraphDataFrameFieldNames.detail.toLowerCase()),
+    // @deprecated -- for edges use color instead
     highlighted: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.highlighted.toLowerCase()),
     thickness: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.thickness.toLowerCase()),
+    color: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.color.toLowerCase()),
+    strokeDasharray: fieldsCache.getFieldByName(NodeGraphDataFrameFieldNames.strokeDasharray.toLowerCase()),
   };
 }
 
@@ -121,6 +135,7 @@ export function processNodes(
 ): {
   nodes: NodeDatum[];
   edges: EdgeDatum[];
+  hasFixedPositions?: boolean;
   legend?: Array<{
     color: string;
     name: string;
@@ -134,6 +149,24 @@ export function processNodes(
     const nodeFields = getNodeFields(nodes);
     if (!nodeFields.id) {
       throw new Error('id field is required for nodes data frame.');
+    }
+
+    const hasFixedPositions =
+      nodeFields.fixedX &&
+      nodeFields.fixedX.values.every((v) => Number.isFinite(v)) &&
+      nodeFields.fixedY &&
+      nodeFields.fixedY.values.every((v) => Number.isFinite(v));
+
+    // Throw an error if somebody is using fixedX and fixedY fields incorrectly. Other option is to ignore this but we
+    // are not able to easily combine fixed and non-fixed position in layout so that behaviour would be undefined
+    // and silent.
+    if (!hasFixedPositions) {
+      const somePosFilled =
+        (nodeFields.fixedX && nodeFields.fixedX.values.some((v) => Number.isFinite(v))) ||
+        (nodeFields.fixedY && nodeFields.fixedY.values.some((v) => Number.isFinite(v)));
+      if (somePosFilled) {
+        throw new Error('If fixedX and fixedY fields are present, the values have to be all filled and valid');
+      }
     }
 
     // Create the nodes here
@@ -154,6 +187,7 @@ export function processNodes(
     return {
       nodes: Object.values(nodesMap),
       edges: edgeDatums,
+      hasFixedPositions,
       legend: nodeFields.arc.map((f) => {
         return {
           color: f.config.color?.fixedColor ?? '',
@@ -202,6 +236,8 @@ export function processNodes(
     return {
       nodes,
       edges: edgeDatums,
+      // Edge-only datasets never have fixedX/fixedY
+      hasFixedPositions: false,
     };
   }
 }
@@ -234,8 +270,11 @@ function processEdges(edges: DataFrame, edgeFields: EdgeFields, nodesMap: { [id:
       secondaryStat: edgeFields.secondaryStat
         ? statToString(edgeFields.secondaryStat.config, edgeFields.secondaryStat.values[index])
         : '',
+      // @deprecated -- for edges use color instead
       highlighted: edgeFields.highlighted?.values[index] || false,
       thickness: edgeFields.thickness?.values[index] || 1,
+      color: edgeFields.color?.values[index],
+      strokeDasharray: edgeFields.strokeDasharray?.values[index],
     };
   });
 }
@@ -325,6 +364,9 @@ function makeNodeDatum(id: string, nodeFields: NodeFields, index: number): NodeD
     icon: nodeFields.icon?.values[index] || '',
     nodeRadius: nodeFields.nodeRadius,
     highlighted: nodeFields.highlighted?.values[index] || false,
+    x: nodeFields.fixedX?.values[index] ?? undefined,
+    y: nodeFields.fixedY?.values[index] ?? undefined,
+    isInstrumented: nodeFields.isInstrumented?.values[index] ?? true,
   };
 }
 
@@ -345,16 +387,19 @@ export function statToString(config: FieldConfig, value: number | string): strin
  * Utilities mainly for testing
  */
 
-export function makeNodesDataFrame(count: number) {
+export function makeNodesDataFrame(
+  count: number,
+  partialNodes: Array<Partial<Record<NodeGraphDataFrameFieldNames, unknown>>> = []
+) {
   const frame = nodesFrame();
   for (let i = 0; i < count; i++) {
-    frame.add(makeNode(i));
+    frame.add(makeNode(i, partialNodes[i]));
   }
 
   return frame;
 }
 
-function makeNode(index: number) {
+function makeNode(index: number, partialNode: Partial<Record<NodeGraphDataFrameFieldNames, unknown>> = {}) {
   return {
     id: index.toString(),
     title: `service:${index}`,
@@ -366,6 +411,8 @@ function makeNode(index: number) {
     color: 0.5,
     icon: 'database',
     noderadius: 40,
+    isinstrumented: true,
+    ...partialNode,
   };
 }
 
@@ -413,6 +460,10 @@ function nodesFrame() {
     [NodeGraphDataFrameFieldNames.nodeRadius]: {
       values: [],
       type: FieldType.number,
+    },
+    [NodeGraphDataFrameFieldNames.isInstrumented]: {
+      values: [],
+      type: FieldType.boolean,
     },
   };
 
@@ -588,7 +639,8 @@ export const applyOptionsToFrames = (frames: DataFrame[], options: NodeGraphOpti
       }
       if (options?.nodes?.arcs?.length) {
         for (const arc of options.nodes.arcs) {
-          const field = frame.fields.find((field) => field.name.toLowerCase() === arc.field);
+          // As the arc__ field suffixes can be custom we compare them case insensitively to be safe.
+          const field = frame.fields.find((field) => field.name.toLowerCase() === arc.field?.toLowerCase());
           if (field && arc.color) {
             field.config = { ...field.config, color: { fixedColor: arc.color, mode: FieldColorModeId.Fixed } };
           }

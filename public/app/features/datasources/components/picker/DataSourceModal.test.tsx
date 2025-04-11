@@ -1,8 +1,14 @@
 import { queryByTestId, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React from 'react';
 
-import { DataSourceInstanceSettings, DataSourcePluginMeta, PluginMetaInfo, PluginType } from '@grafana/data';
+import {
+  DataSourceInstanceSettings,
+  DataSourcePluginMeta,
+  GrafanaConfig,
+  PluginMetaInfo,
+  PluginType,
+  locationUtil,
+} from '@grafana/data';
 import { config } from '@grafana/runtime';
 
 import { DataSourceModal, DataSourceModalProps } from './DataSourceModal';
@@ -53,25 +59,23 @@ const setup = (partialProps: Partial<DataSourceModalProps> = {}) => {
   return render(<DataSourceModal {...props} />);
 };
 
-jest.mock('@grafana/runtime', () => {
-  const actual = jest.requireActual('@grafana/runtime');
-  return {
-    ...actual,
-    getTemplateSrv: () => {
-      return {
-        getVariables: () => [],
-      };
-    },
-  };
-});
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getTemplateSrv: () => {
+    return {
+      getVariables: () => [],
+    };
+  },
+  getDataSourceSrv: () => ({
+    getList: getListMock,
+    getInstanceSettings: getInstanceSettingsMock,
+  }),
+}));
 
-jest.mock('@grafana/runtime/src/services/dataSourceSrv', () => {
-  return {
-    getDataSourceSrv: () => ({
-      getList: getListMock,
-      getInstanceSettings: getInstanceSettingsMock,
-    }),
-  };
+locationUtil.initialize({
+  config: { appSubUrl: '/my-sub-path' } as GrafanaConfig,
+  getTimeRangeForUrl: jest.fn(),
+  getVariablesUrlParams: jest.fn(),
 });
 
 const getListMock = jest.fn();
@@ -96,9 +100,13 @@ describe('DataSourceDropdown', () => {
       await user.keyboard('foobarbaz'); //Search for a DS that should not exist
 
       expect(screen.queryAllByText('Configure a new data source')).toHaveLength(2);
+      screen.queryAllByRole('link').forEach((link) => {
+        // It should point to the new data source page including any sub url configured
+        expect(link).toHaveAttribute('href', '/my-sub-path/connections/datasources/new');
+      });
     });
 
-    it('only displays the file drop area when the the ff is enabled', async () => {
+    it('only displays the file drop area when the ff is enabled', async () => {
       const defaultValue = config.featureToggles.editPanelCSVDragAndDrop;
       config.featureToggles.editPanelCSVDragAndDrop = true;
       setup({ uploadFile: true });

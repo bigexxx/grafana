@@ -1,9 +1,12 @@
 import { css } from '@emotion/css';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { isFetchError } from '@grafana/runtime';
 import { Field, IconButton, Input, useStyles2, Text } from '@grafana/ui';
+
+import { t } from '../../internationalization';
 
 export interface Props {
   value: string;
@@ -63,7 +66,12 @@ export const EditableTitle = ({ value, onEdit }: Props) => {
         <Text element="h1" truncate>
           {localValue}
         </Text>
-        <IconButton name="pen" size="lg" tooltip="Edit title" onClick={() => setIsEditing(true)} />
+        <IconButton
+          name="pen"
+          size="lg"
+          tooltip={t('page.editable-title.edit-tooltip', 'Edit title')}
+          onClick={() => setIsEditing(true)}
+        />
       </div>
     </div>
   ) : (
@@ -117,6 +125,7 @@ const getStyles = (theme: GrafanaTheme2) => {
       alignItems: 'center',
       display: 'flex',
       gap: theme.spacing(1),
+      height: theme.spacing(theme.components.height.md),
     }),
   };
 };

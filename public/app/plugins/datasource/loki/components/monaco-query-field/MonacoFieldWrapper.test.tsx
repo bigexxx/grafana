@@ -1,9 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import React from 'react';
+
+import { selectors } from '@grafana/e2e-selectors';
 
 import { createLokiDatasource } from '../../__mocks__/datasource';
 
 import { MonacoQueryFieldWrapper, Props } from './MonacoQueryFieldWrapper';
+
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getAppEvents: jest.fn().mockReturnValue({
+    subscribe: jest.fn().mockReturnValue({ unsubscribe: jest.fn() }),
+  }),
+}));
 
 function renderComponent({ initialValue = '', onChange = jest.fn(), onRunQuery = jest.fn() }: Partial<Props> = {}) {
   const datasource = createLokiDatasource();
@@ -25,7 +33,8 @@ describe('MonacoFieldWrapper', () => {
     renderComponent();
 
     await waitFor(async () => {
-      expect(await screen.findByText('Loading...')).toBeInTheDocument();
+      const monacoEditor = await screen.findByTestId(selectors.components.ReactMonacoEditor.editorLazy);
+      expect(monacoEditor).toBeInTheDocument();
     });
   });
 });

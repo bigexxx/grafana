@@ -23,15 +23,15 @@ func (promQLQ *cloudMonitoringProm) run(ctx context.Context, req *backend.QueryD
 	projectName, err := s.ensureProject(ctx, dsInfo, promQLQ.parameters.ProjectName)
 	if err != nil {
 		dr.Error = err
-		return dr, promResponse{}, "", nil
+		return dr, backend.DataResponse{}, "", nil
 	}
 	r, err := createRequest(ctx, &dsInfo, path.Join("/v1/projects", projectName, "location/global/prometheus/api/v1/query_range"), nil)
 	if err != nil {
 		dr.Error = err
-		return dr, promResponse{}, "", nil
+		return dr, backend.DataResponse{}, "", nil
 	}
 
-	span := traceReq(ctx, req, dsInfo, r, "")
+	span := traceReq(ctx, req, dsInfo, r, "", promQLQ.timeRange)
 	defer span.End()
 
 	requestBody := map[string]any{
@@ -44,12 +44,12 @@ func (promQLQ *cloudMonitoringProm) run(ctx context.Context, req *backend.QueryD
 	res, err := doRequestProm(r, dsInfo, requestBody)
 	if err != nil {
 		dr.Error = err
-		return dr, promResponse{}, "", nil
+		return dr, backend.DataResponse{}, "", nil
 	}
 
 	defer func() {
 		if err := res.Body.Close(); err != nil {
-			s.logger.Error("Failed to close response body", "err", err)
+			s.logger.Error("Failed to close response body", "err", err, "statusSource", backend.ErrorSourceDownstream)
 		}
 	}()
 
@@ -67,7 +67,7 @@ func doRequestProm(r *http.Request, dsInfo datasourceInfo, body map[string]any) 
 	}
 	res, err := dsInfo.services[cloudMonitor].client.Do(r)
 	if err != nil {
-		return res, err
+		return res, backend.DownstreamError(err)
 	}
 
 	return res, nil

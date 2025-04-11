@@ -1,9 +1,8 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
 import { GrafanaTheme2, LinkModel } from '@grafana/data';
-import { LinkButton, useStyles2 } from '@grafana/ui';
-import { VizTooltipRow } from '@grafana/ui/src/components/VizTooltip/VizTooltipRow';
+import { DataLinkButton, useStyles2 } from '@grafana/ui';
+import { VizTooltipRow } from '@grafana/ui/internal';
 import { renderValue } from 'app/plugins/panel/geomap/utils/uiUtils';
 
 import { DisplayValue } from './DataHoverView';
@@ -12,10 +11,11 @@ export interface Props {
   displayValues: DisplayValue[];
   links?: LinkModel[];
   header?: string;
+  maxHeight?: number;
 }
 
-export const ExemplarHoverView = ({ displayValues, links, header = 'Exemplar' }: Props) => {
-  const styles = useStyles2(getStyles);
+export const ExemplarHoverView = ({ displayValues, links, header = 'Exemplar', maxHeight }: Props) => {
+  const styles = useStyles2(getStyles, 0, maxHeight);
 
   const time = displayValues.find((val) => val.name === 'Time');
   displayValues = displayValues.filter((val) => val.name !== 'Time'); // time?
@@ -42,9 +42,7 @@ export const ExemplarHoverView = ({ displayValues, links, header = 'Exemplar' }:
       {links && links.length > 0 && (
         <div className={styles.exemplarFooter}>
           {links.map((link, i) => (
-            <LinkButton key={i} href={link.href} className={styles.linkButton}>
-              {link.title}
-            </LinkButton>
+            <DataLinkButton link={link} key={i} buttonProps={{ size: 'md' }} />
           ))}
         </div>
       )}
@@ -52,7 +50,7 @@ export const ExemplarHoverView = ({ displayValues, links, header = 'Exemplar' }:
   );
 };
 
-const getStyles = (theme: GrafanaTheme2, padding = 0) => {
+const getStyles = (theme: GrafanaTheme2, padding = 0, maxHeight?: number) => {
   return {
     exemplarWrapper: css({
       display: 'flex',
@@ -63,7 +61,6 @@ const getStyles = (theme: GrafanaTheme2, padding = 0) => {
       borderRadius: theme.shape.radius.default,
       background: theme.colors.background.primary,
       border: `1px solid ${theme.colors.border.weak}`,
-      boxShadow: `0 4px 8px ${theme.colors.background.primary}`,
     }),
     exemplarHeader: css({
       display: 'flex',
@@ -83,17 +80,15 @@ const getStyles = (theme: GrafanaTheme2, padding = 0) => {
       gap: 4,
       borderTop: `1px solid ${theme.colors.border.medium}`,
       padding: theme.spacing(1),
+      overflowY: 'auto',
+      maxHeight: maxHeight,
     }),
     exemplarFooter: css({
       display: 'flex',
       flexDirection: 'column',
-      flex: 1,
-      borderTop: `1px solid ${theme.colors.border.medium}`,
       padding: theme.spacing(1),
-
-      overflowX: 'auto',
-      overflowY: 'hidden',
-      whiteSpace: 'nowrap',
+      borderTop: `1px solid ${theme.colors.border.medium}`,
+      gap: 4,
     }),
     linkButton: css({
       width: 'fit-content',

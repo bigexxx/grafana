@@ -4,14 +4,12 @@ import (
 	"context"
 	"path"
 	"slices"
-	"strings"
 
 	"github.com/grafana/grafana/pkg/infra/slugify"
 	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/plugins/config"
 	"github.com/grafana/grafana/pkg/plugins/log"
 	"github.com/grafana/grafana/pkg/plugins/manager/loader/assetpath"
-	"github.com/grafana/grafana/pkg/services/featuremgmt"
 )
 
 // DefaultConstructor implements the default ConstructFunc used for the Construct step of the Bootstrap stage.
@@ -24,8 +22,8 @@ type DefaultConstructor struct {
 }
 
 // DefaultConstructFunc is the default ConstructFunc used for the Construct step of the Bootstrap stage.
-func DefaultConstructFunc(signatureCalculator plugins.SignatureCalculator, assetPath *assetpath.Service) ConstructFunc {
-	return NewDefaultConstructor(signatureCalculator, assetPath).Construct
+func DefaultConstructFunc(cfg *config.PluginManagementCfg, signatureCalculator plugins.SignatureCalculator, assetPath *assetpath.Service) ConstructFunc {
+	return NewDefaultConstructor(cfg, signatureCalculator, assetPath).Construct
 }
 
 // DefaultDecorateFuncs are the default DecorateFuncs used for the Decorate step of the Bootstrap stage.
@@ -39,46 +37,29 @@ func DefaultDecorateFuncs(cfg *config.PluginManagementCfg) []DecorateFunc {
 }
 
 // NewDefaultConstructor returns a new DefaultConstructor.
-func NewDefaultConstructor(signatureCalculator plugins.SignatureCalculator, assetPath *assetpath.Service) *DefaultConstructor {
+func NewDefaultConstructor(cfg *config.PluginManagementCfg, signatureCalculator plugins.SignatureCalculator, assetPath *assetpath.Service) *DefaultConstructor {
 	return &DefaultConstructor{
-		pluginFactoryFunc:   NewDefaultPluginFactory(assetPath).createPlugin,
+		pluginFactoryFunc:   NewDefaultPluginFactory(&cfg.Features, assetPath).createPlugin,
 		signatureCalculator: signatureCalculator,
 		log:                 log.New("plugins.construct"),
 	}
 }
 
 // Construct will calculate the plugin's signature state and create the plugin using the pluginFactoryFunc.
-func (c *DefaultConstructor) Construct(ctx context.Context, src plugins.PluginSource, bundles []*plugins.FoundBundle) ([]*plugins.Plugin, error) {
-	res := make([]*plugins.Plugin, 0, len(bundles))
-
-	for _, bundle := range bundles {
-		sig, err := c.signatureCalculator.Calculate(ctx, src, bundle.Primary)
-		if err != nil {
-			c.log.Warn("Could not calculate plugin signature state", "pluginId", bundle.Primary.JSONData.ID, "error", err)
-			continue
-		}
-		plugin, err := c.pluginFactoryFunc(bundle.Primary, src.PluginClass(ctx), sig)
-		if err != nil {
-			c.log.Error("Could not create primary plugin base", "pluginId", bundle.Primary.JSONData.ID, "error", err)
-			continue
-		}
-		res = append(res, plugin)
-
-		children := make([]*plugins.Plugin, 0, len(bundle.Children))
-		for _, child := range bundle.Children {
-			cp, err := c.pluginFactoryFunc(*child, plugin.Class, sig)
-			if err != nil {
-				c.log.Error("Could not create child plugin base", "pluginId", child.JSONData.ID, "error", err)
-				continue
-			}
-			cp.Parent = plugin
-			plugin.Children = append(plugin.Children, cp)
-
-			children = append(children, cp)
-		}
-		res = append(res, children...)
+func (c *DefaultConstructor) Construct(ctx context.Context, src plugins.PluginSource, bundle *plugins.FoundBundle) ([]*plugins.Plugin, error) {
+	sig, err := c.signatureCalculator.Calculate(ctx, src, bundle.Primary)
+	if err != nil {
+		c.log.Warn("Could not calculate plugin signature state", "pluginId", bundle.Primary.JSONData.ID, "error", err)
+		return nil, err
 	}
-
+	plugin, err := c.pluginFactoryFunc(bundle, src.PluginClass(ctx), sig)
+	if err != nil {
+		c.log.Error("Could not create primary plugin base", "pluginId", bundle.Primary.JSONData.ID, "error", err)
+		return nil, err
+	}
+	res := make([]*plugins.Plugin, 0, len(plugin.Children)+1)
+	res = append(res, plugin)
+	res = append(res, plugin.Children...)
 	return res, nil
 }
 
@@ -147,14 +128,11 @@ func configureAppChildPlugin(parent *plugins.Plugin, child *plugins.Plugin) {
 		return
 	}
 	child.IncludedInAppID = parent.ID
-	child.BaseURL = parent.BaseURL
 
-	// TODO move this logic within assetpath package
-	appSubPath := strings.ReplaceAll(strings.Replace(child.FS.Base(), parent.FS.Base(), "", 1), "\\", "/")
-	if parent.IsCorePlugin() {
-		child.Module = path.Join("core:plugin", parent.ID, appSubPath)
-	} else {
-		child.Module = path.Join("public/plugins", parent.ID, appSubPath, "module.js")
+	// If the child plugin does not have a version, it will inherit the version from the parent.
+	// This is to ensure that the frontend can appropriately cache the plugin assets.
+	if child.Info.Version == "" {
+		child.Info.Version = parent.Info.Version
 	}
 }
 
@@ -163,8 +141,7 @@ func configureAppChildPlugin(parent *plugins.Plugin, child *plugins.Plugin) {
 // ForwardHostEnvVars plugin ids list.
 func SkipHostEnvVarsDecorateFunc(cfg *config.PluginManagementCfg) DecorateFunc {
 	return func(_ context.Context, p *plugins.Plugin) (*plugins.Plugin, error) {
-		p.SkipHostEnvVars = cfg.Features.IsEnabledGlobally(featuremgmt.FlagPluginsSkipHostEnvVars) &&
-			!slices.Contains(cfg.ForwardHostEnvVars, p.ID)
+		p.SkipHostEnvVars = cfg.Features.SkipHostEnvVarsEnabled && !slices.Contains(cfg.ForwardHostEnvVars, p.ID)
 		return p, nil
 	}
 }

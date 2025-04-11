@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 import { LoadingPlaceholder } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { FolderDTO } from '../../../../../types';
 import { alertRuleApi } from '../../api/alertRuleApi';
 
 import { FileExportPreview } from './FileExportPreview';
 import { GrafanaExportDrawer } from './GrafanaExportDrawer';
-import { allGrafanaExportProviders, ExportFormats } from './providers';
+import { ExportFormats, allGrafanaExportProviders } from './providers';
 
 interface GrafanaRuleFolderExporterProps {
   folder: FolderDTO;
@@ -43,7 +44,7 @@ function GrafanaRuleFolderExportPreview({ folder, exportFormat, onClose }: Grafa
   });
 
   if (isFetching) {
-    return <LoadingPlaceholder text="Loading...." />;
+    return <LoadingPlaceholder text={t('alerting.grafana-rule-folder-export-preview.text-loading', 'Loading....')} />;
   }
 
   const downloadFileName = `${folder.title}-${folder.uid}`;

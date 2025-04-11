@@ -1,6 +1,6 @@
 import { PanelTypeChangedHandler } from '@grafana/data';
-import { getPanelPlugin } from '@grafana/data/test/__mocks__/pluginMocks';
-import { PanelModel } from 'app/features/dashboard/state';
+import { getPanelPlugin } from '@grafana/data/test';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
 
 import { getAngularPanelMigrationHandler } from './angularMigration';
 
@@ -31,6 +31,26 @@ describe('getAngularPanelMigrationHandler', () => {
 
       expect(mutatedModel.options).toEqual({ name: 'old name' });
       expect(mutatedModel.fieldConfig).toEqual({ defaults: { unit: 'bytes' }, overrides: [] });
+    });
+  });
+
+  describe('Given a react panel with old angular properties', () => {
+    it('Should pass panel model with old angular properties', () => {
+      const reactPlugin = getPanelPlugin({ id: 'dashlist' });
+
+      const oldModel = new PanelModel({
+        angularProp: 'old name',
+        type: 'dashlist',
+      });
+
+      const mutatedModel: any = {
+        type: 'dashlist',
+        options: {},
+      };
+
+      getAngularPanelMigrationHandler(oldModel)(mutatedModel, reactPlugin);
+
+      expect(mutatedModel.angularProp).toEqual('old name');
     });
   });
 });

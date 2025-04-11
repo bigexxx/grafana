@@ -21,6 +21,12 @@ type Authenticator interface {
 	Authenticate(ctx context.Context) (context.Context, error)
 }
 
+type AuthenticatorFunc func(context.Context) (context.Context, error)
+
+func (fn AuthenticatorFunc) Authenticate(ctx context.Context) (context.Context, error) {
+	return fn(ctx)
+}
+
 // authenticator can authenticate GRPC requests.
 type authenticator struct {
 	contextHandler grpccontext.ContextHandler
@@ -99,7 +105,7 @@ func (a *authenticator) getSignedInUser(ctx context.Context, token string) (*use
 	}
 
 	querySignedInUser := user.GetSignedInUserQuery{UserID: *apikey.ServiceAccountId, OrgID: apikey.OrgID}
-	signedInUser, err := a.UserService.GetSignedInUserWithCacheCtx(ctx, &querySignedInUser)
+	signedInUser, err := a.UserService.GetSignedInUser(ctx, &querySignedInUser)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +132,7 @@ func (a *authenticator) getSignedInUser(ctx context.Context, token string) (*use
 		if err != nil {
 			a.logger.Error("failed fetching permissions for user", "userID", signedInUser.UserID, "error", err)
 		}
-		signedInUser.Permissions[signedInUser.OrgID] = accesscontrol.GroupScopesByAction(permissions)
+		signedInUser.Permissions[signedInUser.OrgID] = accesscontrol.GroupScopesByActionContext(context.Background(), permissions)
 	}
 
 	return signedInUser, nil

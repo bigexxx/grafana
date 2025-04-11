@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 
 import { AppEvents } from '@grafana/data';
@@ -16,12 +16,13 @@ import {
   Stack,
   Switch,
 } from '@grafana/ui';
+import { t, Trans } from 'app/core/internationalization';
 
 import { FormPrompt } from '../../core/components/FormPrompt/FormPrompt';
 import { Page } from '../../core/components/Page/Page';
 
 import { FieldRenderer } from './FieldRenderer';
-import { fields, sectionFields } from './fields';
+import { sectionFields } from './fields';
 import { SSOProvider, SSOProviderDTO } from './types';
 import { dataToDTO, dtoToData } from './utils/data';
 
@@ -41,11 +42,11 @@ export const ProviderConfigForm = ({ config, provider, isLoading }: ProviderConf
     reset,
     watch,
     setValue,
+    getValues,
     unregister,
     formState: { errors, dirtyFields, isSubmitted },
   } = useForm({ defaultValues: dataToDTO(config), mode: 'onSubmit', reValidateMode: 'onChange' });
   const [isSaving, setIsSaving] = useState(false);
-  const providerFields = fields[provider];
   const [submitError, setSubmitError] = useState(false);
   const dataSubmitted = isSubmitted && !submitError;
   const sections = sectionFields[provider];
@@ -54,7 +55,10 @@ export const ProviderConfigForm = ({ config, provider, isLoading }: ProviderConf
   const additionalActionsMenu = (
     <Menu>
       <Menu.Item
-        label="Reset to default values"
+        label={t(
+          'auth-config.provider-config-form.additional-actions-menu.label-reset-to-default-values',
+          'Reset to default values'
+        )}
         icon="history-alt"
         onClick={() => {
           setResetConfig(true);
@@ -140,6 +144,17 @@ export const ProviderConfigForm = ({ config, provider, isLoading }: ProviderConf
 
   const isEnabled = config?.settings.enabled;
 
+  const onSaveAttempt = (toggleEnabled: boolean) => {
+    reportInteraction('grafana_authentication_ssosettings_save_attempt', {
+      provider,
+      enabled: toggleEnabled ? !isEnabled : isEnabled,
+    });
+
+    if (toggleEnabled) {
+      setValue('enabled', !isEnabled);
+    }
+  };
+
   return (
     <Page.Contents isLoading={isLoading}>
       <form onSubmit={handleSubmit(onSubmit)} style={{ maxWidth: '600px' }}>
@@ -152,80 +167,64 @@ export const ProviderConfigForm = ({ config, provider, isLoading }: ProviderConf
             reset();
           }}
         />
-        <Field label="Enabled" hidden={true}>
-          <Switch {...register('enabled')} id="enabled" label={'Enabled'} />
+        <Field label={t('auth-config.provider-config-form.label-enabled', 'Enabled')} hidden={true}>
+          <Switch
+            {...register('enabled')}
+            id="enabled"
+            label={t('auth-config.provider-config-form.enabled-label-enabled', 'Enabled')}
+          />
         </Field>
-        {sections ? (
-          <Stack gap={2} direction={'column'}>
-            {sections
-              .filter((section) => !section.hidden)
-              .map((section, index) => {
-                return (
-                  <CollapsableSection label={section.name} isOpen={index === 0} key={section.name}>
-                    {section.fields
-                      .filter((field) => (typeof field !== 'string' ? !field.hidden : true))
-                      .map((field) => {
-                        return (
-                          <FieldRenderer
-                            key={typeof field === 'string' ? field : field.name}
-                            field={field}
-                            control={control}
-                            errors={errors}
-                            setValue={setValue}
-                            register={register}
-                            watch={watch}
-                            unregister={unregister}
-                            provider={provider}
-                            secretConfigured={!!config?.settings.clientSecret}
-                          />
-                        );
-                      })}
-                  </CollapsableSection>
-                );
-              })}
-          </Stack>
-        ) : (
-          <>
-            {providerFields.map((field) => {
+        <Stack gap={2} direction={'column'}>
+          {sections
+            .filter((section) => !section.hidden)
+            .map((section, index) => {
               return (
-                <FieldRenderer
-                  key={field}
-                  field={field}
-                  control={control}
-                  errors={errors}
-                  setValue={setValue}
-                  register={register}
-                  watch={watch}
-                  unregister={unregister}
-                  provider={provider}
-                  secretConfigured={!!config?.settings.clientSecret}
-                />
+                <CollapsableSection label={section.name} isOpen={index === 0} key={section.name}>
+                  {section.fields
+                    .filter((field) => (typeof field !== 'string' ? !field.hidden : true))
+                    .map((field) => {
+                      return (
+                        <FieldRenderer
+                          key={typeof field === 'string' ? field : field.name}
+                          field={field}
+                          control={control}
+                          errors={errors}
+                          setValue={setValue}
+                          getValues={getValues}
+                          register={register}
+                          watch={watch}
+                          unregister={unregister}
+                          provider={provider}
+                          secretConfigured={!!config?.settings.clientSecret}
+                        />
+                      );
+                    })}
+                </CollapsableSection>
               );
             })}
-          </>
-        )}
+        </Stack>
         <Box display={'flex'} gap={2} marginTop={5}>
           <Stack alignItems={'center'} gap={2}>
             <Button
               type={'submit'}
               disabled={isSaving}
-              onClick={() => setValue('enabled', !isEnabled)}
+              onClick={() => onSaveAttempt(true)}
               variant={isEnabled ? 'secondary' : undefined}
             >
               {isSaving ? (isEnabled ? 'Disabling...' : 'Saving...') : isEnabled ? 'Disable' : 'Save and enable'}
             </Button>
 
-            <Button type={'submit'} disabled={isSaving} variant={'secondary'}>
+            <Button type={'submit'} disabled={isSaving} variant={'secondary'} onClick={() => onSaveAttempt(false)}>
               {isSaving ? 'Saving...' : 'Save'}
             </Button>
             <LinkButton href={'/admin/authentication'} variant={'secondary'}>
-              Discard
+              <Trans i18nKey="auth-config.provider-config-form.discard">Discard</Trans>
             </LinkButton>
 
             <Dropdown overlay={additionalActionsMenu} placement="bottom-start">
               <IconButton
-                tooltip="More actions"
-                title="More actions"
+                tooltip={t('auth-config.provider-config-form.tooltip-more-actions', 'More actions')}
+                title={t('auth-config.provider-config-form.title-more-actions', 'More actions')}
                 tooltipPlacement="top"
                 size="md"
                 variant="secondary"
@@ -240,13 +239,19 @@ export const ProviderConfigForm = ({ config, provider, isLoading }: ProviderConf
         <ConfirmModal
           isOpen
           icon="trash-alt"
-          title="Reset"
+          title={t('auth-config.provider-config-form.title-reset', 'Reset')}
           body={
             <Stack direction={'column'} gap={3}>
-              <span>Are you sure you want to reset this configuration?</span>
+              <span>
+                <Trans i18nKey="auth-config.provider-config-form.reset-configuration">
+                  Are you sure you want to reset this configuration?
+                </Trans>
+              </span>
               <small>
-                After resetting these settings Grafana will use the provider configuration from the system (config
-                file/environment variables) if any.
+                <Trans i18nKey="auth-config.provider-config-form.reset-configuration-description">
+                  After resetting these settings Grafana will use the provider configuration from the system (config
+                  file/environment variables) if any.
+                </Trans>
               </small>
             </Stack>
           }

@@ -3,9 +3,13 @@ package expr
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
-	"github.com/grafana/grafana/pkg/util/errutil"
+	"github.com/grafana/grafana/pkg/apimachinery/errutil"
 )
+
+var ErrSeriesMustBeWide = errors.New("input data must be a wide series")
 
 var ConversionError = errutil.BadRequest("sse.readDataError").MustTemplate(
 	"[{{ .Public.refId }}] got error: {{ .Error }}",
@@ -61,7 +65,7 @@ var DependencyError = errutil.NewBase(
 	depErrStr,
 	errutil.WithPublic(depErrStr))
 
-func makeDependencyError(refID, depRefID string) error {
+func MakeDependencyError(refID, depRefID string) error {
 	data := errutil.TemplateData{
 		Public: map[string]interface{}{
 			"refId":    refID,
@@ -90,4 +94,32 @@ func makeUnexpectedNodeTypeError(refID, nodeType string) error {
 	}
 
 	return UnexpectedNodeTypeError.Build(data)
+}
+
+var DuplicateStringColumnError = errutil.NewBase(
+	errutil.StatusBadRequest, "sse.duplicateStringColumns").MustTemplate(
+	"your SQL query returned {{ .Public.count }} rows with duplicate values across the string columns, which is not allowed for alerting. Examples: ({{ .Public.examples }}). Hint: use GROUP BY or aggregation (e.g. MAX(), AVG()) to return one row per unique combination.",
+	errutil.WithPublic("SQL query returned duplicate combinations of string column values. Use GROUP BY or aggregation to return one row per combination."),
+)
+
+func makeDuplicateStringColumnError(examples []string) error {
+	const limit = 5
+	sort.Strings(examples)
+	exampleStr := strings.Join(truncateExamples(examples, limit), ", ")
+
+	return DuplicateStringColumnError.Build(errutil.TemplateData{
+		Public: map[string]any{
+			"examples": exampleStr,
+			"count":    len(examples),
+		},
+	})
+}
+
+func truncateExamples(examples []string, limit int) []string {
+	if len(examples) <= limit {
+		return examples
+	}
+	truncated := examples[:limit]
+	truncated = append(truncated, fmt.Sprintf("... and %d more", len(examples)-limit))
+	return truncated
 }

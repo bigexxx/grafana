@@ -1,10 +1,11 @@
 import { css } from '@emotion/css';
-import React from 'react';
+import { useMemo } from 'react';
 import { useAsync } from 'react-use';
 import AutoSizer from 'react-virtualized-auto-sizer';
 
 import { GrafanaTheme2, PanelData, PanelModel, VisualizationSuggestion } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
 
 import { getAllSuggestions } from '../../state/getAllSuggestions';
 
@@ -16,12 +17,19 @@ export interface Props {
   onChange: (options: VizTypeChangeDetails) => void;
   data?: PanelData;
   panel?: PanelModel;
+  trackSearch?: (q: string, count: number) => void;
 }
 
-export function VisualizationSuggestions({ searchQuery, onChange, data, panel }: Props) {
+export function VisualizationSuggestions({ searchQuery, onChange, data, panel, trackSearch }: Props) {
   const styles = useStyles2(getStyles);
   const { value: suggestions } = useAsync(() => getAllSuggestions(data, panel), [data, panel]);
-  const filteredSuggestions = filterSuggestionsBySearch(searchQuery, suggestions);
+  const filteredSuggestions = useMemo(() => {
+    const result = filterSuggestionsBySearch(searchQuery, suggestions);
+    if (trackSearch) {
+      trackSearch(searchQuery, result.length);
+    }
+    return result;
+  }, [searchQuery, suggestions, trackSearch]);
 
   return (
     // This div is needed in some places to make AutoSizer work
@@ -40,7 +48,9 @@ export function VisualizationSuggestions({ searchQuery, onChange, data, panel }:
           return (
             <div>
               <div className={styles.filterRow}>
-                <div className={styles.infoText}>Based on current data</div>
+                <div className={styles.infoText}>
+                  <Trans i18nKey="panel.visualization-suggestions.based-on-current-data">Based on current data</Trans>
+                </div>
               </div>
               <div className={styles.grid} style={{ gridTemplateColumns: `repeat(auto-fill, ${previewWidth}px)` }}>
                 {filteredSuggestions.map((suggestion, index) => (
@@ -53,7 +63,11 @@ export function VisualizationSuggestions({ searchQuery, onChange, data, panel }:
                   />
                 ))}
                 {searchQuery && filteredSuggestions.length === 0 && (
-                  <div className={styles.infoText}>No results matched your query</div>
+                  <div className={styles.infoText}>
+                    <Trans i18nKey="panel.visualization-suggestions.no-results-matched-your-query">
+                      No results matched your query
+                    </Trans>
+                  </div>
                 )}
               </div>
             </div>

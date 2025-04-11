@@ -17,9 +17,9 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/login/social"
-	"github.com/grafana/grafana/pkg/services/auth/identity"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/ssosettings/validation"
@@ -29,14 +29,17 @@ import (
 
 type SocialBase struct {
 	*oauth2.Config
-	info        *social.OAuthInfo
-	cfg         *setting.Cfg
-	reloadMutex sync.RWMutex
-	log         log.Logger
-	features    featuremgmt.FeatureToggles
+	info          *social.OAuthInfo
+	cfg           *setting.Cfg
+	reloadMutex   sync.RWMutex
+	log           log.Logger
+	features      featuremgmt.FeatureToggles
+	orgRoleMapper *OrgRoleMapper
+	orgMappingCfg MappingConfiguration
 }
 
 func newSocialBase(name string,
+	orgRoleMapper *OrgRoleMapper,
 	info *social.OAuthInfo,
 	features featuremgmt.FeatureToggles,
 	cfg *setting.Cfg,
@@ -44,17 +47,20 @@ func newSocialBase(name string,
 	logger := log.New("oauth." + name)
 
 	return &SocialBase{
-		Config:   createOAuthConfig(info, cfg, name),
-		info:     info,
-		log:      logger,
-		features: features,
-		cfg:      cfg,
+		Config:        createOAuthConfig(info, cfg, name),
+		info:          info,
+		log:           logger,
+		features:      features,
+		cfg:           cfg,
+		orgRoleMapper: orgRoleMapper,
+		orgMappingCfg: orgRoleMapper.ParseOrgMappingSettings(context.Background(), info.OrgMapping, info.RoleAttributeStrict),
 	}
 }
 
-func (s *SocialBase) updateInfo(name string, info *social.OAuthInfo) {
+func (s *SocialBase) updateInfo(ctx context.Context, name string, info *social.OAuthInfo) {
 	s.Config = createOAuthConfig(info, s.cfg, name)
 	s.info = info
+	s.orgMappingCfg = s.orgRoleMapper.ParseOrgMappingSettings(ctx, info.OrgMapping, info.RoleAttributeStrict)
 }
 
 type groupStruct struct {
@@ -106,20 +112,23 @@ func (s *SocialBase) TokenSource(ctx context.Context, t *oauth2.Token) oauth2.To
 func (s *SocialBase) getBaseSupportBundleContent(bf *bytes.Buffer) error {
 	bf.WriteString("## Client configuration\n\n")
 	bf.WriteString("```ini\n")
-	bf.WriteString(fmt.Sprintf("allow_assign_grafana_admin = %v\n", s.info.AllowAssignGrafanaAdmin))
-	bf.WriteString(fmt.Sprintf("allow_sign_up = %v\n", s.info.AllowSignup))
-	bf.WriteString(fmt.Sprintf("allowed_domains = %v\n", s.info.AllowedDomains))
-	bf.WriteString(fmt.Sprintf("auto_assign_org_role = %v\n", s.cfg.AutoAssignOrgRole))
-	bf.WriteString(fmt.Sprintf("role_attribute_path = %v\n", s.info.RoleAttributePath))
-	bf.WriteString(fmt.Sprintf("role_attribute_strict = %v\n", s.info.RoleAttributeStrict))
-	bf.WriteString(fmt.Sprintf("skip_org_role_sync = %v\n", s.info.SkipOrgRoleSync))
-	bf.WriteString(fmt.Sprintf("client_id = %v\n", s.Config.ClientID))
-	bf.WriteString(fmt.Sprintf("client_secret = %v ; issue if empty\n", strings.Repeat("*", len(s.Config.ClientSecret))))
-	bf.WriteString(fmt.Sprintf("auth_url = %v\n", s.Config.Endpoint.AuthURL))
-	bf.WriteString(fmt.Sprintf("token_url = %v\n", s.Config.Endpoint.TokenURL))
-	bf.WriteString(fmt.Sprintf("auth_style = %v\n", s.Config.Endpoint.AuthStyle))
-	bf.WriteString(fmt.Sprintf("redirect_url = %v\n", s.Config.RedirectURL))
-	bf.WriteString(fmt.Sprintf("scopes = %v\n", s.Config.Scopes))
+	fmt.Fprintf(bf, "allow_assign_grafana_admin = %v\n", s.info.AllowAssignGrafanaAdmin)
+	fmt.Fprintf(bf, "allow_sign_up = %v\n", s.info.AllowSignup)
+	fmt.Fprintf(bf, "allowed_domains = %v\n", s.info.AllowedDomains)
+	fmt.Fprintf(bf, "auto_assign_org_role = %v\n", s.cfg.AutoAssignOrgRole)
+	fmt.Fprintf(bf, "role_attribute_path = %v\n", s.info.RoleAttributePath)
+	fmt.Fprintf(bf, "role_attribute_strict = %v\n", s.info.RoleAttributeStrict)
+	fmt.Fprintf(bf, "skip_org_role_sync = %v\n", s.info.SkipOrgRoleSync)
+	fmt.Fprintf(bf, "client_authentication = %v\n", s.info.ClientAuthentication)
+	fmt.Fprintf(bf, "client_id = %v\n", s.ClientID)
+	fmt.Fprintf(bf, "client_secret = %v ; issue if empty\n", strings.Repeat("*", len(s.ClientSecret)))
+	fmt.Fprintf(bf, "managed_identity_client_id = %v\n", s.info.ManagedIdentityClientID)
+	fmt.Fprintf(bf, "federated_credential_audience = %v\n", s.info.FederatedCredentialAudience)
+	fmt.Fprintf(bf, "auth_url = %v\n", s.Endpoint.AuthURL)
+	fmt.Fprintf(bf, "token_url = %v\n", s.Endpoint.TokenURL)
+	fmt.Fprintf(bf, "auth_style = %v\n", s.Endpoint.AuthStyle)
+	fmt.Fprintf(bf, "redirect_url = %v\n", s.RedirectURL)
+	fmt.Fprintf(bf, "scopes = %v\n", s.Scopes)
 	bf.WriteString("```\n\n")
 
 	return nil
@@ -146,15 +155,6 @@ func (s *SocialBase) extractRoleAndAdminOptional(rawJSON []byte, groups []string
 	return "", false, nil
 }
 
-func (s *SocialBase) extractRoleAndAdmin(rawJSON []byte, groups []string) (org.RoleType, bool, error) {
-	role, gAdmin, err := s.extractRoleAndAdminOptional(rawJSON, groups)
-	if role == "" {
-		role = s.defaultRole()
-	}
-
-	return role, gAdmin, err
-}
-
 func (s *SocialBase) searchRole(rawJSON []byte, groups []string) (org.RoleType, bool) {
 	role, err := util.SearchJSONForStringAttr(s.info.RoleAttributePath, rawJSON)
 	if err == nil && role != "" {
@@ -171,16 +171,12 @@ func (s *SocialBase) searchRole(rawJSON []byte, groups []string) (org.RoleType, 
 	return "", false
 }
 
-// defaultRole returns the default role for the user based on the autoAssignOrgRole setting
-// if legacy is enabled "" is returned indicating the previous role assignment is used.
-func (s *SocialBase) defaultRole() org.RoleType {
-	if s.cfg.AutoAssignOrgRole != "" {
-		s.log.Debug("No role found, returning default.")
-		return org.RoleType(s.cfg.AutoAssignOrgRole)
+func (s *SocialBase) extractOrgs(rawJSON []byte) ([]string, error) {
+	if s.info.OrgAttributePath == "" {
+		return []string{}, nil
 	}
 
-	// should never happen
-	return org.RoleViewer
+	return util.SearchJSONForStringSliceAttr(s.info.OrgAttributePath, rawJSON)
 }
 
 func (s *SocialBase) isGroupMember(groups []string) bool {
@@ -265,9 +261,11 @@ func getRoleFromSearch(role string) (org.RoleType, bool) {
 	return org.RoleType(cases.Title(language.Und).String(role)), false
 }
 
-func validateInfo(info *social.OAuthInfo, requester identity.Requester) error {
+func validateInfo(info *social.OAuthInfo, oldInfo *social.OAuthInfo, requester identity.Requester) error {
 	return validation.Validate(info, requester,
 		validation.RequiredValidator(info.ClientId, "Client Id"),
-		validation.AllowAssignGrafanaAdminValidator,
-		validation.SkipOrgRoleSyncAllowAssignGrafanaAdminValidator)
+		validation.AllowAssignGrafanaAdminValidator(info, oldInfo, requester),
+		validation.SkipOrgRoleSyncAllowAssignGrafanaAdminValidator,
+		validation.OrgAttributePathValidator(info, oldInfo, requester),
+		validation.OrgMappingValidator(info, oldInfo, requester))
 }

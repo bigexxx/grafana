@@ -1,10 +1,12 @@
 import { css } from '@emotion/css';
 import { sortBy } from 'lodash';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useFormContext, FieldErrors, FieldValues } from 'react-hook-form';
+import * as React from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Controller, FieldErrors, FieldValues, useFormContext } from 'react-hook-form';
 
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
-import { Alert, Button, Field, InputControl, Select, useStyles2 } from '@grafana/ui';
+import { Alert, Button, Field, Select, Stack, Text, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 
 import { useUnifiedAlertingSelector } from '../../../hooks/useUnifiedAlertingSelector';
 import { ChannelValues, CommonSettingsComponentType } from '../../../types/receiver-form';
@@ -53,6 +55,7 @@ export function ChannelSubForm<R extends ChannelValues>({
 
   const { control, watch, register, trigger, formState, setValue } = useFormContext();
   const selectedType = watch(fieldName('type')) ?? defaultValues.type; // nope, setting "default" does not work at all.
+  const parse_mode = watch(fieldName('settings.parse_mode'));
   const { loading: testingReceiver } = useUnifiedAlertingSelector((state) => state.testReceivers);
 
   // TODO I don't like integration specific code here but other ways require a bigger refactoring
@@ -80,19 +83,19 @@ export function ChannelSubForm<R extends ChannelValues>({
         name === fieldName('settings.integration_type') &&
         value === OnCallIntegrationType.ExistingIntegration
       ) {
-        setValue(fieldName('settings.url'), initialValues.settings['url']);
+        setValue(fieldName('settings.url'), initialValues.settings.url);
       }
     });
 
     return () => subscription.unsubscribe();
   }, [selectedType, initialValues, setValue, fieldName, watch]);
 
-  const [_secureFields, setSecureFields] = useState(secureFields ?? {});
+  const [_secureFields, setSecureFields] = useState<Record<string, boolean | ''>>(secureFields ?? {});
 
   const onResetSecureField = (key: string) => {
     if (_secureFields[key]) {
-      const updatedSecureFields = { ...secureFields };
-      delete updatedSecureFields[key];
+      const updatedSecureFields = { ..._secureFields };
+      updatedSecureFields[key] = '';
       setSecureFields(updatedSecureFields);
       setValue(`${pathPrefix}.secureFields`, updatedSecureFields);
     }
@@ -103,11 +106,16 @@ export function ChannelSubForm<R extends ChannelValues>({
       sortBy(notifiers, ({ dto, meta }) => [meta?.order ?? 0, dto.name])
         // .notifiers.sort((a, b) => a.dto.name.localeCompare(b.dto.name))
         .map<SelectableValue>(({ dto: { name, type }, meta }) => ({
-          label: name,
+          // @ts-expect-error ReactNode is supported
+          label: (
+            <Stack alignItems="center" gap={1}>
+              {name}
+              {meta?.badge}
+            </Stack>
+          ),
           value: type,
           description: meta?.description,
           isDisabled: meta ? !meta.enabled : false,
-          imgUrl: meta?.iconUrl,
         })),
     [notifiers]
   );
@@ -122,19 +130,27 @@ export function ChannelSubForm<R extends ChannelValues>({
   };
 
   const notifier = notifiers.find(({ dto: { type } }) => type === selectedType);
+  const isTelegram = selectedType === 'telegram';
+  // Grafana AM takes "None" value and maps to an empty string,
+  // Cloud AM takes no value at all
+  const isParseModeNone = parse_mode === 'None' || !parse_mode;
+  const showTelegramWarning = isTelegram && !isParseModeNone;
   // if there are mandatory options defined, optional options will be hidden by a collapse
   // if there aren't mandatory options, all options will be shown without collapse
   const mandatoryOptions = notifier?.dto.options.filter((o) => o.required);
   const optionalOptions = notifier?.dto.options.filter((o) => !o.required);
 
   const contactPointTypeInputId = `contact-point-type-${pathPrefix}`;
-
   return (
     <div className={styles.wrapper} data-testid="item-container">
       <div className={styles.topRow}>
         <div>
-          <Field label="Integration" htmlFor={contactPointTypeInputId} data-testid={`${pathPrefix}type`}>
-            <InputControl
+          <Field
+            label={t('alerting.channel-sub-form.label-integration', 'Integration')}
+            htmlFor={contactPointTypeInputId}
+            data-testid={`${pathPrefix}type`}
+          >
+            <Controller
               name={fieldName('type')}
               defaultValue={defaultValues.type}
               render={({ field: { ref, onChange, ...field } }) => (
@@ -162,13 +178,13 @@ export function ChannelSubForm<R extends ChannelValues>({
               onClick={() => handleTest()}
               icon={testingReceiver ? 'spinner' : 'message'}
             >
-              Test
+              <Trans i18nKey="alerting.channel-sub-form.test">Test</Trans>
             </Button>
           )}
           {isEditable && (
             <>
               <Button size="xs" variant="secondary" type="button" onClick={() => onDuplicate()} icon="copy">
-                Duplicate
+                <Trans i18nKey="alerting.channel-sub-form.duplicate">Duplicate</Trans>
               </Button>
               {onDelete && (
                 <Button
@@ -179,7 +195,7 @@ export function ChannelSubForm<R extends ChannelValues>({
                   onClick={() => onDelete()}
                   icon="trash-alt"
                 >
-                  Delete
+                  <Trans i18nKey="alerting.channel-sub-form.delete">Delete</Trans>
                 </Button>
               )}
             </>
@@ -188,6 +204,21 @@ export function ChannelSubForm<R extends ChannelValues>({
       </div>
       {notifier && (
         <div className={styles.innerContent}>
+          {showTelegramWarning && (
+            <Alert
+              title={t(
+                'alerting.contact-points.telegram.parse-mode-warning-title',
+                'Telegram messages are limited to 4096 UTF-8 characters.'
+              )}
+              severity="warning"
+            >
+              <Trans i18nKey="alerting.contact-points.telegram.parse-mode-warning-body">
+                If you use a <Text variant="code">parse_mode</Text> option other than <Text variant="code">None</Text>,
+                truncation may result in an invalid message, causing the notification to fail. For longer messages, we
+                recommend using an alternative contact method.
+              </Trans>
+            </Alert>
+          )}
           <ChannelOptions<R>
             defaultValues={defaultValues}
             selectedChannelOptions={mandatoryOptions?.length ? mandatoryOptions! : optionalOptions!}
@@ -217,7 +248,9 @@ export function ChannelSubForm<R extends ChannelValues>({
               />
             </CollapsibleSection>
           )}
-          <CollapsibleSection label="Notification settings">
+          <CollapsibleSection
+            label={t('alerting.channel-sub-form.label-notification-settings', 'Notification settings')}
+          >
             <CommonSettingsComponent pathPrefix={pathPrefix} readOnly={!isEditable} />
           </CollapsibleSection>
         </div>
@@ -227,27 +260,26 @@ export function ChannelSubForm<R extends ChannelValues>({
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  buttons: css`
-    & > * + * {
-      margin-left: ${theme.spacing(1)};
-    }
-  `,
-  innerContent: css`
-    max-width: 536px;
-  `,
-  wrapper: css`
-    margin: ${theme.spacing(2, 0)};
-    padding: ${theme.spacing(1)};
-    border: solid 1px ${theme.colors.border.medium};
-    border-radius: ${theme.shape.radius.default};
-    max-width: ${theme.breakpoints.values.xl}${theme.breakpoints.unit};
-  `,
-  topRow: css`
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
-  `,
-  channelSettingsHeader: css`
-    margin-top: ${theme.spacing(2)};
-  `,
+  buttons: css({
+    '& > * + *': {
+      marginLeft: theme.spacing(1),
+    },
+  }),
+  innerContent: css({
+    maxWidth: '536px',
+  }),
+  wrapper: css({
+    margin: theme.spacing(2, 0),
+    padding: theme.spacing(1),
+    border: `solid 1px ${theme.colors.border.medium}`,
+    borderRadius: theme.shape.radius.default,
+  }),
+  topRow: css({
+    display: 'flex',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  }),
+  channelSettingsHeader: css({
+    marginTop: theme.spacing(2),
+  }),
 });

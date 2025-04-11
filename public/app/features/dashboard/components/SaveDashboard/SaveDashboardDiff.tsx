@@ -1,7 +1,8 @@
-import React, { ReactElement } from 'react';
+import { ReactElement } from 'react';
 import { useAsync } from 'react-use';
 
-import { Box, Spinner, Stack } from '@grafana/ui';
+import { Alert, Box, Spinner, Stack } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 import { Diffs } from 'app/features/dashboard-scene/settings/version-history/utils';
 
 import { DiffGroup } from '../../../dashboard-scene/settings/version-history/DiffGroup';
@@ -13,9 +14,21 @@ interface SaveDashboardDiffProps {
 
   // calculated by parent so we can see summary in tabs
   diff?: Diffs;
+  hasFolderChanges?: boolean;
+  oldFolder?: string;
+  newFolder?: string;
+  hasMigratedToV2?: boolean;
 }
 
-export const SaveDashboardDiff = ({ diff, oldValue, newValue }: SaveDashboardDiffProps) => {
+export const SaveDashboardDiff = ({
+  diff,
+  oldValue,
+  newValue,
+  hasFolderChanges,
+  oldFolder,
+  newFolder,
+  hasMigratedToV2,
+}: SaveDashboardDiffProps) => {
   const loader = useAsync(async () => {
     const oldJSON = JSON.stringify(oldValue ?? {}, null, 2);
     const newJSON = JSON.stringify(newValue ?? {}, null, 2);
@@ -48,23 +61,55 @@ export const SaveDashboardDiff = ({ diff, oldValue, newValue }: SaveDashboardDif
   }, [diff, oldValue, newValue]);
 
   const { value } = loader;
-  if (!value || !oldValue) {
-    return <Spinner />;
-  }
-
-  if (value.count < 1) {
-    return <div>No changes in this dashboard</div>;
-  }
 
   return (
     <Stack direction="column" gap={1}>
-      {value.schemaChange && value.schemaChange}
-      {value.showDiffs && value.diffs}
-
-      <Box paddingTop={2}>
-        <h4>Full JSON diff</h4>
-        {value.jsonView}
-      </Box>
+      {hasMigratedToV2 && (
+        <Box paddingTop={1}>
+          <Alert
+            title={t(
+              'dashboard.save-dashboard-diff.title-because-dashboard-migrated-grafana-format',
+              'The diff is hard to read because the dashboard has been migrated to the new Grafana dashboard format'
+            )}
+            severity="info"
+          />
+        </Box>
+      )}
+      {hasFolderChanges && (
+        <DiffGroup
+          diffs={[
+            {
+              op: 'replace',
+              value: newFolder,
+              originalValue: oldFolder,
+              path: [],
+              startLineNumber: 0,
+              endLineNumber: 0,
+            },
+          ]}
+          key={'folder'}
+          title={t('dashboard.save-dashboard-diff.title-folder', 'folder')}
+        />
+      )}
+      {(!value || !oldValue) && <Spinner />}
+      {value && value.count >= 1 ? (
+        <>
+          {!hasMigratedToV2 && value && value.schemaChange && value.schemaChange}
+          {value && value.showDiffs && value.diffs}
+          <Box paddingTop={1}>
+            <h4>
+              <Trans i18nKey="dashboard.save-dashboard-diff.full-json-diff">Full JSON diff</Trans>
+            </h4>
+            {value.jsonView}
+          </Box>
+        </>
+      ) : (
+        <Box paddingTop={1}>
+          <Trans i18nKey="dashboard.save-dashboard-diff.no-changes-in-the-dashboard-json">
+            No changes in the dashboard JSON
+          </Trans>
+        </Box>
+      )}
     </Stack>
   );
 };

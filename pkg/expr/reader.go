@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend/gtime"
 	"github.com/grafana/grafana-plugin-sdk-go/data/utils/jsoniter"
 	data "github.com/grafana/grafana-plugin-sdk-go/experimental/apis/data/v0alpha1"
 
 	"github.com/grafana/grafana/pkg/expr/classic"
 	"github.com/grafana/grafana/pkg/expr/mathexp"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
-	"github.com/grafana/grafana/pkg/tsdb/legacydata"
 )
 
 // Once we are comfortable with the parsing logic, this struct will
@@ -74,6 +74,8 @@ func (h *ExpressionQueryReader) ReadQuery(
 		}
 		if err == nil && q.Settings != nil {
 			switch q.Settings.Mode {
+			case ReduceModeStrict:
+				mapper = nil
 			case ReduceModeDrop:
 				mapper = mathexp.DropNonNumber{}
 			case ReduceModeReplace:
@@ -101,7 +103,7 @@ func (h *ExpressionQueryReader) ReadQuery(
 			referenceVar, err = getReferenceVar(q.Expression, common.RefID)
 		}
 		if err == nil {
-			tr := legacydata.NewDataTimeRange(common.TimeRange.From, common.TimeRange.To)
+			tr := gtime.NewTimeRange(common.TimeRange.From, common.TimeRange.To)
 			eq.Properties = q
 			eq.Command, err = NewResampleCommand(common.RefID,
 				q.Window,
@@ -124,11 +126,16 @@ func (h *ExpressionQueryReader) ReadQuery(
 		}
 
 	case QueryTypeSQL:
+		if !h.features.IsEnabledGlobally(featuremgmt.FlagSqlExpressions) {
+			return eq, fmt.Errorf("sql expressions are disabled")
+		}
 		q := &SQLExpression{}
 		err = iter.ReadVal(q)
 		if err == nil {
 			eq.Properties = q
-			eq.Command, err = NewSQLCommand(common.RefID, q.Expression)
+			// TODO: Cascade limit from Grafana config in this (new Expression Parser) branch of the code
+			cellLimit := 0 // zero means no limit
+			eq.Command, err = NewSQLCommand(common.RefID, q.Format, q.Expression, int64(cellLimit))
 		}
 
 	case QueryTypeThreshold:

@@ -2,15 +2,21 @@ package coreplugin
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	sdklog "github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	sdktracing "github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
+
 	"github.com/grafana/grafana/pkg/infra/tracing"
 	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/plugins/backendplugin"
 	"github.com/grafana/grafana/pkg/plugins/log"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
+	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/tsdb/azuremonitor"
 	cloudmonitoring "github.com/grafana/grafana/pkg/tsdb/cloud-monitoring"
 	"github.com/grafana/grafana/pkg/tsdb/cloudwatch"
@@ -21,6 +27,7 @@ import (
 	"github.com/grafana/grafana/pkg/tsdb/grafanads"
 	"github.com/grafana/grafana/pkg/tsdb/graphite"
 	"github.com/grafana/grafana/pkg/tsdb/influxdb"
+	"github.com/grafana/grafana/pkg/tsdb/jaeger"
 	"github.com/grafana/grafana/pkg/tsdb/loki"
 	"github.com/grafana/grafana/pkg/tsdb/mssql"
 	"github.com/grafana/grafana/pkg/tsdb/mysql"
@@ -28,6 +35,7 @@ import (
 	"github.com/grafana/grafana/pkg/tsdb/parca"
 	"github.com/grafana/grafana/pkg/tsdb/prometheus"
 	"github.com/grafana/grafana/pkg/tsdb/tempo"
+	"github.com/grafana/grafana/pkg/tsdb/zipkin"
 )
 
 const (
@@ -42,12 +50,15 @@ const (
 	Prometheus      = "prometheus"
 	Tempo           = "tempo"
 	TestData        = "grafana-testdata-datasource"
+	TestDataAlias   = "testdata"
 	PostgreSQL      = "grafana-postgresql-datasource"
 	MySQL           = "mysql"
 	MSSQL           = "mssql"
 	Grafana         = "grafana"
 	Pyroscope       = "grafana-pyroscope-datasource"
 	Parca           = "parca"
+	Zipkin          = "zipkin"
+	Jaeger          = "jaeger"
 )
 
 func init() {
@@ -86,7 +97,7 @@ func NewRegistry(store map[string]backendplugin.PluginFactoryFunc) *Registry {
 func ProvideCoreRegistry(tracer tracing.Tracer, am *azuremonitor.Service, cw *cloudwatch.CloudWatchService, cm *cloudmonitoring.Service,
 	es *elasticsearch.Service, grap *graphite.Service, idb *influxdb.Service, lk *loki.Service, otsdb *opentsdb.Service,
 	pr *prometheus.Service, t *tempo.Service, td *testdatasource.Service, pg *postgres.Service, my *mysql.Service,
-	ms *mssql.Service, graf *grafanads.Service, pyroscope *pyroscope.Service, parca *parca.Service) *Registry {
+	ms *mssql.Service, graf *grafanads.Service, pyroscope *pyroscope.Service, parca *parca.Service, zipkin *zipkin.Service, jaeger *jaeger.Service) *Registry {
 	// Non-optimal global solution to replace plugin SDK default tracer for core plugins.
 	sdktracing.InitDefaultTracer(tracer)
 
@@ -108,6 +119,8 @@ func ProvideCoreRegistry(tracer tracing.Tracer, am *azuremonitor.Service, cw *cl
 		Grafana:         asBackendPlugin(graf),
 		Pyroscope:       asBackendPlugin(pyroscope),
 		Parca:           asBackendPlugin(parca),
+		Zipkin:          asBackendPlugin(zipkin),
+		Jaeger:          asBackendPlugin(jaeger),
 	})
 }
 
@@ -138,6 +151,9 @@ func asBackendPlugin(svc any) backendplugin.PluginFactoryFunc {
 	}
 	if healthHandler, ok := svc.(backend.CheckHealthHandler); ok {
 		opts.CheckHealthHandler = healthHandler
+	}
+	if storageHandler, ok := svc.(backend.AdmissionHandler); ok {
+		opts.AdmissionHandler = storageHandler
 	}
 
 	if opts.QueryDataHandler != nil || opts.CallResourceHandler != nil ||
@@ -173,12 +189,87 @@ func (l *logWrapper) Level() sdklog.Level {
 }
 
 func (l *logWrapper) With(args ...any) sdklog.Logger {
-	l.logger = l.logger.New(args...)
-	return l
+	return &logWrapper{
+		logger: l.logger.New(args...),
+	}
 }
 
 func (l *logWrapper) FromContext(ctx context.Context) sdklog.Logger {
 	return &logWrapper{
 		logger: l.logger.FromContext(ctx),
 	}
+}
+
+var ErrCorePluginNotFound = errors.New("core plugin not found")
+
+// NewPlugin factory for creating and initializing a single core plugin.
+// Note: cfg only needed for mssql connection pooling defaults.
+func NewPlugin(pluginID string, cfg *setting.Cfg, httpClientProvider *httpclient.Provider, tracer tracing.Tracer, features featuremgmt.FeatureToggles) (*plugins.Plugin, error) {
+	jsonData := plugins.JSONData{
+		ID:       pluginID,
+		AliasIDs: []string{},
+	}
+	var svc any
+
+	switch pluginID {
+	case TestData, TestDataAlias:
+		jsonData.ID = TestData
+		jsonData.AliasIDs = append(jsonData.AliasIDs, TestDataAlias)
+		svc = testdatasource.ProvideService()
+	case CloudWatch:
+		svc = cloudwatch.ProvideService(httpClientProvider).Executor
+	case CloudMonitoring:
+		svc = cloudmonitoring.ProvideService(httpClientProvider)
+	case AzureMonitor:
+		svc = azuremonitor.ProvideService(httpClientProvider)
+	case Elasticsearch:
+		svc = elasticsearch.ProvideService(httpClientProvider)
+	case Graphite:
+		svc = graphite.ProvideService(httpClientProvider, tracer)
+	case InfluxDB:
+		svc = influxdb.ProvideService(httpClientProvider, features)
+	case Loki:
+		svc = loki.ProvideService(httpClientProvider, tracer)
+	case OpenTSDB:
+		svc = opentsdb.ProvideService(httpClientProvider)
+	case Prometheus:
+		svc = prometheus.ProvideService(httpClientProvider)
+	case Tempo:
+		svc = tempo.ProvideService(httpClientProvider)
+	case PostgreSQL:
+		svc = postgres.ProvideService(cfg)
+	case MySQL:
+		svc = mysql.ProvideService()
+	case MSSQL:
+		svc = mssql.ProvideService(cfg)
+	case Pyroscope:
+		svc = pyroscope.ProvideService(httpClientProvider)
+	case Parca:
+		svc = parca.ProvideService(httpClientProvider)
+	case Zipkin:
+		svc = zipkin.ProvideService(httpClientProvider)
+	case Jaeger:
+		svc = jaeger.ProvideService(httpClientProvider)
+	default:
+		return nil, ErrCorePluginNotFound
+	}
+
+	p := plugins.Plugin{
+		JSONData: jsonData,
+		Class:    plugins.ClassCore,
+	}
+
+	p.SetLogger(log.New(fmt.Sprintf("plugin.%s", p.ID)))
+
+	backendFactory := asBackendPlugin(svc)
+	if backendFactory == nil {
+		return nil, ErrCorePluginNotFound
+	}
+	bp, err := backendFactory(p.ID, p.Logger(), tracer, nil)
+	if err != nil {
+		return nil, err
+	}
+	p.RegisterClient(bp)
+
+	return &p, nil
 }

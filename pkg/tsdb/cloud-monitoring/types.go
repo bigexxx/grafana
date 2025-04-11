@@ -42,7 +42,8 @@ type (
 		aliasBy    string
 		parameters *dataquery.TimeSeriesList
 		// Processed properties
-		params url.Values
+		timeRange backend.TimeRange
+		params    url.Values
 	}
 	// cloudMonitoringSLO is used to build time series with a filter but for the SLO case
 	cloudMonitoringSLO struct {
@@ -50,7 +51,8 @@ type (
 		aliasBy    string
 		parameters *dataquery.SLOQuery
 		// Processed properties
-		params url.Values
+		timeRange backend.TimeRange
+		params    url.Values
 	}
 
 	// cloudMonitoringProm is used to build a promQL queries
@@ -96,14 +98,6 @@ type (
 		TimeSeriesData       []timeSeriesData     `json:"timeSeriesData"`
 		Unit                 string               `json:"unit"`
 		NextPageToken        string               `json:"nextPageToken"`
-	}
-
-	promResponse struct {
-		Status string `json:"status"`
-		Data   struct {
-			Result     any    `json:"result"`
-			ResultType string `json:"resultType"`
-		} `json:"data"`
 	}
 )
 

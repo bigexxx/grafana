@@ -13,21 +13,19 @@
 // limitations under the License.
 
 import { css } from '@emotion/css';
-import React from 'react';
 
 import { IconButton, useStyles2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
-const getStyles = () => {
-  return {
-    TimelineCollapser: css`
-      align-items: center;
-      display: flex;
-      flex: none;
-      justify-content: center;
-      margin-right: 0.5rem;
-    `,
-  };
-};
+const getStyles = () => ({
+  TimelineCollapser: css({
+    alignItems: 'center',
+    display: 'flex',
+    flex: 'none',
+    justifyContent: 'center',
+    marginRight: '0.5rem',
+  }),
+});
 
 type CollapserProps = {
   onCollapseAll: () => void;
@@ -41,17 +39,29 @@ export function TimelineCollapser(props: CollapserProps) {
   const styles = useStyles2(getStyles);
   return (
     <div className={styles.TimelineCollapser} data-testid="TimelineCollapser">
-      <IconButton tooltip="Expand +1" size="xl" tooltipPlacement="top" name="angle-down" onClick={onExpandOne} />
-      <IconButton tooltip="Collapse +1" size="xl" tooltipPlacement="top" name="angle-right" onClick={onCollapseOne} />
       <IconButton
-        tooltip="Expand All"
+        tooltip={t('explore.timeline-collapser.tooltip-expand', 'Expand +1')}
+        size="xl"
+        tooltipPlacement="top"
+        name="angle-down"
+        onClick={onExpandOne}
+      />
+      <IconButton
+        tooltip={t('explore.timeline-collapser.tooltip-collapse', 'Collapse +1')}
+        size="xl"
+        tooltipPlacement="top"
+        name="angle-right"
+        onClick={onCollapseOne}
+      />
+      <IconButton
+        tooltip={t('explore.timeline-collapser.tooltip-expand-all', 'Expand all')}
         size="xl"
         tooltipPlacement="top"
         name="angle-double-down"
         onClick={onExpandAll}
       />
       <IconButton
-        tooltip="Collapse All"
+        tooltip={t('explore.timeline-collapser.tooltip-collapse-all', 'Collapse all')}
         size="xl"
         tooltipPlacement="top"
         name="angle-double-right"

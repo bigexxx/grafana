@@ -1,4 +1,4 @@
-import React, { ChangeEvent } from 'react';
+import { PureComponent, ChangeEvent } from 'react';
 
 import {
   DataTransformerID,
@@ -8,11 +8,9 @@ import {
   TransformerUIProps,
   TransformerCategory,
 } from '@grafana/data';
-import {
-  ConcatenateFrameNameMode,
-  ConcatenateTransformerOptions,
-} from '@grafana/data/src/transformations/transformers/concat';
+import { ConcatenateFrameNameMode, ConcatenateTransformerOptions } from '@grafana/data/internal';
 import { InlineField, Input, Select } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { getTransformationContent } from '../docs/getTransformationContent';
 
@@ -24,7 +22,7 @@ const nameModes: Array<SelectableValue<ConcatenateFrameNameMode>> = [
   { value: ConcatenateFrameNameMode.Drop, label: 'Ignore the frame name' },
 ];
 
-export class ConcatenateTransformerEditor extends React.PureComponent<ConcatenateTransformerEditorProps> {
+export class ConcatenateTransformerEditor extends PureComponent<ConcatenateTransformerEditorProps> {
   constructor(props: ConcatenateTransformerEditorProps) {
     super(props);
   }
@@ -57,7 +55,7 @@ export class ConcatenateTransformerEditor extends React.PureComponent<Concatenat
 
     return (
       <div>
-        <InlineField label="Name" labelWidth={16} grow>
+        <InlineField label={t('transformers.concatenate-transformer-editor.label-name', 'Name')} labelWidth={16} grow>
           <Select
             width={36}
             options={nameModes}
@@ -66,8 +64,17 @@ export class ConcatenateTransformerEditor extends React.PureComponent<Concatenat
           />
         </InlineField>
         {frameNameMode === ConcatenateFrameNameMode.Label && (
-          <InlineField label="Label" labelWidth={16} grow>
-            <Input width={36} value={options.frameNameLabel ?? ''} placeholder="frame" onChange={this.onLabelChanged} />
+          <InlineField
+            label={t('transformers.concatenate-transformer-editor.label-label', 'Label')}
+            labelWidth={16}
+            grow
+          >
+            <Input
+              width={36}
+              value={options.frameNameLabel ?? ''}
+              placeholder={t('transformers.concatenate-transformer-editor.placeholder-frame', 'Frame')}
+              onChange={this.onLabelChanged}
+            />
           </InlineField>
         )}
       </div>

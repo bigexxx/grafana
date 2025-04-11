@@ -26,33 +26,42 @@ func TestMain(m *testing.M) {
 }
 
 func TestGetFolders(t *testing.T) {
+	testGetFolders(t, []string{featuremgmt.FlagNestedFolders})
+}
+
+func TestGetFoldersK8s(t *testing.T) {
+	testGetFolders(t, []string{featuremgmt.FlagNestedFolders, featuremgmt.FlagKubernetesClientDashboardsFolders})
+}
+
+func testGetFolders(t *testing.T, featureToggles []string) {
 	// Setup Grafana and its Database
 	dir, p := testinfra.CreateGrafDir(t, testinfra.GrafanaOpts{
 		DisableLegacyAlerting: true,
 		EnableUnifiedAlerting: true,
 		DisableAnonymous:      true,
 		AppModeProduction:     true,
-		EnableFeatureToggles:  []string{featuremgmt.FlagNestedFolders},
+		EnableFeatureToggles:  featureToggles,
 	})
 
-	grafanaListedAddr, store := testinfra.StartGrafana(t, dir, p)
+	grafanaListedAddr, env := testinfra.StartGrafanaEnv(t, dir, p)
+	store, cfg := env.SQLStore, env.Cfg
 
 	orgID := int64(1)
 
 	// Create a users to make authenticated requests
-	tests.CreateUser(t, store, user.CreateUserCommand{
+	tests.CreateUser(t, store, cfg, user.CreateUserCommand{
 		DefaultOrgRole: string(org.RoleViewer),
 		OrgID:          orgID,
 		Password:       "viewer",
 		Login:          "viewer",
 	})
-	tests.CreateUser(t, store, user.CreateUserCommand{
+	tests.CreateUser(t, store, cfg, user.CreateUserCommand{
 		OrgID:          orgID,
 		DefaultOrgRole: string(org.RoleEditor),
 		Password:       "editor",
 		Login:          "editor",
 	})
-	tests.CreateUser(t, store, user.CreateUserCommand{
+	tests.CreateUser(t, store, cfg, user.CreateUserCommand{
 		OrgID:          orgID,
 		DefaultOrgRole: string(org.RoleAdmin),
 		Password:       "admin",
@@ -64,7 +73,7 @@ func TestGetFolders(t *testing.T) {
 	viewerClient := tests.GetClient(grafanaListedAddr, "viewer", "viewer")
 
 	// access control permissions store
-	permissionsStore := resourcepermissions.NewStore(store, featuremgmt.WithFeatures())
+	permissionsStore := resourcepermissions.NewStore(cfg, store, featuremgmt.WithFeatures())
 
 	numberOfFolders := 5
 	indexWithoutPermission := 3

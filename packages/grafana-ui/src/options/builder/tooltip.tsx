@@ -1,5 +1,14 @@
-import { PanelOptionsEditorBuilder } from '@grafana/data';
+import { DataFrame, PanelOptionsEditorBuilder } from '@grafana/data';
 import { OptionsWithTooltip, TooltipDisplayMode, SortOrder } from '@grafana/schema';
+
+/** @internal */
+export const optsWithHideZeros: OptionsWithTooltip = {
+  tooltip: {
+    mode: TooltipDisplayMode.Single,
+    sort: SortOrder.None,
+    hideZeros: false,
+  },
+};
 
 export function addTooltipOptions<T extends OptionsWithTooltip>(
   builder: PanelOptionsEditorBuilder<T>,
@@ -44,6 +53,14 @@ export function addTooltipOptions<T extends OptionsWithTooltip>(
       settings: {
         options: sortOptions,
       },
+    })
+    .addBooleanSwitch({
+      path: 'tooltip.hideZeros',
+      name: 'Hide zeros',
+      category,
+      defaultValue: false,
+      showIf: (options: T) =>
+        defaultOptions?.tooltip?.hideZeros !== undefined && options.tooltip?.mode === TooltipDisplayMode.Multi,
     });
 
   if (setProximity) {
@@ -55,6 +72,7 @@ export function addTooltipOptions<T extends OptionsWithTooltip>(
       settings: {
         integer: true,
       },
+      showIf: (options: T) => options.tooltip?.mode !== TooltipDisplayMode.None,
     });
   }
 
@@ -66,16 +84,23 @@ export function addTooltipOptions<T extends OptionsWithTooltip>(
       settings: {
         integer: true,
       },
-      showIf: (options: T) => false, // options.tooltip?.mode !== TooltipDisplayMode.None,
+      showIf: (options: T) => options.tooltip?.mode !== TooltipDisplayMode.None,
     })
     .addNumberInput({
       path: 'tooltip.maxHeight',
       name: 'Max height',
       category,
-      defaultValue: 600,
+      defaultValue: undefined,
       settings: {
         integer: true,
       },
-      showIf: (options: T) => false, //options.tooltip?.mode !== TooltipDisplayMode.None,
+      showIf: (options: T, data: DataFrame[] | undefined, annotations: DataFrame[] | undefined) => {
+        return (
+          options.tooltip?.mode === TooltipDisplayMode.Multi ||
+          annotations?.some((df) => {
+            return df.meta?.custom?.resultType === 'exemplar';
+          })
+        );
+      },
     });
 }

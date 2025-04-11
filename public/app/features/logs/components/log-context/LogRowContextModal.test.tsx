@@ -1,7 +1,4 @@
-import { screen, waitFor, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import React from 'react';
-import { render } from 'test/redux-rtl';
+import { render, screen, waitFor, fireEvent, userEvent } from 'test/test-utils';
 
 import {
   createDataFrame,
@@ -58,31 +55,7 @@ const dfAfter = createDataFrame({
   ],
 });
 
-let uniqueRefIdCounter = 1;
-
-const getRowContext = jest.fn().mockImplementation(async (_, options) => {
-  uniqueRefIdCounter += 1;
-  const refId = `refid_${uniqueRefIdCounter}`;
-  if (options.direction === LogRowContextQueryDirection.Forward) {
-    return {
-      data: [
-        {
-          refId,
-          ...dfBefore,
-        },
-      ],
-    };
-  } else {
-    return {
-      data: [
-        {
-          refId,
-          ...dfAfter,
-        },
-      ],
-    };
-  }
-});
+let getRowContext = jest.fn();
 const dispatchMock = jest.fn();
 jest.mock('app/types', () => ({
   ...jest.requireActual('app/types'),
@@ -105,9 +78,34 @@ const timeZone = 'UTC';
 
 describe('LogRowContextModal', () => {
   const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+  let uniqueRefIdCounter = 1;
 
   beforeEach(() => {
     window.HTMLElement.prototype.scrollIntoView = jest.fn();
+    uniqueRefIdCounter = 1;
+    getRowContext = jest.fn().mockImplementation(async (_, options) => {
+      uniqueRefIdCounter += 1;
+      const refId = `refid_${uniqueRefIdCounter}`;
+      if (options.direction === LogRowContextQueryDirection.Forward) {
+        return {
+          data: [
+            {
+              refId,
+              ...dfBefore,
+            },
+          ],
+        };
+      } else {
+        return {
+          data: [
+            {
+              refId,
+              ...dfAfter,
+            },
+          ],
+        };
+      }
+    });
   });
   afterEach(() => {
     window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;

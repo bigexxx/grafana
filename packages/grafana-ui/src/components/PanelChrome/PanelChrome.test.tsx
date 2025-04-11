@@ -1,8 +1,8 @@
 import { screen, render, fireEvent } from '@testing-library/react';
-import React from 'react';
 import { useToggle } from 'react-use';
 
 import { LoadingState } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
 
 import { PanelChrome, PanelChromeProps } from './PanelChrome';
 
@@ -111,6 +111,13 @@ it('renders panel with a show-on-hover menu icon if prop menu', () => {
   expect(screen.getByTestId('panel-menu-button')).not.toBeVisible();
 });
 
+it('renders panel with an always visible menu icon if prop showMenuAlways is true', () => {
+  setup({ menu: <div> Menu </div>, showMenuAlways: true });
+
+  expect(screen.getByTestId('panel-menu-button')).toBeInTheDocument();
+  expect(screen.getByTestId('panel-menu-button')).toBeVisible();
+});
+
 it('renders error status in the panel header if any given', () => {
   setup({ statusMessage: 'Error test' });
 
@@ -152,16 +159,17 @@ it('collapses the controlled panel when user clicks on the chevron or the title'
 
   expect(screen.getByText("Panel's Content")).toBeInTheDocument();
 
-  const button = screen.getByText('Default title');
+  const button = screen.getByRole('button', { name: 'Default title' });
+  const content = screen.getByTestId(selectors.components.Panels.Panel.content);
   // collapse button should have same aria-controls as the panel's content
-  expect(button.getAttribute('aria-controls')).toBe(button.parentElement?.parentElement?.nextElementSibling?.id);
+  expect(button.getAttribute('aria-controls')).toBe(content.id);
 
   fireEvent.click(button);
 
   expect(screen.queryByText("Panel's Content")).not.toBeInTheDocument();
   // aria-controls should be removed when panel is collapsed
   expect(button).not.toHaveAttribute('aria-controlls');
-  expect(button.parentElement?.parentElement?.nextElementSibling?.id).toBe(undefined);
+  expect(screen.queryByTestId(selectors.components.Panels.Panel.content)?.id).toBe(undefined);
 });
 
 it('collapses the uncontrolled panel when user clicks on the chevron or the title', () => {
@@ -169,14 +177,15 @@ it('collapses the uncontrolled panel when user clicks on the chevron or the titl
 
   expect(screen.getByText("Panel's Content")).toBeInTheDocument();
 
-  const button = screen.getByText('Default title');
+  const button = screen.getByRole('button', { name: 'Default title' });
+  const content = screen.getByTestId(selectors.components.Panels.Panel.content);
+
   // collapse button should have same aria-controls as the panel's content
-  expect(button.getAttribute('aria-controls')).toBe(button.parentElement?.parentElement?.nextElementSibling?.id);
+  expect(button.getAttribute('aria-controls')).toBe(content.id);
 
   fireEvent.click(button);
-
   expect(screen.queryByText("Panel's Content")).not.toBeInTheDocument();
   // aria-controls should be removed when panel is collapsed
   expect(button).not.toHaveAttribute('aria-controlls');
-  expect(button.parentElement?.parentElement?.nextElementSibling?.id).toBe(undefined);
+  expect(screen.queryByTestId(selectors.components.Panels.Panel.content)?.id).toBe(undefined);
 });

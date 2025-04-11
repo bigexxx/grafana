@@ -24,7 +24,7 @@ title: Folder/Dashboard Search HTTP API
 
 `GET /api/search/`
 
-> Note: When using [Role-based access control]({{< relref "/docs/grafana/latest/administration/roles-and-permissions/access-control" >}}), search results will contain only dashboards and folders which you have access to.
+> Note: When using [Role-based access control](/docs/grafana/latest/administration/roles-and-permissions/access-control/), search results will contain only dashboards and folders which you have access to.
 
 Query parameters:
 
@@ -37,7 +37,7 @@ Query parameters:
 - **folderUIDs** – List of folder UIDs to search in
 - **starred** – Flag indicating if only starred Dashboards should be returned
 - **limit** – Limit the number of returned results (max is 5000; default is 1000)
-- **page** – Use this parameter to access hits beyond limit. Numbering starts at 1. limit param acts as page size. Only available in Grafana v6.2+.
+- **page** – Use this parameter to access hits beyond limit. Numbering starts at 1. limit param acts as page size.
 
 **Example request for retrieving folders and dashboards at the root level**:
 
@@ -58,6 +58,7 @@ Content-Type: application/json
   {
     "id": 163,
     "uid": "000000163",
+    "orgId": 1,
     "title": "Folder",
     "url": "/dashboards/f/000000163/folder",
     "type": "dash-folder",
@@ -68,6 +69,7 @@ Content-Type: application/json
   {
     "id":1,
     "uid": "cIBgcSjkk",
+    "orgId": 1,
     "title":"Production Overview",
     "url": "/d/cIBgcSjkk/production-overview",
     "type":"dash-db",
@@ -97,6 +99,7 @@ Content-Type: application/json
   {
     "id":1,
     "uid": "cIBgcSjkk",
+    "orgId": 1,
     "title":"Production Overview",
     "url": "/d/cIBgcSjkk/production-overview",
     "type":"dash-db",

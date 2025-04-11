@@ -1,4 +1,3 @@
-import 'whatwg-fetch';
 import { advanceTo } from 'jest-date-mock';
 import { map, of } from 'rxjs';
 
@@ -14,25 +13,21 @@ import {
   toDataFrame,
   VariableSupportType,
 } from '@grafana/data';
-import { getPanelPlugin } from '@grafana/data/test/__mocks__/pluginMocks';
-import { getPluginLinkExtensions, setPluginImportUtils } from '@grafana/runtime';
-import {
-  MultiValueVariable,
-  SceneDataLayers,
-  SceneGridItem,
-  SceneGridItemLike,
-  SceneGridLayout,
-  SceneGridRow,
-  VizPanel,
-} from '@grafana/scenes';
+import { getPanelPlugin } from '@grafana/data/test';
+import { setPluginImportUtils } from '@grafana/runtime';
+import { MultiValueVariable, sceneGraph, SceneGridRow, VizPanel } from '@grafana/scenes';
 import { Dashboard, LoadingState, Panel, RowPanel, VariableRefresh } from '@grafana/schema';
-import { PanelModel } from 'app/features/dashboard/state';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
 import { getTimeRange } from 'app/features/dashboard/utils/timeRange';
 import { reduceTransformRegistryItem } from 'app/features/transformers/editors/ReduceTransformerEditor';
-import { SHARED_DASHBOARD_QUERY } from 'app/plugins/datasource/dashboard';
+import { SHARED_DASHBOARD_QUERY } from 'app/plugins/datasource/dashboard/constants';
+import { DashboardDataDTO } from 'app/types';
 
-import { LibraryVizPanel } from '../scene/LibraryVizPanel';
-import { RowRepeaterBehavior } from '../scene/RowRepeaterBehavior';
+import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
+import { LibraryPanelBehavior } from '../scene/LibraryPanelBehavior';
+import { DashboardGridItem } from '../scene/layout-default/DashboardGridItem';
+import { DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLayoutManager';
+import { RowRepeaterBehavior } from '../scene/layout-default/RowRepeaterBehavior';
 import { NEW_LINK } from '../settings/links/utils';
 import { activateFullSceneTree, buildPanelRepeaterScene } from '../utils/test-utils';
 import { getVizPanelKeyForPanelId } from '../utils/utils';
@@ -42,12 +37,7 @@ import dashboard_to_load1 from './testfiles/dashboard_to_load1.json';
 import repeatingRowsAndPanelsDashboardJson from './testfiles/repeating_rows_and_panels.json';
 import snapshotableDashboardJson from './testfiles/snapshotable_dashboard.json';
 import snapshotableWithRowsDashboardJson from './testfiles/snapshotable_with_rows.json';
-import {
-  buildGridItemForLibPanel,
-  buildGridItemForLibraryPanelWidget,
-  buildGridItemForPanel,
-  transformSaveModelToScene,
-} from './transformSaveModelToScene';
+import { buildGridItemForPanel, transformSaveModelToScene } from './transformSaveModelToScene';
 import {
   gridItemToPanel,
   gridRowToSaveModel,
@@ -135,11 +125,14 @@ jest.mock('@grafana/runtime', () => ({
         toDataQuery: (q: StandardVariableQuery) => q,
       },
     }),
+    // mock getInstanceSettings()
+    getInstanceSettings: jest.fn(),
   }),
   getRunRequest: () => (ds: DataSourceApi, request: DataQueryRequest) => {
     return runRequestMock(ds, request);
   },
   config: {
+    ...jest.requireActual('@grafana/runtime').config,
     panels: {
       text: { skipDataQuery: true },
     },
@@ -156,7 +149,10 @@ jest.mock('@grafana/runtime', () => ({
   getPluginLinkExtensions: jest.fn(),
 }));
 
-const getPluginLinkExtensionsMock = jest.mocked(getPluginLinkExtensions);
+jest.mock('@grafana/data', () => ({
+  ...jest.requireActual('@grafana/data'),
+  setWeekStart: jest.fn(),
+}));
 
 jest.mock('@grafana/scenes', () => ({
   ...jest.requireActual('@grafana/scenes'),
@@ -167,11 +163,6 @@ jest.mock('@grafana/scenes', () => ({
 }));
 
 describe('transformSceneToSaveModel', () => {
-  beforeEach(() => {
-    getPluginLinkExtensionsMock.mockRestore();
-    getPluginLinkExtensionsMock.mockReturnValue({ extensions: [] });
-  });
-
   describe('Given a simple scene with custom settings', () => {
     it('Should transform back to persisted model', () => {
       const dashboardWithCustomSettings = {
@@ -183,15 +174,15 @@ describe('transformSceneToSaveModel', () => {
         weekStart: 'monday',
         graphTooltip: 1,
         editable: false,
+        refresh: '5m',
         timepicker: {
           ...dashboard_to_load1.timepicker,
           refresh_intervals: ['5m', '15m', '30m', '1h'],
-          time_options: ['5m', '15m', '30m'],
           hidden: true,
         },
         links: [{ ...NEW_LINK, title: 'Link 1' }],
       };
-      const scene = transformSaveModelToScene({ dashboard: dashboardWithCustomSettings as any, meta: {} });
+      const scene = transformSaveModelToScene({ dashboard: dashboardWithCustomSettings as DashboardDataDTO, meta: {} });
       const saveModel = transformSceneToSaveModel(scene);
 
       expect(saveModel).toMatchSnapshot();
@@ -200,7 +191,7 @@ describe('transformSceneToSaveModel', () => {
 
   describe('Given a simple scene with variables', () => {
     it('Should transform back to persisted model', () => {
-      const scene = transformSaveModelToScene({ dashboard: dashboard_to_load1 as any, meta: {} });
+      const scene = transformSaveModelToScene({ dashboard: dashboard_to_load1 as DashboardDataDTO, meta: {} });
       const saveModel = transformSceneToSaveModel(scene);
 
       expect(saveModel).toMatchSnapshot();
@@ -209,8 +200,13 @@ describe('transformSceneToSaveModel', () => {
 
   describe('Given a scene with rows', () => {
     it('Should transform back to persisted model', () => {
-      const scene = transformSaveModelToScene({ dashboard: repeatingRowsAndPanelsDashboardJson as any, meta: {} });
+      const scene = transformSaveModelToScene({
+        dashboard: repeatingRowsAndPanelsDashboardJson as DashboardDataDTO,
+        meta: {},
+      });
+
       const saveModel = transformSceneToSaveModel(scene);
+
       const row2: RowPanel = saveModel.panels![2] as RowPanel;
 
       expect(row2.type).toBe('row');
@@ -219,17 +215,21 @@ describe('transformSceneToSaveModel', () => {
     });
 
     it('Should remove repeated rows in save model', () => {
-      const scene = transformSaveModelToScene({ dashboard: repeatingRowsAndPanelsDashboardJson as any, meta: {} });
+      const scene = transformSaveModelToScene({
+        dashboard: repeatingRowsAndPanelsDashboardJson as DashboardDataDTO,
+        meta: {},
+      });
 
       const variable = scene.state.$variables?.state.variables[0] as MultiValueVariable;
       variable.changeValueTo(['a', 'b', 'c']);
 
-      const grid = scene.state.body as SceneGridLayout;
+      const layout = scene.state.body as DefaultGridLayoutManager;
+      const grid = layout.state.grid;
       const rowWithRepeat = grid.state.children[1] as SceneGridRow;
       const rowRepeater = rowWithRepeat.state.$behaviors![0] as RowRepeaterBehavior;
 
       // trigger row repeater
-      rowRepeater.variableDependency?.variableUpdateCompleted(variable, true);
+      rowRepeater.performRepeat();
 
       // Make sure the repeated rows have been added to runtime scene model
       expect(grid.state.children.length).toBe(5);
@@ -260,6 +260,29 @@ describe('transformSceneToSaveModel', () => {
       const saveModel = gridItemToPanel(gridItem);
 
       expect(saveModel.transparent).toBe(true);
+    });
+
+    it('interval', () => {
+      const gridItem = buildGridItemFromPanelSchema({ interval: '20m' });
+      const saveModel = gridItemToPanel(gridItem);
+
+      expect(saveModel.interval).toBe('20m');
+    });
+
+    it('With angular options', () => {
+      const gridItem = buildGridItemFromPanelSchema({});
+      const vizPanel = gridItem.state.body as VizPanel;
+      vizPanel.setState({
+        options: {
+          angularOptions: {
+            bars: true,
+          },
+        },
+      });
+
+      const saveModel = gridItemToPanel(gridItem);
+      expect(saveModel.options?.angularOptions).toBe(undefined);
+      expect((saveModel as any).bars).toBe(true);
     });
 
     it('Given panel with repeat', () => {
@@ -318,36 +341,35 @@ describe('transformSceneToSaveModel', () => {
 
   describe('Library panels', () => {
     it('given a library panel', () => {
-      // Not using buildGridItemFromPanelSchema since it strips options/fieldConfig
-      const libVizPanel = new LibraryVizPanel({
-        name: 'Some lib panel panel',
-        title: 'A panel',
-        uid: 'lib-panel-uid',
-        panelKey: 'lib-panel',
-        panel: new VizPanel({
-          key: 'panel-4',
-          title: 'Panel blahh blah',
-          fieldConfig: {
-            defaults: {},
-            overrides: [],
+      const libVizPanel = new VizPanel({
+        key: 'panel-4',
+        title: 'Panel blahh blah',
+        $behaviors: [
+          new LibraryPanelBehavior({
+            name: 'Some lib panel panel',
+            uid: 'lib-panel-uid',
+          }),
+        ],
+        fieldConfig: {
+          defaults: {},
+          overrides: [],
+        },
+        options: {
+          legend: {
+            calcs: [],
+            displayMode: 'list',
+            placement: 'bottom',
+            showLegend: true,
           },
-          options: {
-            legend: {
-              calcs: [],
-              displayMode: 'list',
-              placement: 'bottom',
-              showLegend: true,
-            },
-            tooltip: {
-              maxHeight: 600,
-              mode: 'single',
-              sort: 'none',
-            },
+          tooltip: {
+            maxHeight: 600,
+            mode: 'single',
+            sort: 'none',
           },
-        }),
+        },
       });
 
-      const panel = new SceneGridItem({
+      const panel = new DashboardGridItem({
         body: libVizPanel,
         y: 0,
         x: 0,
@@ -368,7 +390,7 @@ describe('transformSceneToSaveModel', () => {
         x: 0,
         y: 0,
       });
-      expect(result.title).toBe('A panel');
+      expect(result.title).toBe('Panel blahh blah');
       expect(result.transformations).toBeUndefined();
       expect(result.fieldConfig).toBeUndefined();
       expect(result.options).toBeUndefined();
@@ -401,16 +423,17 @@ describe('transformSceneToSaveModel', () => {
 
   describe('Annotations', () => {
     it('should transform annotations to save model', () => {
-      const scene = transformSaveModelToScene({ dashboard: dashboard_to_load1 as any, meta: {} });
+      const scene = transformSaveModelToScene({ dashboard: dashboard_to_load1 as DashboardDataDTO, meta: {} });
       const saveModel = transformSceneToSaveModel(scene);
 
       expect(saveModel.annotations?.list?.length).toBe(4);
       expect(saveModel.annotations?.list).toMatchSnapshot();
     });
-    it('should transform annotations to save model after state changes', () => {
-      const scene = transformSaveModelToScene({ dashboard: dashboard_to_load1 as any, meta: {} });
 
-      const layers = (scene.state.$data as SceneDataLayers)?.state.layers;
+    it('should transform annotations to save model after state changes', () => {
+      const scene = transformSaveModelToScene({ dashboard: dashboard_to_load1 as DashboardDataDTO, meta: {} });
+
+      const layers = (scene.state.$data as DashboardDataLayerSet)?.state.annotationLayers;
       const enabledLayer = layers[1];
       const hiddenLayer = layers[3];
 
@@ -651,7 +674,7 @@ describe('transformSceneToSaveModel', () => {
     });
 
     it('attaches snapshot data to panels using Grafana snapshot query', async () => {
-      const scene = transformSaveModelToScene({ dashboard: snapshotableDashboardJson as any, meta: {} });
+      const scene = transformSaveModelToScene({ dashboard: snapshotableDashboardJson as DashboardDataDTO, meta: {} });
 
       activateFullSceneTree(scene);
 
@@ -706,7 +729,10 @@ describe('transformSceneToSaveModel', () => {
     });
 
     it('handles basic rows', async () => {
-      const scene = transformSaveModelToScene({ dashboard: snapshotableWithRowsDashboardJson as any, meta: {} });
+      const scene = transformSaveModelToScene({
+        dashboard: snapshotableWithRowsDashboardJson as DashboardDataDTO,
+        meta: {},
+      });
 
       activateFullSceneTree(scene);
 
@@ -793,32 +819,32 @@ describe('transformSceneToSaveModel', () => {
       it('handles repeated library panels', () => {
         const { scene, repeater } = buildPanelRepeaterScene(
           { variableQueryTime: 0, numberOfOptions: 2 },
-          new LibraryVizPanel({
-            name: 'Some lib panel panel',
-            title: 'A panel',
-            uid: 'lib-panel-uid',
-            panelKey: 'lib-panel',
-            panel: new VizPanel({
-              key: 'panel-4',
-              title: 'Panel blahh blah',
-              fieldConfig: {
-                defaults: {},
-                overrides: [],
+          new VizPanel({
+            key: 'panel-4',
+            title: 'Panel blahh blah',
+            fieldConfig: {
+              defaults: {},
+              overrides: [],
+            },
+            options: {
+              legend: {
+                calcs: [],
+                displayMode: 'list',
+                placement: 'bottom',
+                showLegend: true,
               },
-              options: {
-                legend: {
-                  calcs: [],
-                  displayMode: 'list',
-                  placement: 'bottom',
-                  showLegend: true,
-                },
-                tooltip: {
-                  maxHeight: 600,
-                  mode: 'single',
-                  sort: 'none',
-                },
+              tooltip: {
+                maxHeight: 600,
+                mode: 'single',
+                sort: 'none',
               },
-            }),
+            },
+            $behaviors: [
+              new LibraryPanelBehavior({
+                name: 'Some lib panel panel',
+                uid: 'lib-panel-uid',
+              }),
+            ],
           })
         );
 
@@ -829,7 +855,7 @@ describe('transformSceneToSaveModel', () => {
 
         expect(result[0]).toMatchObject({
           id: 4,
-          title: 'A panel',
+          title: 'Panel blahh blah',
           libraryPanel: {
             name: 'Some lib panel panel',
             uid: 'lib-panel-uid',
@@ -912,7 +938,7 @@ describe('transformSceneToSaveModel', () => {
       let snapshot: Dashboard = {} as Dashboard;
 
       beforeEach(() => {
-        const scene = transformSaveModelToScene({ dashboard: snapshotableDashboardJson as any, meta: {} });
+        const scene = transformSaveModelToScene({ dashboard: snapshotableDashboardJson as DashboardDataDTO, meta: {} });
         activateFullSceneTree(scene);
         snapshot = transformSceneToSaveModel(scene, true);
       });
@@ -976,7 +1002,7 @@ describe('transformSceneToSaveModel', () => {
       });
 
       it('should remove links', async () => {
-        const scene = transformSaveModelToScene({ dashboard: snapshotableDashboardJson as any, meta: {} });
+        const scene = transformSaveModelToScene({ dashboard: snapshotableDashboardJson as DashboardDataDTO, meta: {} });
         activateFullSceneTree(scene);
         const snapshot = transformSceneToSaveModel(scene, true);
         expect(snapshot.links?.length).toBe(1);
@@ -985,14 +1011,72 @@ describe('transformSceneToSaveModel', () => {
       });
     });
   });
+
+  describe('Given a scene with repeated panels and non-repeated panels', () => {
+    it('should save repeated panels itemHeight as height', () => {
+      const scene = transformSaveModelToScene({
+        dashboard: repeatingRowsAndPanelsDashboardJson as DashboardDataDTO,
+        meta: {},
+      });
+      const gridItem = sceneGraph.findByKey(scene, 'grid-item-2') as DashboardGridItem;
+      expect(gridItem).toBeInstanceOf(DashboardGridItem);
+      expect(gridItem.state.height).toBe(10);
+      expect(gridItem.state.itemHeight).toBe(10);
+      expect(gridItem.state.itemHeight).toBe(10);
+      expect(gridItem.state.variableName).toBe('pod');
+      gridItem.setState({ itemHeight: 24 });
+      const saveModel = transformSceneToSaveModel(scene);
+      expect(saveModel.panels?.[3].gridPos?.h).toBe(24);
+    });
+
+    it('should not save non-repeated panels itemHeight as height', () => {
+      const scene = transformSaveModelToScene({
+        dashboard: repeatingRowsAndPanelsDashboardJson as DashboardDataDTO,
+        meta: {},
+      });
+      const gridItem = sceneGraph.findByKey(scene, 'grid-item-15') as DashboardGridItem;
+      expect(gridItem).toBeInstanceOf(DashboardGridItem);
+      expect(gridItem.state.height).toBe(2);
+      expect(gridItem.state.itemHeight).toBe(2);
+      expect(gridItem.state.variableName).toBeUndefined();
+      gridItem.setState({ itemHeight: 24 });
+      let saveModel = transformSceneToSaveModel(scene);
+      expect(saveModel.panels?.[1].gridPos?.h).toBe(2);
+
+      gridItem.setState({ height: 34 });
+      saveModel = transformSceneToSaveModel(scene);
+      expect(saveModel.panels?.[1].gridPos?.h).toBe(34);
+    });
+  });
 });
 
-export function buildGridItemFromPanelSchema(panel: Partial<Panel>): SceneGridItemLike {
-  if (panel.libraryPanel) {
-    return buildGridItemForLibPanel(new PanelModel(panel))!;
-  } else if (panel.type === 'add-library-panel') {
-    return buildGridItemForLibraryPanelWidget(new PanelModel(panel))!;
-  }
+describe('Given a scene with custom quick ranges', () => {
+  it('should save quick ranges to save model', () => {
+    const dashboardWithCustomSettings = {
+      ...dashboard_to_load1,
+      timepicker: {
+        ...dashboard_to_load1.timepicker,
+        quick_ranges: [
+          {
+            display: 'Last 6 hours',
+            from: 'now-6h',
+            to: 'now',
+          },
+          {
+            display: 'Last 3 days',
+            from: 'now-3d',
+            to: 'now',
+          },
+        ],
+      },
+    };
+    const scene = transformSaveModelToScene({ dashboard: dashboardWithCustomSettings as DashboardDataDTO, meta: {} });
+    const saveModel = transformSceneToSaveModel(scene);
 
+    expect(saveModel).toMatchSnapshot();
+  });
+});
+
+export function buildGridItemFromPanelSchema(panel: Partial<Panel>) {
   return buildGridItemForPanel(new PanelModel(panel));
 }

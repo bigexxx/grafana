@@ -1,9 +1,10 @@
-import React, { SyntheticEvent, useState } from 'react';
+import { SyntheticEvent, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
 import { selectors } from '@grafana/e2e-selectors';
 import { config } from '@grafana/runtime';
-import { Tooltip, Field, VerticalGroup, Button, Alert, useStyles2 } from '@grafana/ui';
+import { Tooltip, Field, Button, Alert, useStyles2, Stack } from '@grafana/ui';
+import { t, Trans } from 'app/core/internationalization';
 
 import { getStyles } from '../Login/LoginForm';
 import { PasswordField } from '../PasswordField/PasswordField';
@@ -49,9 +50,19 @@ export const ChangePassword = ({ onSubmit, onSkip, showDefaultPasswordWarning }:
   return (
     <form onSubmit={handleSubmit(submit)}>
       {showDefaultPasswordWarning && (
-        <Alert severity="info" title="Continuing to use the default password exposes you to security risks." />
+        <Alert
+          severity="info"
+          title={t(
+            'forgot-password.change-password.default-password-alert',
+            'Continuing to use the default password exposes you to security risks.'
+          )}
+        />
       )}
-      <Field label="New password" invalid={!!errors.newPassword} error={errors?.newPassword?.message}>
+      <Field
+        label={t('forgot-password.change-password.new-password-label', 'New password')}
+        invalid={!!errors.newPassword}
+        error={errors?.newPassword?.message}
+      >
         <PasswordField
           onFocus={() => setDisplayValidationLabels(true)}
           {...register('newPassword', {
@@ -71,7 +82,11 @@ export const ChangePassword = ({ onSubmit, onSkip, showDefaultPasswordWarning }:
           strongPasswordValidations={strongPasswordValidations}
         />
       )}
-      <Field label="Confirm new password" invalid={!!errors.confirmNew} error={errors?.confirmNew?.message}>
+      <Field
+        label={t('forgot-password.change-password.confirm-label', 'Confirm new password')}
+        invalid={!!errors.confirmNew}
+        error={errors?.confirmNew?.message}
+      >
         <PasswordField
           {...register('confirmNew', {
             required: 'Confirmed Password is required',
@@ -81,9 +96,9 @@ export const ChangePassword = ({ onSubmit, onSkip, showDefaultPasswordWarning }:
           autoComplete="new-password"
         />
       </Field>
-      <VerticalGroup>
+      <Stack direction="column">
         <Button type="submit" className={styles.submitButton}>
-          Submit
+          <Trans i18nKey="forgot-password.change-password.submit-button">Submit</Trans>
         </Button>
 
         {!config.auth.basicAuthStrongPasswordPolicy && onSkip && (
@@ -91,12 +106,18 @@ export const ChangePassword = ({ onSubmit, onSkip, showDefaultPasswordWarning }:
             content="If you skip you will be prompted to change password next time you log in."
             placement="bottom"
           >
-            <Button fill="text" onClick={onSkip} type="button" data-testid={selectors.pages.Login.skip}>
-              Skip
+            <Button
+              className={styles.skipButton}
+              fill="text"
+              onClick={onSkip}
+              type="button"
+              data-testid={selectors.pages.Login.skip}
+            >
+              <Trans i18nKey="forgot-password.change-password.skip-button">Skip</Trans>
             </Button>
           </Tooltip>
         )}
-      </VerticalGroup>
+      </Stack>
     </form>
   );
 };

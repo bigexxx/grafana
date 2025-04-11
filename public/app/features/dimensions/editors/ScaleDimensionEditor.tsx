@@ -1,11 +1,12 @@
 import { css } from '@emotion/css';
-import React, { useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { GrafanaTheme2, SelectableValue, StandardEditorProps } from '@grafana/data';
 import { ScaleDimensionConfig } from '@grafana/schema';
 import { InlineField, InlineFieldRow, Select, useStyles2 } from '@grafana/ui';
-import { useFieldDisplayNames, useSelectOptions } from '@grafana/ui/src/components/MatchersUI/utils';
+import { useFieldDisplayNames, useSelectOptions } from '@grafana/ui/internal';
 import { NumberInput } from 'app/core/components/OptionsUI/NumberInput';
+import { t } from 'app/core/internationalization';
 
 import { validateScaleOptions, validateScaleConfig } from '../scale';
 import { ScaleDimensionOptions } from '../types';
@@ -23,7 +24,7 @@ export const ScaleDimensionEditor = (props: StandardEditorProps<ScaleDimensionCo
   const fieldName = value?.field;
   const isFixed = Boolean(!fieldName);
   const names = useFieldDisplayNames(context.data);
-  const selectOptions = useSelectOptions(names, fieldName, fixedValueOption);
+  const selectOptions = useSelectOptions(names, fieldName, fixedValueOption, settings?.filteredFieldType);
   const minMaxStep = useMemo(() => {
     return validateScaleOptions(settings);
   }, [settings]);
@@ -106,7 +107,7 @@ export const ScaleDimensionEditor = (props: StandardEditorProps<ScaleDimensionCo
       <div className={styles.range}>
         {isFixed && (
           <InlineFieldRow>
-            <InlineField label="Value" labelWidth={8} grow={true}>
+            <InlineField label={t('dimensions.scale-dimension-editor.label-value', 'Value')} labelWidth={8} grow={true}>
               <NumberInput value={val.fixed} {...minMaxStep} onChange={onValueChange} />
             </InlineField>
           </InlineFieldRow>
@@ -114,12 +115,12 @@ export const ScaleDimensionEditor = (props: StandardEditorProps<ScaleDimensionCo
         {!isFixed && !minMaxStep.hideRange && (
           <>
             <InlineFieldRow>
-              <InlineField label="Min" labelWidth={8} grow={true}>
+              <InlineField label={t('dimensions.scale-dimension-editor.label-min', 'Min')} labelWidth={8} grow={true}>
                 <NumberInput value={val.min} {...minMaxStep} onChange={onMinChange} />
               </InlineField>
             </InlineFieldRow>
             <InlineFieldRow>
-              <InlineField label="Max" labelWidth={8} grow={true}>
+              <InlineField label={t('dimensions.scale-dimension-editor.label-max', 'Max')} labelWidth={8} grow={true}>
                 <NumberInput value={val.max} {...minMaxStep} onChange={onMaxChange} />
               </InlineField>
             </InlineFieldRow>
@@ -131,7 +132,7 @@ export const ScaleDimensionEditor = (props: StandardEditorProps<ScaleDimensionCo
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  range: css`
-    padding-top: 8px;
-  `,
+  range: css({
+    paddingTop: theme.spacing(1),
+  }),
 });

@@ -1,9 +1,12 @@
 package resourcepermissions
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+
+	"go.opentelemetry.io/otel"
 
 	"github.com/grafana/grafana/pkg/api/dtos"
 	"github.com/grafana/grafana/pkg/api/response"
@@ -11,9 +14,13 @@ import (
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
 	"github.com/grafana/grafana/pkg/services/org"
+	"github.com/grafana/grafana/pkg/services/team"
+	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/web"
 )
+
+var tracer = otel.Tracer("github.com/grafana/grafana/pkg/accesscontrol/resourcepermissions")
 
 type api struct {
 	cfg         *setting.Cfg
@@ -39,21 +46,42 @@ func (a *api) registerEndpoints() {
 		licenseMW = nopMiddleware
 	}
 
+	userUIDResolver := middlewareUserUIDResolver(a.service.userService, ":userID")
+	teamUIDResolver := team.MiddlewareTeamUIDResolver(a.service.teamService, ":teamID")
+	resourceResolver := func(resTranslator ResourceTranslator) web.Handler {
+		return func(c *contextmodel.ReqContext) {
+			// no-op
+			if resTranslator == nil {
+				return
+			}
+
+			gotParams := web.Params(c.Req)
+			resourceID := gotParams[":resourceID"]
+			resourceID, err := resTranslator(c.Req.Context(), c.OrgID, resourceID)
+			if err == nil {
+				gotParams[":resourceID"] = resourceID
+				web.SetURLParams(c.Req, gotParams)
+			} else {
+				c.JsonApiErr(http.StatusNotFound, "Not found", nil)
+			}
+		}
+	}(a.service.options.ResourceTranslator)
+
 	a.router.Group(fmt.Sprintf("/api/access-control/%s", a.service.options.Resource), func(r routing.RouteRegister) {
 		actionRead := fmt.Sprintf("%s.permissions:read", a.service.options.Resource)
 		actionWrite := fmt.Sprintf("%s.permissions:write", a.service.options.Resource)
 		scope := accesscontrol.Scope(a.service.options.Resource, a.service.options.ResourceAttribute, accesscontrol.Parameter(":resourceID"))
 		r.Get("/description", auth(accesscontrol.EvalPermission(actionRead)), routing.Wrap(a.getDescription))
-		r.Get("/:resourceID", auth(accesscontrol.EvalPermission(actionRead, scope)), routing.Wrap(a.getPermissions))
-		r.Post("/:resourceID", licenseMW, auth(accesscontrol.EvalPermission(actionWrite, scope)), routing.Wrap(a.setPermissions))
+		r.Get("/:resourceID", resourceResolver, auth(accesscontrol.EvalPermission(actionRead, scope)), routing.Wrap(a.getPermissions))
+		r.Post("/:resourceID", resourceResolver, licenseMW, auth(accesscontrol.EvalPermission(actionWrite, scope)), routing.Wrap(a.setPermissions))
 		if a.service.options.Assignments.Users {
-			r.Post("/:resourceID/users/:userID", licenseMW, auth(accesscontrol.EvalPermission(actionWrite, scope)), routing.Wrap(a.setUserPermission))
+			r.Post("/:resourceID/users/:userID", licenseMW, resourceResolver, userUIDResolver, auth(accesscontrol.EvalPermission(actionWrite, scope)), routing.Wrap(a.setUserPermission))
 		}
 		if a.service.options.Assignments.Teams {
-			r.Post("/:resourceID/teams/:teamID", licenseMW, auth(accesscontrol.EvalPermission(actionWrite, scope)), routing.Wrap(a.setTeamPermission))
+			r.Post("/:resourceID/teams/:teamID", licenseMW, resourceResolver, teamUIDResolver, auth(accesscontrol.EvalPermission(actionWrite, scope)), routing.Wrap(a.setTeamPermission))
 		}
 		if a.service.options.Assignments.BuiltInRoles {
-			r.Post("/:resourceID/builtInRoles/:builtInRole", licenseMW, auth(accesscontrol.EvalPermission(actionWrite, scope)), routing.Wrap(a.setBuiltinRolePermission))
+			r.Post("/:resourceID/builtInRoles/:builtInRole", resourceResolver, licenseMW, auth(accesscontrol.EvalPermission(actionWrite, scope)), routing.Wrap(a.setBuiltinRolePermission))
 		}
 	})
 }
@@ -106,10 +134,12 @@ type resourcePermissionDTO struct {
 	IsInherited      bool     `json:"isInherited"`
 	IsServiceAccount bool     `json:"isServiceAccount"`
 	UserID           int64    `json:"userId,omitempty"`
+	UserUID          string   `json:"userUid,omitempty"`
 	UserLogin        string   `json:"userLogin,omitempty"`
 	UserAvatarUrl    string   `json:"userAvatarUrl,omitempty"`
 	Team             string   `json:"team,omitempty"`
 	TeamID           int64    `json:"teamId,omitempty"`
+	TeamUID          string   `json:"teamUid,omitempty"`
 	TeamAvatarUrl    string   `json:"teamAvatarUrl,omitempty"`
 	BuiltInRole      string   `json:"builtInRole,omitempty"`
 	Actions          []string `json:"actions"`
@@ -140,11 +170,15 @@ type getResourcePermissionsResponse []resourcePermissionDTO
 // 404: notFoundError
 // 500: internalServerError
 func (a *api) getPermissions(c *contextmodel.ReqContext) response.Response {
+	ctx, span := tracer.Start(c.Req.Context(), "accesscontrol.resourcepermissions.getPermissions")
+	defer span.End()
+	c.Req = c.Req.WithContext(ctx)
+
 	resourceID := web.Params(c.Req)[":resourceID"]
 
 	permissions, err := a.service.GetPermissions(c.Req.Context(), c.SignedInUser, resourceID)
 	if err != nil {
-		return response.ErrOrFallback(http.StatusInternalServerError, "failed to get permissions", err)
+		return response.ErrOrFallback(http.StatusInternalServerError, "Failed to get permissions", err)
 	}
 
 	if a.service.options.Assignments.BuiltInRoles && !a.service.license.FeatureEnabled("accesscontrol.enforcement") {
@@ -159,18 +193,20 @@ func (a *api) getPermissions(c *contextmodel.ReqContext) response.Response {
 	for _, p := range permissions {
 		if permission := a.service.MapActions(p); permission != "" {
 			teamAvatarUrl := ""
-			if p.TeamId != 0 {
+			if p.TeamID != 0 {
 				teamAvatarUrl = dtos.GetGravatarUrlWithDefault(a.cfg, p.TeamEmail, p.Team)
 			}
 
 			dto = append(dto, resourcePermissionDTO{
 				ID:               p.ID,
 				RoleName:         p.RoleName,
-				UserID:           p.UserId,
+				UserID:           p.UserID,
+				UserUID:          p.UserUID,
 				UserLogin:        p.UserLogin,
 				UserAvatarUrl:    dtos.GetGravatarUrl(a.cfg, p.UserEmail),
 				Team:             p.Team,
-				TeamID:           p.TeamId,
+				TeamID:           p.TeamID,
+				TeamUID:          p.TeamUID,
 				TeamAvatarUrl:    teamAvatarUrl,
 				BuiltInRole:      p.BuiltInRole,
 				Actions:          p.Actions,
@@ -227,20 +263,29 @@ type SetResourcePermissionsForUserParams struct {
 // 404: notFoundError
 // 500: internalServerError
 func (a *api) setUserPermission(c *contextmodel.ReqContext) response.Response {
+	ctx, span := tracer.Start(c.Req.Context(), "accesscontrol.resourcepermissions.setUserPermission")
+	defer span.End()
+	c.Req = c.Req.WithContext(ctx)
+
 	userID, err := strconv.ParseInt(web.Params(c.Req)[":userID"], 10, 64)
 	if err != nil {
-		return response.Error(http.StatusBadRequest, "userID is invalid", err)
+		return response.Err(ErrInvalidParam.Build(ErrInvalidParamData("userID", err)))
 	}
 	resourceID := web.Params(c.Req)[":resourceID"]
+
+	resp := a.validateTeamResource(c, resourceID)
+	if resp != nil {
+		return resp
+	}
 
 	var cmd setPermissionCommand
 	if err := web.Bind(c.Req, &cmd); err != nil {
 		return response.Error(http.StatusBadRequest, "bad request data", err)
 	}
 
-	_, err = a.service.SetUserPermission(c.Req.Context(), c.SignedInUser.GetOrgID(), accesscontrol.User{ID: userID}, resourceID, cmd.Permission)
+	_, err = a.service.SetUserPermission(c.Req.Context(), c.GetOrgID(), accesscontrol.User{ID: userID}, resourceID, cmd.Permission)
 	if err != nil {
-		return response.ErrOrFallback(http.StatusBadRequest, "failed to set user permission", err)
+		return response.Err(err)
 	}
 
 	return permissionSetResponse(cmd)
@@ -280,9 +325,13 @@ type SetResourcePermissionsForTeamParams struct {
 // 404: notFoundError
 // 500: internalServerError
 func (a *api) setTeamPermission(c *contextmodel.ReqContext) response.Response {
+	ctx, span := tracer.Start(c.Req.Context(), "accesscontrol.resourcepermissions.setTeamPermission")
+	defer span.End()
+	c.Req = c.Req.WithContext(ctx)
+
 	teamID, err := strconv.ParseInt(web.Params(c.Req)[":teamID"], 10, 64)
 	if err != nil {
-		return response.Error(http.StatusBadRequest, "teamID is invalid", err)
+		return response.Err(ErrInvalidParam.Build(ErrInvalidParamData("teamID", err)))
 	}
 	resourceID := web.Params(c.Req)[":resourceID"]
 
@@ -291,9 +340,9 @@ func (a *api) setTeamPermission(c *contextmodel.ReqContext) response.Response {
 		return response.Error(http.StatusBadRequest, "bad request data", err)
 	}
 
-	_, err = a.service.SetTeamPermission(c.Req.Context(), c.SignedInUser.GetOrgID(), teamID, resourceID, cmd.Permission)
+	_, err = a.service.SetTeamPermission(c.Req.Context(), c.GetOrgID(), teamID, resourceID, cmd.Permission)
 	if err != nil {
-		return response.ErrOrFallback(http.StatusBadRequest, "failed to set team permission", err)
+		return response.Err(err)
 	}
 
 	return permissionSetResponse(cmd)
@@ -333,6 +382,10 @@ type SetResourcePermissionsForBuiltInRoleParams struct {
 // 404: notFoundError
 // 500: internalServerError
 func (a *api) setBuiltinRolePermission(c *contextmodel.ReqContext) response.Response {
+	ctx, span := tracer.Start(c.Req.Context(), "accesscontrol.resourcepermissions.setBuiltinRolePermission")
+	defer span.End()
+	c.Req = c.Req.WithContext(ctx)
+
 	builtInRole := web.Params(c.Req)[":builtInRole"]
 	resourceID := web.Params(c.Req)[":resourceID"]
 
@@ -341,9 +394,9 @@ func (a *api) setBuiltinRolePermission(c *contextmodel.ReqContext) response.Resp
 		return response.Error(http.StatusBadRequest, "bad request data", err)
 	}
 
-	_, err := a.service.SetBuiltInRolePermission(c.Req.Context(), c.SignedInUser.GetOrgID(), builtInRole, resourceID, cmd.Permission)
+	_, err := a.service.SetBuiltInRolePermission(c.Req.Context(), c.GetOrgID(), builtInRole, resourceID, cmd.Permission)
 	if err != nil {
-		return response.ErrOrFallback(http.StatusBadRequest, "failed to set role permission", err)
+		return response.Err(err)
 	}
 
 	return permissionSetResponse(cmd)
@@ -379,19 +432,52 @@ type SetResourcePermissionsParams struct {
 // 404: notFoundError
 // 500: internalServerError
 func (a *api) setPermissions(c *contextmodel.ReqContext) response.Response {
+	ctx, span := tracer.Start(c.Req.Context(), "accesscontrol.resourcepermissions.setPermissions")
+	defer span.End()
+
 	resourceID := web.Params(c.Req)[":resourceID"]
 
 	cmd := setPermissionsCommand{}
 	if err := web.Bind(c.Req, &cmd); err != nil {
-		return response.Error(http.StatusBadRequest, "bad request data", err)
+		return response.Error(http.StatusBadRequest, "Bad request data: "+err.Error(), err)
 	}
 
-	_, err := a.service.SetPermissions(c.Req.Context(), c.SignedInUser.GetOrgID(), resourceID, cmd.Permissions...)
+	_, err := a.service.SetPermissions(ctx, c.GetOrgID(), resourceID, cmd.Permissions...)
 	if err != nil {
-		return response.ErrOrFallback(http.StatusBadRequest, "failed to set permission", err)
+		return response.Err(err)
 	}
 
 	return response.Success("Permissions updated")
+}
+
+func (a *api) validateTeamResource(c *contextmodel.ReqContext, resourceID string) response.Response {
+	if a.service.options.Resource != "teams" {
+		return nil
+	}
+
+	teamID, err := strconv.ParseInt(resourceID, 10, 64)
+	if err != nil {
+		return response.Error(http.StatusBadRequest, "Invalid ResourceID", err)
+	}
+
+	existingTeam, err := a.service.teamService.GetTeamByID(c.Req.Context(), &team.GetTeamByIDQuery{
+		OrgID:        c.GetOrgID(),
+		ID:           teamID,
+		SignedInUser: c.SignedInUser,
+	})
+	if err != nil {
+		if errors.Is(err, team.ErrTeamNotFound) {
+			return response.Error(http.StatusNotFound, "Team not found", err)
+		}
+
+		return response.Error(http.StatusInternalServerError, "Failed to get Team", err)
+	}
+
+	if existingTeam.IsProvisioned {
+		return response.Error(http.StatusBadRequest, "Team permissions cannot be updated for provisioned teams", nil)
+	}
+
+	return nil
 }
 
 func permissionSetResponse(cmd setPermissionCommand) response.Response {
@@ -400,4 +486,25 @@ func permissionSetResponse(cmd setPermissionCommand) response.Response {
 		message = "Permission removed"
 	}
 	return response.Success(message)
+}
+
+// middlewareUserUIDResolver resolves the user UID to ID and sets the ID in the URL params.
+func middlewareUserUIDResolver(userService user.Service, paramName string) web.Handler {
+	handler := user.UIDToIDHandler(userService)
+
+	return func(c *contextmodel.ReqContext) {
+		userID := web.Params(c.Req)[paramName]
+		id, err := handler(c.Req.Context(), userID)
+		if err == nil {
+			gotParams := web.Params(c.Req)
+			gotParams[paramName] = id
+			web.SetURLParams(c.Req, gotParams)
+		} else {
+			if errors.Is(err, user.ErrUserNotFound) {
+				c.JsonApiErr(http.StatusNotFound, "User not found", nil)
+			} else {
+				c.JsonApiErr(http.StatusInternalServerError, "Failed to resolve user", err)
+			}
+		}
+	}
 }

@@ -88,16 +88,6 @@ func GetComposableKinds() ([]ComposableKind, error) {
 		CueFile:  grafanapyroscopeCue,
 	})
 
-	grafanatestdatadatasourceCue, err := loadCueFileWithCommon(root, filepath.Join(root, "./public/app/plugins/datasource/grafana-testdata-datasource/dataquery.cue"))
-	if err != nil {
-		return nil, err
-	}
-	kinds = append(kinds, ComposableKind{
-		Name:     "grafanatestdatadatasource",
-		Filename: "dataquery.cue",
-		CueFile:  grafanatestdatadatasourceCue,
-	})
-
 	lokiCue, err := loadCueFileWithCommon(root, filepath.Join(root, "./public/app/plugins/datasource/loki/dataquery.cue"))
 	if err != nil {
 		return nil, err
@@ -126,16 +116,6 @@ func GetComposableKinds() ([]ComposableKind, error) {
 		Name:     "tempo",
 		Filename: "dataquery.cue",
 		CueFile:  tempoCue,
-	})
-
-	alertgroupsCue, err := loadCueFileWithCommon(root, filepath.Join(root, "./public/app/plugins/panel/alertGroups/panelcfg.cue"))
-	if err != nil {
-		return nil, err
-	}
-	kinds = append(kinds, ComposableKind{
-		Name:     "alertgroups",
-		Filename: "panelcfg.cue",
-		CueFile:  alertgroupsCue,
 	})
 
 	annotationslistCue, err := loadCueFileWithCommon(root, filepath.Join(root, "./public/app/plugins/panel/annolist/panelcfg.cue"))
@@ -266,6 +246,16 @@ func GetComposableKinds() ([]ComposableKind, error) {
 		Name:     "logs",
 		Filename: "panelcfg.cue",
 		CueFile:  logsCue,
+	})
+
+	logsnewCue, err := loadCueFileWithCommon(root, filepath.Join(root, "./public/app/plugins/panel/logs-new/panelcfg.cue"))
+	if err != nil {
+		return nil, err
+	}
+	kinds = append(kinds, ComposableKind{
+		Name:     "logsnew",
+		Filename: "panelcfg.cue",
+		CueFile:  logsnewCue,
 	})
 
 	newsCue, err := loadCueFileWithCommon(root, filepath.Join(root, "./public/app/plugins/panel/news/panelcfg.cue"))

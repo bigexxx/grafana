@@ -1,8 +1,8 @@
 import { css } from '@emotion/css';
-import React, { useMemo, useEffect } from 'react';
+import { useMemo, useEffect } from 'react';
 import AutoSizer from 'react-virtualized-auto-sizer';
 
-import { PanelPlugin, GrafanaTheme2, FeatureState } from '@grafana/data';
+import { PanelPlugin, GrafanaTheme2 } from '@grafana/data';
 import { config } from '@grafana/runtime';
 import {
   Drawer,
@@ -11,19 +11,18 @@ import {
   CodeEditor,
   useStyles2,
   Field,
-  HorizontalGroup,
   InlineSwitch,
   Button,
   Spinner,
   Alert,
-  FeatureBadge,
   Select,
   ClipboardButton,
   Icon,
   Stack,
 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 import { contextSrv } from 'app/core/services/context_srv';
-import { PanelModel } from 'app/features/dashboard/state';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
 import { AccessControlAction } from 'app/types';
 
 import { ShowMessage, SnapshotTab, SupportSnapshotService } from './SupportSnapshotService';
@@ -76,7 +75,6 @@ export function HelpWizard({ panel, plugin, onClose }: Props) {
       subtitle={
         <Stack direction="column" gap={1}>
           <Stack direction="row" gap={1}>
-            <FeatureBadge featureState={FeatureState.beta} />
             <a
               href="https://grafana.com/docs/grafana/latest/troubleshooting/"
               target="blank"
@@ -87,13 +85,17 @@ export function HelpWizard({ panel, plugin, onClose }: Props) {
             </a>
           </Stack>
           <span className="muted">
-            To request troubleshooting help, send a snapshot of this panel to Grafana Labs Technical Support. The
-            snapshot contains query response data and panel settings.
+            <Trans i18nKey="help-wizard.troubleshooting-help">
+              To request troubleshooting help, send a snapshot of this panel to Grafana Labs Technical Support. The
+              snapshot contains query response data and panel settings.
+            </Trans>
           </span>
           {hasSupportBundleAccess && (
             <span className="muted">
-              You can also retrieve a support bundle containing information concerning your Grafana instance and
-              configured datasources in the <a href="/support-bundles">support bundles section</a>.
+              <Trans i18nKey="help-wizard.support-bundle">
+                You can also retrieve a support bundle containing information concerning your Grafana instance and
+                configured datasources in the <a href="/support-bundles">support bundles section</a>.
+              </Trans>
             </span>
           )}
         </Stack>
@@ -117,13 +119,13 @@ export function HelpWizard({ panel, plugin, onClose }: Props) {
       {currentTab === SnapshotTab.Data && (
         <div className={styles.code}>
           <div className={styles.opts}>
-            <Field label="Template" className={styles.field}>
+            <Field label={t('dashboard.help-wizard.label-template', 'Template')} className={styles.field}>
               <Select options={options} value={showMessage} onChange={service.onShowMessageChange} />
             </Field>
 
             {showMessage === ShowMessage.GithubComment ? (
               <ClipboardButton icon="copy" getText={service.onGetMarkdownForClipboard}>
-                Copy to clipboard
+                <Trans i18nKey="dashboard.help-wizard.copy-to-clipboard">Copy to clipboard</Trans>
               </ClipboardButton>
             ) : (
               <Button icon="download-alt" onClick={service.onDownloadDashboard}>
@@ -150,53 +152,52 @@ export function HelpWizard({ panel, plugin, onClose }: Props) {
       {currentTab === SnapshotTab.Support && (
         <>
           <Field
-            label="Randomize data"
+            label={t('dashboard.help-wizard.label-obfuscate-data', 'Obfuscate data')}
             description="Modify the original data to hide sensitve information.  Note the lengths will stay the same, and duplicate values will be equal."
           >
-            <HorizontalGroup>
+            <Stack direction="row" gap={1}>
               <InlineSwitch
-                label="Labels"
+                label={t('dashboard.help-wizard.randomize-labels-label-labels', 'Labels')}
                 id="randomize-labels"
                 showLabel={true}
                 value={Boolean(randomize.labels)}
                 onChange={() => service.onToggleRandomize('labels')}
               />
               <InlineSwitch
-                label="Field names"
+                label={t('dashboard.help-wizard.randomize-field-names-label-field-names', 'Field names')}
                 id="randomize-field-names"
                 showLabel={true}
                 value={Boolean(randomize.names)}
                 onChange={() => service.onToggleRandomize('names')}
               />
               <InlineSwitch
-                label="String values"
+                label={t('dashboard.help-wizard.randomize-string-values-label-string-values', 'String values')}
                 id="randomize-string-values"
                 showLabel={true}
                 value={Boolean(randomize.values)}
                 onChange={() => service.onToggleRandomize('values')}
               />
-            </HorizontalGroup>
+            </Stack>
           </Field>
 
-          <Field label="Support snapshot" description={`Panel: ${panelTitle}`}>
+          <Field
+            label={t('dashboard.help-wizard.label-support-snapshot', 'Support snapshot')}
+            description={`Panel: ${panelTitle}`}
+          >
             <Stack>
               <Button icon="download-alt" onClick={service.onDownloadDashboard}>
-                Dashboard ({snapshotSize})
+                <Trans i18nKey="help-wizard.download-snapshot">Download snapshot</Trans> ({snapshotSize})
               </Button>
               <ClipboardButton
                 icon="github"
                 getText={service.onGetMarkdownForClipboard}
-                title="Copy a complete GitHub comment to the clipboard"
+                title={t(
+                  'dashboard.help-wizard.title-complete-git-hub-comment-clipboard',
+                  'Copy a complete GitHub comment to the clipboard'
+                )}
               >
-                Copy to clipboard
+                <Trans i18nKey="help-wizard.github-comment">Copy Github comment</Trans>
               </ClipboardButton>
-              <Button
-                onClick={service.onPreviewDashboard}
-                variant="secondary"
-                title="Open support snapshot dashboard in a new tab"
-              >
-                Preview
-              </Button>
             </Stack>
           </Field>
 
@@ -212,24 +213,22 @@ export function HelpWizard({ panel, plugin, onClose }: Props) {
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  code: css`
-    flex-grow: 1;
-    height: 100%;
-    overflow: scroll;
-  `,
-  field: css`
-    width: 100%;
-  `,
-  opts: css`
-    display: flex;
-    display: flex;
-    width: 100%;
-    flex-grow: 0;
-    align-items: center;
-    justify-content: flex-end;
-
-    button {
-      margin-left: 8px;
-    }
-  `,
+  code: css({
+    flexGrow: 1,
+    height: '100%',
+    overflow: 'scroll',
+  }),
+  field: css({
+    width: '100%',
+  }),
+  opts: css({
+    display: 'flex',
+    width: '100%',
+    flexGrow: 0,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    button: {
+      marginLeft: '8px',
+    },
+  }),
 });

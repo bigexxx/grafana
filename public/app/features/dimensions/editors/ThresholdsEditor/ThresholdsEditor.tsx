@@ -1,6 +1,7 @@
 import { css } from '@emotion/css';
 import { isNumber } from 'lodash';
-import React, { ChangeEvent, PureComponent } from 'react';
+import { ChangeEvent, PureComponent } from 'react';
+import * as React from 'react';
 
 import {
   GrafanaTheme2,
@@ -12,6 +13,7 @@ import {
   ThemeContext,
 } from '@grafana/data';
 import { Button, ColorPicker, colors, IconButton, Input, Label, RadioButtonGroup, stylesFactory } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 
 const modes: Array<SelectableValue<ThresholdsMode>> = [
   { value: ThresholdsMode.Absolute, label: 'Absolute', description: 'Pick thresholds based on the absolute values' },
@@ -218,7 +220,7 @@ export class ThresholdsEditor extends PureComponent<Props, State> {
                 className={styles.addButton}
                 fullWidth
               >
-                Add threshold
+                <Trans i18nKey="dimensions.thresholds-editor.add-threshold">Add threshold</Trans>
               </Button>
               <div className={styles.thresholds}>
                 {steps
@@ -232,7 +234,14 @@ export class ThresholdsEditor extends PureComponent<Props, State> {
               </div>
 
               <div>
-                <Label description="Percentage means thresholds relative to min & max">Thresholds mode</Label>
+                <Label
+                  description={t(
+                    'dimensions.thresholds-editor.description-percentage-means-thresholds-relative',
+                    'Percentage means thresholds relative to min & max'
+                  )}
+                >
+                  <Trans i18nKey="dimensions.thresholds-editor.thresholds-mode">Thresholds mode</Trans>
+                </Label>
                 <RadioButtonGroup options={modes} onChange={this.onModeChanged} value={thresholds.mode} />
               </div>
             </div>
@@ -289,44 +298,44 @@ interface ThresholdStyles {
 
 const getStyles = stylesFactory((theme: GrafanaTheme2): ThresholdStyles => {
   return {
-    wrapper: css`
-      display: flex;
-      flex-direction: column;
-    `,
-    thresholds: css`
-      display: flex;
-      flex-direction: column;
-      margin-bottom: ${theme.spacing(2)};
-    `,
-    item: css`
-      margin-bottom: ${theme.spacing(1)};
+    wrapper: css({
+      display: 'flex',
+      flexDirection: 'column',
+    }),
+    thresholds: css({
+      display: 'flex',
+      flexDirection: 'column',
+      marginBottom: theme.spacing(2),
+    }),
+    item: css({
+      marginBottom: theme.spacing(1),
 
-      &:last-child {
-        margin-bottom: 0;
-      }
-    `,
-    colorPicker: css`
-      padding: 0 ${theme.spacing(1)};
-    `,
-    addButton: css`
-      margin-bottom: ${theme.spacing(1)};
-    `,
-    percentIcon: css`
-      font-size: ${theme.typography.bodySmall.fontSize};
-      color: ${theme.colors.text.secondary};
-    `,
-    inputPrefix: css`
-      display: flex;
-      align-items: center;
-    `,
-    trashIcon: css`
-      color: ${theme.colors.text.secondary};
-      cursor: pointer;
-      margin-right: 0;
+      '&:last-child': {
+        marginBottom: 0,
+      },
+    }),
+    colorPicker: css({
+      padding: theme.spacing(0, 1),
+    }),
+    addButton: css({
+      marginBottom: theme.spacing(1),
+    }),
+    percentIcon: css({
+      fontSize: theme.typography.bodySmall.fontSize,
+      color: theme.colors.text.secondary,
+    }),
+    inputPrefix: css({
+      display: 'flex',
+      alignItems: 'center',
+    }),
+    trashIcon: css({
+      color: theme.colors.text.secondary,
+      cursor: 'pointer',
+      marginRight: 0,
 
-      &:hover {
-        color: ${theme.colors.text};
-      }
-    `,
+      '&:hover': {
+        color: theme.colors.text.primary,
+      },
+    }),
   };
 });

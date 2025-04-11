@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 import { LoadingPlaceholder } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { alertRuleApi } from '../../api/alertRuleApi';
 
 import { FileExportPreview } from './FileExportPreview';
 import { GrafanaExportDrawer } from './GrafanaExportDrawer';
-import { allGrafanaExportProviders, ExportFormats } from './providers';
+import { ExportFormats, allGrafanaExportProviders } from './providers';
 
 interface GrafanaRuleGroupExporterProps {
   folderUid: string;
@@ -55,7 +56,7 @@ function GrafanaRuleGroupExportPreview({
   });
 
   if (isFetching) {
-    return <LoadingPlaceholder text="Loading...." />;
+    return <LoadingPlaceholder text={t('alerting.grafana-rule-group-export-preview.text-loading', 'Loading....')} />;
   }
 
   return (

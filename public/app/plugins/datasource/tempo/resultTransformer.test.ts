@@ -1,11 +1,10 @@
 import { collectorTypes } from '@opentelemetry/exporter-collector';
 
-import { PluginType, DataSourceInstanceSettings, dateTime, PluginMetaInfo } from '@grafana/data';
+import { PluginType, DataSourceInstanceSettings, PluginMetaInfo } from '@grafana/data';
 
 import {
   transformToOTLP,
   transformFromOTLP,
-  createTableFrameFromSearch,
   createTableFrameFromTraceQlQuery,
   createTableFrameFromTraceQlQueryAsSpans,
 } from './resultTransformer';
@@ -14,9 +13,8 @@ import {
   otlpDataFrameToResponse,
   otlpDataFrameFromResponse,
   otlpResponse,
-  tempoSearchResponse,
   traceQlResponse,
-} from './testResponse';
+} from './test/testResponse';
 import { TraceSearchMetadata } from './types';
 
 const defaultSettings: DataSourceInstanceSettings = {
@@ -57,32 +55,6 @@ describe('transformFromOTLP()', () => {
   });
 });
 
-describe('createTableFrameFromSearch()', () => {
-  const mockTimeUnix = dateTime(1643357709095).valueOf();
-  global.Date.now = jest.fn(() => mockTimeUnix);
-  test('transforms search response to dataFrame', () => {
-    const frame = createTableFrameFromSearch(tempoSearchResponse.traces as TraceSearchMetadata[], defaultSettings);
-    expect(frame.fields[0].name).toBe('traceID');
-    expect(frame.fields[0].values[0]).toBe('e641dcac1c3a0565');
-
-    // TraceID must have unit = 'string' to prevent the ID from rendering as Infinity
-    expect(frame.fields[0].config.unit).toBe('string');
-
-    expect(frame.fields[1].name).toBe('traceService');
-    expect(frame.fields[1].values[0]).toBe('requester');
-
-    expect(frame.fields[2].name).toBe('traceName');
-    expect(frame.fields[2].values[0]).toBe('app');
-
-    expect(frame.fields[3].name).toBe('startTime');
-    expect(frame.fields[3].values[0]).toBe(1643356828724);
-    expect(frame.fields[3].values[1]).toBe(1643342166678.0002);
-
-    expect(frame.fields[4].name).toBe('traceDuration');
-    expect(frame.fields[4].values[0]).toBe(65);
-  });
-});
-
 describe('createTableFrameFromTraceQlQuery()', () => {
   test('transforms TraceQL response to DataFrame', () => {
     const frameList = createTableFrameFromTraceQlQuery(traceQlResponse.traces, defaultSettings);
@@ -107,6 +79,7 @@ describe('createTableFrameFromTraceQlQuery()', () => {
     expect(frame.fields[4].name).toBe('traceDuration');
     expect(frame.fields[4].type).toBe('number');
     expect(frame.fields[4].values[2]).toBe(44);
+    expect(frame.fields[4].values[1]).toBe('<1ms');
     // Subframes field
     expect(frame.fields[5].name).toBe('nested');
     expect(frame.fields[5].type).toBe('nestedFrames');

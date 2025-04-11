@@ -1,14 +1,14 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import useAsync from 'react-use/lib/useAsync';
 
 import { config } from '@grafana/runtime';
-import { ConfirmModal } from '@grafana/ui';
-import { Trans } from 'app/core/internationalization';
+import { ConfirmModal, EmptyState, ScrollContainer, TextLink } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 import { getDashboardSnapshotSrv, Snapshot } from 'app/features/dashboard/services/SnapshotSrv';
 
 import { SnapshotListTableRow } from './SnapshotListTableRow';
 
-export function getSnapshots() {
+export async function getSnapshots() {
   return getDashboardSnapshotSrv()
     .getSnapshots()
     .then((result: Snapshot[]) => {
@@ -42,8 +42,27 @@ export const SnapshotListTable = () => {
     [snapshots]
   );
 
+  if (!isFetching && snapshots.length === 0) {
+    return (
+      <EmptyState
+        variant="call-to-action"
+        message={t('snapshot.empty-state.message', "You haven't created any snapshots yet")}
+      >
+        <Trans i18nKey="snapshot.empty-state.more-info">
+          You can create a snapshot of any dashboard through the <b>Share</b> modal.{' '}
+          <TextLink
+            external
+            href="https://grafana.com/docs/grafana/latest/dashboards/share-dashboards-panels/#publish-a-snapshot"
+          >
+            Learn more
+          </TextLink>
+        </Trans>
+      </EmptyState>
+    );
+  }
+
   return (
-    <div>
+    <ScrollContainer overflowY="visible" overflowX="auto" width="100%">
       <table className="filter-table">
         <thead>
           <tr>
@@ -84,7 +103,7 @@ export const SnapshotListTable = () => {
       <ConfirmModal
         isOpen={!!removeSnapshot}
         icon="trash-alt"
-        title="Delete"
+        title={t('manage-dashboards.snapshot-list-table.title-delete', 'Delete')}
         body={`Are you sure you want to delete '${removeSnapshot?.name}'?`}
         confirmText="Delete"
         onDismiss={() => setRemoveSnapshot(undefined)}
@@ -93,6 +112,6 @@ export const SnapshotListTable = () => {
           setRemoveSnapshot(undefined);
         }}
       />
-    </div>
+    </ScrollContainer>
   );
 };

@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { RefreshEvent } from '@grafana/runtime';
 import { PanelChrome } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 import { applyPanelTimeOverrides } from 'app/features/dashboard/utils/panel';
 import { PanelRenderer } from 'app/features/panel/components/PanelRenderer';
 import { Options } from 'app/plugins/panel/table/panelcfg.gen';
 
 import { getTimeSrv } from '../../services/TimeSrv';
-import { DashboardModel, PanelModel } from '../../state';
+import { DashboardModel } from '../../state/DashboardModel';
+import { PanelModel } from '../../state/PanelModel';
 
 import PanelHeaderCorner from './PanelHeaderCorner';
 import { usePanelLatestData } from './usePanelLatestData';
@@ -60,7 +62,7 @@ export function PanelEditorTableView({ width, height, panel, dashboard }: Props)
         <>
           <PanelHeaderCorner panel={panel} error={errorMessage} />
           <PanelRenderer
-            title="Raw data"
+            title={t('dashboard.panel-editor-table-view.title-raw-data', 'Raw data')}
             pluginId="table"
             width={innerWidth}
             height={innerHeight}

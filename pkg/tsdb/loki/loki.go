@@ -14,26 +14,26 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/grafana/grafana/pkg/infra/httpclient"
-	"github.com/grafana/grafana/pkg/infra/log"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
+
 	"github.com/grafana/grafana/pkg/infra/tracing"
+	"github.com/grafana/grafana/pkg/promlib/models"
+	"github.com/grafana/grafana/pkg/services/contexthandler"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	ngalertmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/tsdb/loki/kinds/dataquery"
 )
 
-var logger = log.New("tsdb.loki")
-
 type Service struct {
-	im       instancemgmt.InstanceManager
-	features featuremgmt.FeatureToggles
-	tracer   tracing.Tracer
-	logger   *log.ConcreteLogger
+	im     instancemgmt.InstanceManager
+	tracer tracing.Tracer
+	logger log.Logger
 }
 
 var (
@@ -42,24 +42,23 @@ var (
 	_ backend.CallResourceHandler = (*Service)(nil)
 )
 
-func ProvideService(httpClientProvider httpclient.Provider, features featuremgmt.FeatureToggles, tracer tracing.Tracer) *Service {
+func ProvideService(httpClientProvider *httpclient.Provider, tracer tracing.Tracer) *Service {
 	return &Service{
-		im:       datasource.NewInstanceManager(newInstanceSettings(httpClientProvider)),
-		features: features,
-		tracer:   tracer,
-		logger:   logger,
+		im:     datasource.NewInstanceManager(newInstanceSettings(httpClientProvider)),
+		tracer: tracer,
+		logger: backend.NewLoggerWith("logger", "tsdb.loki"),
 	}
 }
 
 var (
 	legendFormat = regexp.MustCompile(`\{\{\s*(.+?)\s*\}\}`)
-)
 
-// Used in logging to mark a stage
-var (
 	stagePrepareRequest  = "prepareRequest"
 	stageDatabaseRequest = "databaseRequest"
 	stageParseResponse   = "parseResponse"
+
+	dashboardTitleHeader = "X-Dashboard-Title"
+	panelTitleHeader     = "X-Panel-Title"
 )
 
 type datasourceInfo struct {
@@ -73,13 +72,13 @@ type datasourceInfo struct {
 
 type QueryJSONModel struct {
 	dataquery.LokiDataQuery
-	Direction           *string `json:"direction,omitempty"`
-	SupportingQueryType *string `json:"supportingQueryType"`
+	Direction           *string              `json:"direction,omitempty"`
+	SupportingQueryType *string              `json:"supportingQueryType"`
+	Scopes              []models.ScopeFilter `json:"scopes"`
 }
 
 type ResponseOpts struct {
-	metricDataplane bool
-	logsDataplane   bool
+	logsDataplane bool
 }
 
 func parseQueryModel(raw json.RawMessage) (*QueryJSONModel, error) {
@@ -88,12 +87,13 @@ func parseQueryModel(raw json.RawMessage) (*QueryJSONModel, error) {
 	return model, err
 }
 
-func newInstanceSettings(httpClientProvider httpclient.Provider) datasource.InstanceFactoryFunc {
+func newInstanceSettings(httpClientProvider *httpclient.Provider) datasource.InstanceFactoryFunc {
 	return func(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 		opts, err := settings.HTTPClientOptions(ctx)
 		if err != nil {
 			return nil, err
 		}
+		opts.ForwardHTTPHeaders = true
 
 		client, err := httpClientProvider.New(opts)
 		if err != nil {
@@ -121,18 +121,7 @@ func (s *Service) CallResource(ctx context.Context, req *backend.CallResourceReq
 
 func callResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender, dsInfo *datasourceInfo, plog log.Logger, tracer tracing.Tracer) error {
 	url := req.URL
-	// a very basic is-this-url-valid check
-	if req.Method != "GET" {
-		plog.Error("Invalid HTTP method", "method", req.Method)
-		return fmt.Errorf("invalid HTTP method: %s", req.Method)
-	}
-	if (!strings.HasPrefix(url, "labels?")) &&
-		(!strings.HasPrefix(url, "label/")) && // the `/label/$label_name/values` form
-		(!strings.HasPrefix(url, "series?")) &&
-		(!strings.HasPrefix(url, "index/stats?")) {
-		plog.Error("Invalid URL", "url", url)
-		return fmt.Errorf("invalid URL: %s", url)
-	}
+
 	lokiURL := fmt.Sprintf("/loki/api/v1/%s", url)
 
 	ctx, span := tracer.Start(ctx, "datasource.loki.CallResource", trace.WithAttributes(
@@ -142,13 +131,30 @@ func callResource(ctx context.Context, req *backend.CallResourceRequest, sender 
 
 	api := newLokiAPI(dsInfo.HTTPClient, dsInfo.URL, plog, tracer, false)
 
-	rawLokiResponse, err := api.RawQuery(ctx, lokiURL)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		plog.Error("Failed resource call from loki", "err", err, "url", lokiURL)
-		return err
+	var rawLokiResponse RawLokiResponse
+	var err error
+
+	// suggestions is a resource endpoint that will return label and label value suggestions based
+	// on queries and the existing scope. By moving this to the backend we can use the logql parser to
+	// rewrite queries safely.
+	if req.Method == http.MethodPost && strings.EqualFold(req.Path, "suggestions") {
+		rawLokiResponse, err = GetSuggestions(ctx, api, req)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			plog.FromContext(ctx).Error("Failed to get suggestions from loki", "err", err)
+			return err
+		}
+	} else {
+		rawLokiResponse, err = api.RawQuery(ctx, lokiURL)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			plog.Error("Failed resource call from loki", "err", err, "url", lokiURL)
+			return err
+		}
 	}
+
 	respHeaders := map[string][]string{
 		"content-type": {"application/json"},
 	}
@@ -165,7 +171,7 @@ func callResource(ctx context.Context, req *backend.CallResourceRequest, sender 
 func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	dsInfo, err := s.getDSInfo(ctx, req.PluginContext)
 	_, fromAlert := req.Headers[ngalertmodels.FromAlertHeaderName]
-	logger := logger.FromContext(ctx).New("fromAlert", fromAlert)
+	logger := s.logger.FromContext(ctx).With("fromAlert", fromAlert)
 	if err != nil {
 		logger.Error("Failed to get data source info", "err", err)
 		result := backend.NewQueryDataResponse()
@@ -173,20 +179,40 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 	}
 
 	responseOpts := ResponseOpts{
-		metricDataplane: s.features.IsEnabled(ctx, featuremgmt.FlagLokiMetricDataplane),
-		logsDataplane:   s.features.IsEnabled(ctx, featuremgmt.FlagLokiLogsDataplane),
+		logsDataplane: isFeatureEnabled(ctx, featuremgmt.FlagLokiLogsDataplane),
 	}
 
-	return queryData(ctx, req, dsInfo, responseOpts, s.tracer, logger, s.features.IsEnabled(ctx, featuremgmt.FlagLokiRunQueriesInParallel), s.features.IsEnabled(ctx, featuremgmt.FlagLokiStructuredMetadata))
+	if isFeatureEnabled(ctx, featuremgmt.FlagLokiSendDashboardPanelNames) {
+		s.applyHeaders(ctx, req)
+	}
+
+	return queryData(ctx, req, dsInfo, responseOpts, s.tracer, logger, isFeatureEnabled(ctx, featuremgmt.FlagLokiRunQueriesInParallel), isFeatureEnabled(ctx, featuremgmt.FlagLokiStructuredMetadata), isFeatureEnabled(ctx, featuremgmt.FlagLogQLScope))
 }
 
-func queryData(ctx context.Context, req *backend.QueryDataRequest, dsInfo *datasourceInfo, responseOpts ResponseOpts, tracer tracing.Tracer, plog log.Logger, runInParallel bool, requestStructuredMetadata bool) (*backend.QueryDataResponse, error) {
+func (s *Service) applyHeaders(ctx context.Context, req backend.ForwardHTTPHeaders) {
+	reqCtx := contexthandler.FromContext(ctx)
+	if req == nil || reqCtx == nil || reqCtx.Req == nil {
+		return
+	}
+
+	var hList = []string{dashboardTitleHeader, panelTitleHeader}
+
+	for _, hName := range hList {
+		hVal := reqCtx.Req.Header.Get(hName)
+		if hVal == "" {
+			continue
+		}
+		req.SetHTTPHeader(hName, hVal)
+	}
+}
+
+func queryData(ctx context.Context, req *backend.QueryDataRequest, dsInfo *datasourceInfo, responseOpts ResponseOpts, tracer tracing.Tracer, plog log.Logger, runInParallel bool, requestStructuredMetadata, logQLScopes bool) (*backend.QueryDataResponse, error) {
 	result := backend.NewQueryDataResponse()
 
 	api := newLokiAPI(dsInfo.HTTPClient, dsInfo.URL, plog, tracer, requestStructuredMetadata)
 
 	start := time.Now()
-	queries, err := parseQuery(req)
+	queries, err := parseQuery(req, logQLScopes)
 	if err != nil {
 		plog.Error("Failed to prepare request to Loki", "error", err, "duration", time.Since(start), "queriesLength", len(queries), "stage", stagePrepareRequest)
 		return result, err
@@ -263,8 +289,12 @@ func runQuery(ctx context.Context, api *LokiAPI, query *lokiQuery, responseOpts 
 	}
 
 	for _, frame := range res.Frames {
-		err = adjustFrame(frame, query, !responseOpts.metricDataplane, responseOpts.logsDataplane)
+		// Skip frames without fields
+		if len(frame.Fields) < 2 {
+			continue
+		}
 
+		err = adjustFrame(frame, query, false, responseOpts.logsDataplane)
 		if err != nil {
 			plog.Error("Error adjusting frame", "error", err)
 			return res, err
@@ -286,4 +316,8 @@ func (s *Service) getDSInfo(ctx context.Context, pluginCtx backend.PluginContext
 	}
 
 	return instance, nil
+}
+
+func isFeatureEnabled(ctx context.Context, feature string) bool {
+	return backend.GrafanaConfigFromContext(ctx).FeatureToggles().IsEnabled(feature)
 }

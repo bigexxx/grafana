@@ -28,9 +28,9 @@ func TestLibraryElementPermissionsGeneralFolder(t *testing.T) {
 	for _, testCase := range generalFolderCases {
 		testScenario(t, fmt.Sprintf("When %s tries to create a library panel in the General folder, it should return correct status", testCase.role),
 			func(t *testing.T, sc scenarioContext) {
-				sc.reqContext.SignedInUser.OrgRole = testCase.role
+				sc.reqContext.OrgRole = testCase.role
 
-				command := getCreatePanelCommand(0, "Library Panel Name")
+				command := getCreatePanelCommand(0, "", "Library Panel Name")
 				sc.reqContext.Req.Body = mockRequestBody(command)
 				resp := sc.service.createHandler(sc.reqContext)
 				require.Equal(t, testCase.status, resp.Status())
@@ -38,13 +38,13 @@ func TestLibraryElementPermissionsGeneralFolder(t *testing.T) {
 
 		testScenario(t, fmt.Sprintf("When %s tries to patch a library panel by moving it to the General folder, it should return correct status", testCase.role),
 			func(t *testing.T, sc scenarioContext) {
-				folder := createFolder(t, sc, "Folder")
+				folder := createFolder(t, sc, "Folder", nil)
 				// nolint:staticcheck
-				command := getCreatePanelCommand(folder.ID, "Library Panel Name")
+				command := getCreatePanelCommand(folder.ID, folder.UID, "Library Panel Name")
 				sc.reqContext.Req.Body = mockRequestBody(command)
 				resp := sc.service.createHandler(sc.reqContext)
 				result := validateAndUnMarshalResponse(t, resp)
-				sc.reqContext.SignedInUser.OrgRole = testCase.role
+				sc.reqContext.OrgRole = testCase.role
 
 				// nolint:staticcheck
 				cmd := model.PatchLibraryElementCommand{FolderID: 0, Version: 1, Kind: int64(model.PanelElement)}
@@ -56,12 +56,12 @@ func TestLibraryElementPermissionsGeneralFolder(t *testing.T) {
 
 		testScenario(t, fmt.Sprintf("When %s tries to patch a library panel by moving it from the General folder, it should return correct status", testCase.role),
 			func(t *testing.T, sc scenarioContext) {
-				folder := createFolder(t, sc, "Folder")
-				command := getCreatePanelCommand(0, "Library Panel Name")
+				folder := createFolder(t, sc, "Folder", nil)
+				command := getCreatePanelCommand(0, "", "Library Panel Name")
 				sc.reqContext.Req.Body = mockRequestBody(command)
 				resp := sc.service.createHandler(sc.reqContext)
 				result := validateAndUnMarshalResponse(t, resp)
-				sc.reqContext.SignedInUser.OrgRole = testCase.role
+				sc.reqContext.OrgRole = testCase.role
 
 				// nolint:staticcheck
 				cmd := model.PatchLibraryElementCommand{FolderID: folder.ID, Version: 1, Kind: int64(model.PanelElement)}
@@ -73,11 +73,11 @@ func TestLibraryElementPermissionsGeneralFolder(t *testing.T) {
 
 		testScenario(t, fmt.Sprintf("When %s tries to delete a library panel in the General folder, it should return correct status", testCase.role),
 			func(t *testing.T, sc scenarioContext) {
-				cmd := getCreatePanelCommand(0, "Library Panel Name")
+				cmd := getCreatePanelCommand(0, "", "Library Panel Name")
 				sc.reqContext.Req.Body = mockRequestBody(cmd)
 				resp := sc.service.createHandler(sc.reqContext)
 				result := validateAndUnMarshalResponse(t, resp)
-				sc.reqContext.SignedInUser.OrgRole = testCase.role
+				sc.reqContext.OrgRole = testCase.role
 
 				sc.ctx.Req = web.SetURLParams(sc.ctx.Req, map[string]string{":uid": result.Result.UID})
 				resp = sc.service.deleteHandler(sc.reqContext)
@@ -86,7 +86,7 @@ func TestLibraryElementPermissionsGeneralFolder(t *testing.T) {
 
 		testScenario(t, fmt.Sprintf("When %s tries to get a library panel from General folder, it should return correct response", testCase.role),
 			func(t *testing.T, sc scenarioContext) {
-				cmd := getCreatePanelCommand(0, "Library Panel in General Folder")
+				cmd := getCreatePanelCommand(0, "", "Library Panel in General Folder")
 				sc.reqContext.Req.Body = mockRequestBody(cmd)
 				resp := sc.service.createHandler(sc.reqContext)
 				result := validateAndUnMarshalResponse(t, resp)
@@ -95,8 +95,9 @@ func TestLibraryElementPermissionsGeneralFolder(t *testing.T) {
 				result.Result.Meta.UpdatedBy.Name = userInDbName
 				result.Result.Meta.UpdatedBy.AvatarUrl = userInDbAvatar
 				result.Result.Meta.FolderName = "General"
-				result.Result.Meta.FolderUID = ""
-				sc.reqContext.SignedInUser.OrgRole = testCase.role
+				result.Result.Meta.FolderUID = "general"
+				result.Result.FolderUID = "general"
+				sc.reqContext.OrgRole = testCase.role
 
 				sc.ctx.Req = web.SetURLParams(sc.ctx.Req, map[string]string{":uid": result.Result.UID})
 				resp = sc.service.getHandler(sc.reqContext)
@@ -111,7 +112,7 @@ func TestLibraryElementPermissionsGeneralFolder(t *testing.T) {
 
 		testScenario(t, fmt.Sprintf("When %s tries to get all library panels from General folder, it should return correct response", testCase.role),
 			func(t *testing.T, sc scenarioContext) {
-				cmd := getCreatePanelCommand(0, "Library Panel in General Folder")
+				cmd := getCreatePanelCommand(0, "", "Library Panel in General Folder")
 				sc.reqContext.Req.Body = mockRequestBody(cmd)
 				resp := sc.service.createHandler(sc.reqContext)
 				result := validateAndUnMarshalResponse(t, resp)
@@ -120,7 +121,7 @@ func TestLibraryElementPermissionsGeneralFolder(t *testing.T) {
 				result.Result.Meta.UpdatedBy.Name = userInDbName
 				result.Result.Meta.UpdatedBy.AvatarUrl = userInDbAvatar
 				result.Result.Meta.FolderName = "General"
-				sc.reqContext.SignedInUser.OrgRole = testCase.role
+				sc.reqContext.OrgRole = testCase.role
 
 				resp = sc.service.getAllHandler(sc.reqContext)
 				require.Equal(t, 200, resp.Status())
@@ -144,7 +145,7 @@ func TestLibraryElementCreatePermissions(t *testing.T) {
 		{
 			desc: "can create library elements when granted write access to the correct folder",
 			permissions: map[string][]string{
-				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("Folder")},
+				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("uid_for_Folder")},
 				dashboards.ActionFoldersRead:  {dashboards.ScopeFoldersProvider.GetResourceAllScope()},
 			},
 			status: http.StatusOK,
@@ -160,7 +161,7 @@ func TestLibraryElementCreatePermissions(t *testing.T) {
 		{
 			desc: "can't create library elements when granted write access to the wrong folder",
 			permissions: map[string][]string{
-				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("Other_folder")},
+				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("uid_for_Other_folder")},
 				dashboards.ActionFoldersRead:  {dashboards.ScopeFoldersProvider.GetResourceAllScope()},
 			},
 			status: http.StatusForbidden,
@@ -168,7 +169,7 @@ func TestLibraryElementCreatePermissions(t *testing.T) {
 		{
 			desc: "can't create library elements when granted read access to the right folder",
 			permissions: map[string][]string{
-				dashboards.ActionFoldersRead: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("Folder")},
+				dashboards.ActionFoldersRead: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("uid_for_Folder")},
 			},
 			status: http.StatusForbidden,
 		},
@@ -177,13 +178,13 @@ func TestLibraryElementCreatePermissions(t *testing.T) {
 	for _, testCase := range accessCases {
 		testScenario(t, testCase.desc,
 			func(t *testing.T, sc scenarioContext) {
-				folder := createFolder(t, sc, "Folder")
-				sc.reqContext.SignedInUser.Permissions = map[int64]map[string][]string{
+				folder := createFolder(t, sc, "Folder", nil)
+				sc.reqContext.Permissions = map[int64]map[string][]string{
 					1: testCase.permissions,
 				}
 
 				// nolint:staticcheck
-				command := getCreatePanelCommand(folder.ID, "Library Panel Name")
+				command := getCreatePanelCommand(folder.ID, folder.UID, "Library Panel Name")
 				sc.reqContext.Req.Body = mockRequestBody(command)
 				resp := sc.service.createHandler(sc.reqContext)
 				require.Equal(t, testCase.status, resp.Status())
@@ -200,7 +201,7 @@ func TestLibraryElementPatchPermissions(t *testing.T) {
 		{
 			desc: "can move library elements when granted write access to the source and destination folders",
 			permissions: map[string][]string{
-				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("FromFolder"), dashboards.ScopeFoldersProvider.GetResourceScopeUID("ToFolder")},
+				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("uid_for_FromFolder"), dashboards.ScopeFoldersProvider.GetResourceScopeUID("uid_for_ToFolder")},
 				dashboards.ActionFoldersRead:  {dashboards.ScopeFoldersProvider.GetResourceAllScope()},
 			},
 			status: http.StatusOK,
@@ -234,21 +235,21 @@ func TestLibraryElementPatchPermissions(t *testing.T) {
 	for _, testCase := range accessCases {
 		testScenario(t, testCase.desc,
 			func(t *testing.T, sc scenarioContext) {
-				fromFolder := createFolder(t, sc, "FromFolder")
+				fromFolder := createFolder(t, sc, "FromFolder", nil)
 				// nolint:staticcheck
-				command := getCreatePanelCommand(fromFolder.ID, "Library Panel Name")
+				command := getCreatePanelCommand(fromFolder.ID, fromFolder.UID, "Library Panel Name")
 				sc.reqContext.Req.Body = mockRequestBody(command)
 				resp := sc.service.createHandler(sc.reqContext)
 				result := validateAndUnMarshalResponse(t, resp)
 
-				toFolder := createFolder(t, sc, "ToFolder")
+				toFolder := createFolder(t, sc, "ToFolder", nil)
 
-				sc.reqContext.SignedInUser.Permissions = map[int64]map[string][]string{
+				sc.reqContext.Permissions = map[int64]map[string][]string{
 					1: testCase.permissions,
 				}
 
 				// nolint:staticcheck
-				cmd := model.PatchLibraryElementCommand{FolderID: toFolder.ID, Version: 1, Kind: int64(model.PanelElement)}
+				cmd := model.PatchLibraryElementCommand{FolderID: toFolder.ID, FolderUID: &toFolder.UID, Version: 1, Kind: int64(model.PanelElement)}
 				sc.ctx.Req = web.SetURLParams(sc.ctx.Req, map[string]string{":uid": result.Result.UID})
 				sc.reqContext.Req.Body = mockRequestBody(cmd)
 				resp = sc.service.patchHandler(sc.reqContext)
@@ -266,7 +267,8 @@ func TestLibraryElementDeletePermissions(t *testing.T) {
 		{
 			desc: "can delete library elements when granted write access to the correct folder",
 			permissions: map[string][]string{
-				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("Folder")},
+				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("uid_for_Folder")},
+				dashboards.ActionFoldersRead:  {dashboards.ScopeFoldersProvider.GetResourceScopeUID("uid_for_Folder")},
 			},
 			status: http.StatusOK,
 		},
@@ -274,6 +276,7 @@ func TestLibraryElementDeletePermissions(t *testing.T) {
 			desc: "can delete library elements when granted write access to all folders",
 			permissions: map[string][]string{
 				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceAllScope()},
+				dashboards.ActionFoldersRead:  {dashboards.ScopeFoldersProvider.GetResourceAllScope()},
 			},
 			status: http.StatusOK,
 		},
@@ -281,6 +284,7 @@ func TestLibraryElementDeletePermissions(t *testing.T) {
 			desc: "can't delete library elements when granted write access to the wrong folder",
 			permissions: map[string][]string{
 				dashboards.ActionFoldersWrite: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("Other_folder")},
+				dashboards.ActionFoldersRead:  {dashboards.ScopeFoldersProvider.GetResourceScopeUID("Other_folder")},
 			},
 			status: http.StatusForbidden,
 		},
@@ -296,14 +300,14 @@ func TestLibraryElementDeletePermissions(t *testing.T) {
 	for _, testCase := range accessCases {
 		testScenario(t, testCase.desc,
 			func(t *testing.T, sc scenarioContext) {
-				folder := createFolder(t, sc, "Folder")
+				folder := createFolder(t, sc, "Folder", sc.service.folderService)
 				// nolint:staticcheck
-				command := getCreatePanelCommand(folder.ID, "Library Panel Name")
+				command := getCreatePanelCommand(folder.ID, folder.UID, "Library Panel Name")
 				sc.reqContext.Req.Body = mockRequestBody(command)
 				resp := sc.service.createHandler(sc.reqContext)
 				result := validateAndUnMarshalResponse(t, resp)
 
-				sc.reqContext.SignedInUser.Permissions = map[int64]map[string][]string{
+				sc.reqContext.Permissions = map[int64]map[string][]string{
 					1: testCase.permissions,
 				}
 
@@ -317,27 +321,29 @@ func TestLibraryElementDeletePermissions(t *testing.T) {
 func TestLibraryElementsWithMissingFolders(t *testing.T) {
 	testScenario(t, "When a user tries to create a library panel in a folder that doesn't exist, it should fail",
 		func(t *testing.T, sc scenarioContext) {
-			command := getCreatePanelCommand(-100, "Library Panel Name")
+			command := getCreatePanelCommand(0, "badFolderUID", "Library Panel Name")
 			sc.reqContext.Req.Body = mockRequestBody(command)
 			resp := sc.service.createHandler(sc.reqContext)
-			require.Equal(t, 404, resp.Status())
+			fmt.Println(string(resp.Body()))
+			require.Equal(t, 400, resp.Status())
 		})
 
 	testScenario(t, "When a user tries to patch a library panel by moving it to a folder that doesn't exist, it should fail",
 		func(t *testing.T, sc scenarioContext) {
-			folder := createFolder(t, sc, "Folder")
+			folder := createFolder(t, sc, "Folder", nil)
 			// nolint:staticcheck
-			command := getCreatePanelCommand(folder.ID, "Library Panel Name")
+			command := getCreatePanelCommand(folder.ID, folder.UID, "Library Panel Name")
 			sc.reqContext.Req.Body = mockRequestBody(command)
 			resp := sc.service.createHandler(sc.reqContext)
 			result := validateAndUnMarshalResponse(t, resp)
 
+			folderUID := "badFolderUID"
 			// nolint:staticcheck
-			cmd := model.PatchLibraryElementCommand{FolderID: -100, Version: 1, Kind: int64(model.PanelElement)}
+			cmd := model.PatchLibraryElementCommand{FolderID: -100, FolderUID: &folderUID, Version: 1, Kind: int64(model.PanelElement)}
 			sc.ctx.Req = web.SetURLParams(sc.ctx.Req, map[string]string{":uid": result.Result.UID})
 			sc.reqContext.Req.Body = mockRequestBody(cmd)
 			resp = sc.service.patchHandler(sc.reqContext)
-			require.Equal(t, 404, resp.Status())
+			require.Equal(t, 400, resp.Status())
 		})
 }
 
@@ -359,15 +365,15 @@ func TestLibraryElementsGetPermissions(t *testing.T) {
 			permissions: map[string][]string{
 				dashboards.ActionFoldersRead: {dashboards.ScopeFoldersProvider.GetResourceScopeUID("Other_folder")},
 			},
-			status: http.StatusNotFound,
+			status: http.StatusForbidden,
 		},
 	}
 	for _, testCase := range getCases {
 		testScenario(t, testCase.desc,
 			func(t *testing.T, sc scenarioContext) {
-				folder := createFolder(t, sc, "Folder")
+				folder := createFolder(t, sc, "Folder", nil)
 				// nolint:staticcheck
-				cmd := getCreatePanelCommand(folder.ID, "Library Panel")
+				cmd := getCreatePanelCommand(folder.ID, folder.UID, "Library Panel")
 				sc.reqContext.Req.Body = mockRequestBody(cmd)
 				resp := sc.service.createHandler(sc.reqContext)
 				result := validateAndUnMarshalResponse(t, resp)
@@ -378,8 +384,8 @@ func TestLibraryElementsGetPermissions(t *testing.T) {
 				result.Result.Meta.FolderName = folder.Title
 				result.Result.Meta.FolderUID = folder.UID
 
-				sc.reqContext.SignedInUser.OrgRole = org.RoleViewer
-				sc.reqContext.SignedInUser.Permissions = map[int64]map[string][]string{
+				sc.reqContext.OrgRole = org.RoleViewer
+				sc.reqContext.Permissions = map[int64]map[string][]string{
 					1: testCase.permissions,
 				}
 
@@ -416,17 +422,17 @@ func TestLibraryElementsGetAllPermissions(t *testing.T) {
 		testScenario(t, testCase.desc,
 			func(t *testing.T, sc scenarioContext) {
 				for i := 1; i <= 2; i++ {
-					folder := createFolder(t, sc, fmt.Sprintf("Folder%d", i))
+					folder := createFolder(t, sc, fmt.Sprintf("Folder%d", i), nil)
 					// nolint:staticcheck
-					cmd := getCreatePanelCommand(folder.ID, fmt.Sprintf("Library Panel %d", i))
+					cmd := getCreatePanelCommand(folder.ID, folder.UID, fmt.Sprintf("Library Panel %d", i))
 					sc.reqContext.Req.Body = mockRequestBody(cmd)
 					resp := sc.service.createHandler(sc.reqContext)
 					result := validateAndUnMarshalResponse(t, resp)
 					result.Result.Meta.FolderUID = folder.UID
 				}
 
-				sc.reqContext.SignedInUser.OrgRole = org.RoleViewer
-				sc.reqContext.SignedInUser.Permissions = map[int64]map[string][]string{
+				sc.reqContext.OrgRole = org.RoleViewer
+				sc.reqContext.Permissions = map[int64]map[string][]string{
 					1: testCase.permissions,
 				}
 

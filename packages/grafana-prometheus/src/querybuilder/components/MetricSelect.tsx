@@ -1,27 +1,28 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/querybuilder/components/MetricSelect.tsx
 import { css } from '@emotion/css';
 import debounce from 'debounce-promise';
-import React, { RefCallback, useCallback, useState } from 'react';
+import { RefCallback, useCallback, useState } from 'react';
+import * as React from 'react';
 import Highlighter from 'react-highlight-words';
 
 import { GrafanaTheme2, SelectableValue, toOption } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
-import { EditorField, EditorFieldGroup } from '@grafana/experimental';
-import { config } from '@grafana/runtime';
+import { EditorField, EditorFieldGroup } from '@grafana/plugin-ui';
 import {
   AsyncSelect,
   Button,
-  CustomScrollbar,
   FormatOptionLabelMeta,
   getSelectStyles,
   Icon,
   InlineField,
   InlineFieldRow,
+  ScrollContainer,
+  SelectMenuOptions,
   useStyles2,
   useTheme2,
 } from '@grafana/ui';
 
 import { PrometheusDatasource } from '../../datasource';
-import { SelectMenuOptions } from '../../gcopypaste/packages/grafana-ui/src/components/Select/SelectBase';
 import { truncateResult } from '../../language_utils';
 import { regexifyLabelValuesQueryString } from '../parsingUtils';
 import { QueryBuilderLabelFilter } from '../shared/types';
@@ -55,17 +56,15 @@ export function MetricSelect({
   metricLookupDisabled,
   onBlur,
   variableEditor,
-}: MetricSelectProps) {
+}: Readonly<MetricSelectProps>) {
   const styles = useStyles2(getStyles);
   const [state, setState] = useState<{
-    metrics?: Array<SelectableValue<any>>;
+    metrics?: SelectableValue[];
     isLoading?: boolean;
     metricsModalOpen?: boolean;
     initialMetrics?: string[];
     resultsTruncated?: boolean;
   }>({});
-
-  const prometheusMetricEncyclopedia = config.featureToggles.prometheusMetricEncyclopedia;
 
   const metricsModalOption: SelectableValue[] = [
     {
@@ -75,36 +74,28 @@ export function MetricSelect({
     },
   ];
 
-  const customFilterOption = useCallback(
-    (option: SelectableValue<any>, searchQuery: string) => {
-      const label = option.label ?? option.value;
-      if (!label) {
-        return false;
-      }
+  const customFilterOption = useCallback((option: SelectableValue, searchQuery: string) => {
+    const label = option.label ?? option.value;
+    if (!label) {
+      return false;
+    }
 
-      // custom value is not a string label but a react node
-      if (!label.toLowerCase) {
-        return true;
-      }
+    // custom value is not a string label but a react node
+    if (!label.toLowerCase) {
+      return true;
+    }
 
-      const searchWords = searchQuery.split(splitSeparator);
+    const searchWords = searchQuery.split(splitSeparator);
 
-      return searchWords.reduce((acc, cur) => {
-        const matcheSearch = label.toLowerCase().includes(cur.toLowerCase());
-
-        let browseOption = false;
-        if (prometheusMetricEncyclopedia) {
-          browseOption = label === 'Metrics explorer';
-        }
-
-        return acc && (matcheSearch || browseOption);
-      }, true);
-    },
-    [prometheusMetricEncyclopedia]
-  );
+    return searchWords.reduce((acc, cur) => {
+      const matcheSearch = label.toLowerCase().includes(cur.toLowerCase());
+      const browseOption = label === 'Metrics explorer';
+      return acc && (matcheSearch || browseOption);
+    }, true);
+  }, []);
 
   const formatOptionLabel = useCallback(
-    (option: SelectableValue<any>, meta: FormatOptionLabelMeta<any>) => {
+    (option: SelectableValue, meta: FormatOptionLabelMeta<any>) => {
       // For newly created custom value we don't want to add highlight
       if (option['__isNew__']) {
         return option.label;
@@ -157,11 +148,7 @@ export function MetricSelect({
         };
       });
 
-      if (prometheusMetricEncyclopedia) {
-        return [...metricsModalOption, ...resultsOptions];
-      } else {
-        return resultsOptions;
-      }
+      return [...metricsModalOption, ...resultsOptions];
     });
   };
 
@@ -189,7 +176,7 @@ export function MetricSelect({
           {...props.innerProps}
           ref={props.innerRef}
           className={`${styles.customOptionWidth} metric-encyclopedia-open`}
-          aria-label="Select option"
+          data-testid={selectors.components.Select.option}
           onKeyDown={(e) => {
             // if there is no metric and the m.e. is enabled, open the modal
             if (e.code === 'Enter') {
@@ -240,12 +227,12 @@ export function MetricSelect({
       <div
         {...innerProps}
         className={`${stylesMenu.menu} ${styles.customMenuContainer}`}
-        style={{ maxHeight }}
+        style={{ maxHeight: Math.round(maxHeight * 0.9) }}
         aria-label="Select options menu"
       >
-        <CustomScrollbar scrollRefCallback={innerRef} autoHide={false} autoHeightMax="inherit" hideHorizontalTrack>
+        <ScrollContainer ref={innerRef} showScrollIndicators>
           {children}
-        </CustomScrollbar>
+        </ScrollContainer>
         {optionsLoaded && (
           <div className={styles.customMenuFooter}>
             <div>
@@ -262,7 +249,7 @@ export function MetricSelect({
     return (
       <AsyncSelect
         data-testid={selectors.components.DataSource.Prometheus.queryEditor.builder.metricSelect}
-        isClearable={variableEditor ? true : false}
+        isClearable={Boolean(variableEditor)}
         inputId="prometheus-metric-select"
         className={styles.select}
         value={query.metric ? toOption(query.metric) : undefined}
@@ -270,6 +257,7 @@ export function MetricSelect({
         allowCustomValue
         formatOptionLabel={formatOptionLabel}
         filterOption={customFilterOption}
+        minMenuHeight={250}
         onOpenMenu={async () => {
           if (metricLookupDisabled) {
             return;
@@ -283,31 +271,23 @@ export function MetricSelect({
             truncateResult(metrics);
           }
 
-          if (prometheusMetricEncyclopedia) {
-            setState({
-              // add the modal butoon option to the options
-              metrics: [...metricsModalOption, ...metrics],
-              isLoading: undefined,
-              // pass the initial metrics into the metrics explorer
-              initialMetrics: initialMetrics,
-              resultsTruncated: resultsLength > metrics.length,
-            });
-          } else {
-            setState({
-              metrics,
-              isLoading: undefined,
-              resultsTruncated: resultsLength > metrics.length,
-            });
-          }
+          setState({
+            // add the modal button option to the options
+            metrics: [...metricsModalOption, ...metrics],
+            isLoading: undefined,
+            // pass the initial metrics into the metrics explorer
+            initialMetrics: initialMetrics,
+            resultsTruncated: resultsLength > metrics.length,
+          });
         }}
         loadOptions={metricLookupDisabled ? metricLookupDisabledSearch : debouncedSearch}
         isLoading={state.isLoading}
-        defaultOptions={state.metrics}
+        defaultOptions={state.metrics ?? Array.from(new Array(25), () => ({ value: '' }))} // We need empty values when `state.metrics` is falsy in order for the select to correctly determine top/bottom placement
         onChange={(input) => {
           const value = input?.value;
           if (value) {
-            // if there is no metric and the m.e. is enabled, open the modal
-            if (prometheusMetricEncyclopedia && value === 'BrowseMetrics') {
+            // if there is no metric and the value is the custom m.e. option, open the modal
+            if (value === 'BrowseMetrics') {
               tracking('grafana_prometheus_metric_encyclopedia_open', null, '', query);
               setState({ ...state, metricsModalOpen: true });
             } else {
@@ -317,17 +297,15 @@ export function MetricSelect({
             onChange({ ...query, metric: '' });
           }
         }}
-        components={
-          prometheusMetricEncyclopedia ? { Option: CustomOption, MenuList: CustomMenu } : { MenuList: CustomMenu }
-        }
-        onBlur={onBlur ? onBlur : () => {}}
+        components={{ Option: CustomOption, MenuList: CustomMenu }}
+        onBlur={onBlur}
       />
     );
   };
 
   return (
     <>
-      {prometheusMetricEncyclopedia && !datasource.lookupsDisabled && state.metricsModalOpen && (
+      {!datasource.lookupsDisabled && state.metricsModalOpen && (
         <MetricsModal
           datasource={datasource}
           isOpen={state.metricsModalOpen}
@@ -358,53 +336,53 @@ export function MetricSelect({
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  select: css`
-    min-width: 125px;
-  `,
-  highlight: css`
-    label: select__match-highlight;
-    background: inherit;
-    padding: inherit;
-    color: ${theme.colors.warning.contrastText};
-    background-color: ${theme.colors.warning.main};
-  `,
-  customOption: css`
-    padding: 8px;
-    display: flex;
-    justify-content: space-between;
-    cursor: pointer;
-    :hover {
-      background-color: ${theme.colors.emphasize(theme.colors.background.primary, 0.1)};
-    }
-  `,
-  customOptionlabel: css`
-    color: ${theme.colors.text.primary};
-  `,
-  customOptionDesc: css`
-    color: ${theme.colors.text.secondary};
-    font-size: ${theme.typography.size.xs};
-    opacity: 50%;
-  `,
-  focus: css`
-    background-color: ${theme.colors.emphasize(theme.colors.background.primary, 0.1)};
-  `,
-  customOptionWidth: css`
-    min-width: 400px;
-  `,
-  customMenuFooter: css`
-    flex: 0;
-    display: flex;
-    justify-content: space-between;
-    padding: ${theme.spacing(1.5)};
-    border-top: 1px solid ${theme.colors.border.weak};
-    color: ${theme.colors.text.secondary};
-  `,
-  customMenuContainer: css`
-    display: flex;
-    flex-direction: column;
-    background: ${theme.colors.background.primary};
-    box-shadow: ${theme.shadows.z3};
-  `,
+  select: css({
+    minWidth: '125px',
+  }),
+  highlight: css({
+    label: 'select__match-highlight',
+    background: 'inherit',
+    padding: 'inherit',
+    color: theme.colors.warning.contrastText,
+    backgroundColor: theme.colors.warning.main,
+  }),
+  customOption: css({
+    padding: '8px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    cursor: 'pointer',
+    ':hover': {
+      backgroundColor: theme.colors.emphasize(theme.colors.background.primary, 0.1),
+    },
+  }),
+  customOptionlabel: css({
+    color: theme.colors.text.primary,
+  }),
+  customOptionDesc: css({
+    color: theme.colors.text.secondary,
+    fontSize: theme.typography.size.xs,
+    opacity: '50%',
+  }),
+  focus: css({
+    backgroundColor: theme.colors.emphasize(theme.colors.background.primary, 0.1),
+  }),
+  customOptionWidth: css({
+    minWidth: '400px',
+  }),
+  customMenuFooter: css({
+    flex: 0,
+    display: 'flex',
+    justifyContent: 'space-between',
+    padding: theme.spacing(1.5),
+    borderTop: `1px solid ${theme.colors.border.weak}`,
+    color: theme.colors.text.secondary,
+  }),
+  customMenuContainer: css({
+    display: 'flex',
+    flexDirection: 'column',
+    background: theme.colors.background.primary,
+    boxShadow: theme.shadows.z3,
+  }),
 });
 
 export const formatPrometheusLabelFiltersToString = (

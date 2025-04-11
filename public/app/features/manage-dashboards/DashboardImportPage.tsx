@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import React, { PureComponent } from 'react';
+import { PureComponent } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
 
 import { AppEvents, GrafanaTheme2, LoadingState, NavModelItem } from '@grafana/data';
@@ -127,6 +127,7 @@ class UnthemedDashboardImport extends PureComponent<Props> {
     const styles = importStyles(this.props.theme);
 
     const GcomDashboardsLink = () => (
+      // eslint-disable-next-line @grafana/no-untranslated-strings
       <TextLink variant="bodySmall" href="https://grafana.com/grafana/dashboards/" external>
         grafana.com/dashboards
       </TextLink>
@@ -256,15 +257,15 @@ export default DashboardImport;
 
 const importStyles = stylesFactory((theme: GrafanaTheme2) => {
   return {
-    option: css`
-      margin-bottom: ${theme.spacing(4)};
-      max-width: 600px;
-    `,
-    labelWithLink: css`
-      max-width: 100%;
-    `,
-    linkWithinLabel: css`
-      font-size: inherit;
-    `,
+    option: css({
+      marginBottom: theme.spacing(4),
+      maxWidth: '600px',
+    }),
+    labelWithLink: css({
+      maxWidth: '100%',
+    }),
+    linkWithinLabel: css({
+      fontSize: 'inherit',
+    }),
   };
 });

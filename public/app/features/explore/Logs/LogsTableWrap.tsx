@@ -1,6 +1,7 @@
 import { css } from '@emotion/css';
 import { Resizable, ResizeCallback } from 're-resizable';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import * as React from 'react';
 
 import {
   DataFrame,
@@ -12,8 +13,9 @@ import {
   SplitOpen,
   TimeRange,
 } from '@grafana/data';
-import { reportInteraction } from '@grafana/runtime/src';
-import { InlineField, Select, Themeable2 } from '@grafana/ui/';
+import { reportInteraction } from '@grafana/runtime';
+import { InlineField, Select, Themeable2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { parseLogsFrame } from '../../logs/logsFrame';
 
@@ -491,14 +493,17 @@ export function LogsTableWrap(props: Props) {
         {logsFrames.length > 1 && (
           <div>
             <InlineField
-              label="Select query"
+              label={t('explore.logs-table-wrap.label-select-query', 'Select query')}
               htmlFor="explore_logs_table_frame_selector"
               labelWidth={22}
-              tooltip="Select a query to visualize in the table."
+              tooltip={t(
+                'explore.logs-table-wrap.tooltip-select-query-visualize-table',
+                'Select a query to visualize in the table'
+              )}
             >
               <Select
                 inputId={'explore_logs_table_frame_selector'}
-                aria-label={'Select query by name'}
+                aria-label={t('explore.logs-table-wrap.aria-label-select-query-by-name', 'Select query by name')}
                 value={currentDataFrame.refId}
                 options={logsFrames.map((frame) => {
                   return {
@@ -567,7 +572,9 @@ function getStyles(theme: GrafanaTheme2, height: number, width: number) {
     }),
     rzHandle: css({
       background: theme.colors.secondary.main,
-      transition: '0.3s background ease-in-out',
+      [theme.transitions.handleMotion('no-preference', 'reduce')]: {
+        transition: '0.3s background ease-in-out',
+      },
       position: 'relative',
       height: '50% !important',
       width: `${theme.spacing(1)} !important`,

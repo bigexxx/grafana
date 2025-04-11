@@ -71,7 +71,7 @@ func (m *service) Run(ctx context.Context) error {
 		return nil
 	}
 
-	var svcs []services.Service
+	svcs := make([]services.Service, 0, len(m.serviceMap))
 	for _, s := range m.serviceMap {
 		svcs = append(svcs, s)
 	}
@@ -100,8 +100,9 @@ func (m *service) Run(ctx context.Context) error {
 		return err
 	}
 
-	err = m.serviceManager.AwaitStopped(ctx)
-	if err != nil {
+	stopCtx := context.Background()
+	if err = m.serviceManager.AwaitStopped(stopCtx); err != nil {
+		m.log.Error("Failed to stop module service manager", "error", err)
 		return err
 	}
 

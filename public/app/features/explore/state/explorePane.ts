@@ -11,16 +11,15 @@ import {
   ExploreCorrelationHelperData,
   EventBusExtended,
 } from '@grafana/data';
+import { CorrelationData } from '@grafana/runtime';
 import { DataQuery, DataSourceRef } from '@grafana/schema';
 import { getQueryKeys } from 'app/core/utils/explore';
-import { CorrelationData } from 'app/features/correlations/useCorrelations';
 import { getCorrelationsBySourceUIDs } from 'app/features/correlations/utils';
 import { getTimeZone } from 'app/features/profile/state/selectors';
 import { createAsyncThunk, ThunkResult } from 'app/types';
 import { ExploreItemState } from 'app/types/explore';
 
 import { datasourceReducer } from './datasource';
-import { richHistorySearchFiltersUpdatedAction, richHistoryUpdatedAction } from './main';
 import { queryReducer, runQueries } from './query';
 import { timeReducer, updateTime } from './time';
 import {
@@ -213,23 +212,6 @@ export const paneReducer = (state: ExploreItemState = makeExplorePaneState(), ac
   state = queryReducer(state, action);
   state = datasourceReducer(state, action);
   state = timeReducer(state, action);
-
-  if (richHistoryUpdatedAction.match(action)) {
-    const { richHistory, total } = action.payload.richHistoryResults;
-    return {
-      ...state,
-      richHistory,
-      richHistoryTotal: total,
-    };
-  }
-
-  if (richHistorySearchFiltersUpdatedAction.match(action)) {
-    const richHistorySearchFilters = action.payload.filters;
-    return {
-      ...state,
-      richHistorySearchFilters,
-    };
-  }
 
   if (changeSizeAction.match(action)) {
     const containerWidth = action.payload.width;

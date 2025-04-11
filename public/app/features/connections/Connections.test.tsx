@@ -1,8 +1,7 @@
-import { render, RenderResult, screen } from '@testing-library/react';
-import React from 'react';
-import { TestProvider } from 'test/helpers/TestProvider';
+import { RenderResult, screen } from '@testing-library/react';
+import { Route, Routes } from 'react-router-dom-v5-compat';
+import { render } from 'test/test-utils';
 
-import { locationService } from '@grafana/runtime';
 import { contextSrv } from 'app/core/services/context_srv';
 import { getMockDataSources } from 'app/features/datasources/__mocks__';
 import * as api from 'app/features/datasources/api';
@@ -12,21 +11,27 @@ import { getPluginsStateMock } from '../plugins/admin/__mocks__';
 
 import Connections from './Connections';
 import { navIndex } from './__mocks__/store.navIndex.mock';
-import { ROUTE_BASE_ID, ROUTES } from './constants';
+import { ROUTES } from './constants';
 
 jest.mock('app/core/services/context_srv');
 jest.mock('app/features/datasources/api');
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  useChromeHeaderHeight: jest.fn(),
+}));
 
 const renderPage = (
-  path = `/${ROUTE_BASE_ID}`,
+  path: string = ROUTES.Base,
   store = configureStore({ navIndex, plugins: getPluginsStateMock([]) })
 ): RenderResult => {
-  locationService.push(path);
-
   return render(
-    <TestProvider store={store}>
-      <Connections />
-    </TestProvider>
+    <Routes>
+      <Route path={`${ROUTES.Base}/*`} element={<Connections />} />
+    </Routes>,
+    {
+      store,
+      historyOptions: { initialEntries: [path] },
+    }
   );
 };
 
@@ -64,7 +69,7 @@ describe('Connections', () => {
 
     // We expect to see no results and "Data sources" as a header (we only have data sources in OSS Grafana at this point)
     expect(await screen.findByText('Data sources')).toBeVisible();
-    expect(await screen.findByText('No results matching your query were found.')).toBeVisible();
+    expect(await screen.findByText('No results matching your query were found')).toBeVisible();
   });
 
   test('does not render anything for the "Add new connection" page in case it is displayed by a standalone plugin page', async () => {
@@ -97,6 +102,6 @@ describe('Connections', () => {
 
     // We expect not to see the text that would be rendered by the core "Add new connection" page
     expect(screen.queryByText('Data sources')).not.toBeInTheDocument();
-    expect(screen.queryByText('No results matching your query were found.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No results matching your query were found')).not.toBeInTheDocument();
   });
 });

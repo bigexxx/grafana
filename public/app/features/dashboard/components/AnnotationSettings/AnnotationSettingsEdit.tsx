@@ -1,5 +1,6 @@
 import { css } from '@emotion/css';
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import * as React from 'react';
 import { useAsync } from 'react-use';
 
 import {
@@ -23,11 +24,12 @@ import {
   Select,
   useStyles2,
   Stack,
+  Alert,
 } from '@grafana/ui';
 import { ColorValueEditor } from 'app/core/components/OptionsUI/color';
 import config from 'app/core/config';
+import { Trans, t } from 'app/core/internationalization';
 import StandardAnnotationQueryEditor from 'app/features/annotations/components/StandardAnnotationQueryEditor';
-import { AngularEditorLoader } from 'app/features/dashboard-scene/settings/annotations/AngularEditorLoader';
 import { DataSourcePicker } from 'app/features/datasources/components/picker/DataSourcePicker';
 
 import { DashboardModel } from '../../state/DashboardModel';
@@ -175,9 +177,9 @@ export const AnnotationSettingsEdit = ({ editIdx, dashboard }: Props) => {
   return (
     <div>
       <FieldSet className={styles.settingsForm}>
-        <Field label="Name">
+        <Field label={t('dashboard.annotation-settings-edit.label-name', 'Name')}>
           <Input
-            aria-label={selectors.pages.Dashboard.Settings.Annotations.Settings.name}
+            data-testid={selectors.pages.Dashboard.Settings.Annotations.Settings.name}
             name="name"
             id="name"
             autoFocus={isNewAnnotation}
@@ -185,30 +187,61 @@ export const AnnotationSettingsEdit = ({ editIdx, dashboard }: Props) => {
             onChange={onNameChange}
           />
         </Field>
-        <Field label="Data source" htmlFor="data-source-picker">
+        <Field
+          label={t('dashboard.annotation-settings-edit.label-data-source', 'Data source')}
+          htmlFor="data-source-picker"
+        >
           <DataSourcePicker annotations variables current={annotation.datasource} onChange={onDataSourceChange} />
         </Field>
-        <Field label="Enabled" description="When enabled the annotation query is issued every dashboard refresh">
+        {!ds?.meta.annotations && (
+          <Alert
+            title={t(
+              'dashboard.annotation-settings-edit.title-annotation-support-source',
+              'No annotation support for this data source'
+            )}
+            severity="error"
+          >
+            <Trans i18nKey="errors.dashboard-settings.annotations.datasource">
+              The selected data source does not support annotations. Please select a different data source.
+            </Trans>
+          </Alert>
+        )}
+        <Field
+          label={t('dashboard.annotation-settings-edit.label-enabled', 'Enabled')}
+          description={t(
+            'dashboard.annotation-settings-edit.description-enabled-annotation-query-issued-every-dashboard',
+            'When enabled the annotation query is issued every dashboard refresh'
+          )}
+        >
           <Checkbox name="enable" id="enable" value={annotation.enable} onChange={onChange} />
         </Field>
         <Field
-          label="Hidden"
+          label={t('dashboard.annotation-settings-edit.label-hidden', 'Hidden')}
           description="Annotation queries can be toggled on or off at the top of the dashboard. With this option checked this toggle will be hidden."
         >
           <Checkbox name="hide" id="hide" value={annotation.hide} onChange={onChange} />
         </Field>
-        <Field label="Color" description="Color to use for the annotation event markers">
+        <Field
+          label={t('dashboard.annotation-settings-edit.label-color', 'Color')}
+          description={t(
+            'dashboard.annotation-settings-edit.description-color-annotation-event-markers',
+            'Color to use for the annotation event markers'
+          )}
+        >
           <HorizontalGroup>
             <ColorValueEditor value={annotation?.iconColor} onChange={onColorChange} />
           </HorizontalGroup>
         </Field>
-        <Field label="Show in" aria-label={selectors.pages.Dashboard.Settings.Annotations.NewAnnotation.showInLabel}>
+        <Field
+          label={t('dashboard.annotation-settings-edit.label-show-in', 'Show in')}
+          data-testid={selectors.pages.Dashboard.Settings.Annotations.NewAnnotation.showInLabel}
+        >
           <>
             <Select
               options={panelFilters}
               value={panelFilter}
               onChange={onFilterTypeChange}
-              aria-label={selectors.components.Annotations.annotationsTypeInput}
+              data-testid={selectors.components.Annotations.annotationsTypeInput}
             />
             {panelFilter !== PanelFilterType.AllPanels && (
               <MultiSelect
@@ -216,18 +249,20 @@ export const AnnotationSettingsEdit = ({ editIdx, dashboard }: Props) => {
                 value={panels.filter((panel) => annotation.filter?.ids.includes(panel.value!))}
                 onChange={onAddFilterPanelID}
                 isClearable={true}
-                placeholder="Choose panels"
+                placeholder={t('dashboard.annotation-settings-edit.placeholder-choose-panels', 'Choose panels')}
                 width={100}
                 closeMenuOnSelect={false}
                 className={styles.select}
-                aria-label={selectors.components.Annotations.annotationsChoosePanelInput}
+                data-testid={selectors.components.Annotations.annotationsChoosePanelInput}
               />
             )}
           </>
         </Field>
       </FieldSet>
       <FieldSet>
-        <h3 className="page-heading">Query</h3>
+        <h3 className="page-heading">
+          <Trans i18nKey="dashboard.annotation-settings-edit.query">Query</Trans>
+        </h3>
         {ds?.annotations && dsi && (
           <StandardAnnotationQueryEditor
             datasource={ds}
@@ -236,12 +271,11 @@ export const AnnotationSettingsEdit = ({ editIdx, dashboard }: Props) => {
             onChange={onUpdate}
           />
         )}
-        {ds && !ds.annotations && <AngularEditorLoader datasource={ds} annotation={annotation} onChange={onUpdate} />}
       </FieldSet>
       <Stack>
         {!annotation.builtIn && (
           <Button variant="destructive" onClick={onDelete}>
-            Delete
+            <Trans i18nKey="dashboard.annotation-settings-edit.delete">Delete</Trans>
           </Button>
         )}
         <Button
@@ -249,10 +283,10 @@ export const AnnotationSettingsEdit = ({ editIdx, dashboard }: Props) => {
           onClick={onPreview}
           data-testid={selectors.pages.Dashboard.Settings.Annotations.NewAnnotation.previewInDashboard}
         >
-          Preview in dashboard
+          <Trans i18nKey="dashboard.annotation-settings-edit.preview-in-dashboard">Preview in dashboard</Trans>
         </Button>
         <Button variant="primary" onClick={onApply}>
-          Apply
+          <Trans i18nKey="dashboard.annotation-settings-edit.apply">Apply</Trans>
         </Button>
       </Stack>
     </div>
@@ -265,9 +299,9 @@ const getStyles = (theme: GrafanaTheme2) => {
       maxWidth: theme.spacing(60),
       marginBottom: theme.spacing(2),
     }),
-    select: css`
-      margin-top: 8px;
-    `,
+    select: css({
+      marginTop: '8px',
+    }),
   };
 };
 

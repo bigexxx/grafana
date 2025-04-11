@@ -1,5 +1,3 @@
-import React from 'react';
-
 import { LoadingState } from '@grafana/data';
 import {
   SceneComponentProps,
@@ -11,7 +9,7 @@ import {
   SceneObjectState,
   VizPanel,
 } from '@grafana/scenes';
-import { t } from 'app/core/internationalization';
+import { t, Trans } from 'app/core/internationalization';
 import { InspectTab } from 'app/features/inspector/types';
 import { GetDataOptions } from 'app/features/query/state/PanelQueryRunner';
 
@@ -27,7 +25,7 @@ export class InspectDataTab extends SceneObjectBase<InspectDataTabState> {
     super({
       ...state,
       options: {
-        withTransforms: true,
+        withTransforms: false,
         withFieldConfig: true,
       },
     });
@@ -53,7 +51,9 @@ export class InspectDataTab extends SceneObjectBase<InspectDataTabState> {
     const timeRange = sceneGraph.getTimeRange(panel);
 
     if (!data) {
-      <div>No data found</div>;
+      <div>
+        <Trans i18nKey="dashboard-scene.inspect-data-tab.no-data-found">No data found</Trans>
+      </div>;
     }
 
     return (
@@ -64,7 +64,7 @@ export class InspectDataTab extends SceneObjectBase<InspectDataTabState> {
         hasTransformations={hasTransformations(dataProvider)}
         timeZone={timeRange.getTimeZone()}
         panelPluginId={panel.state.pluginId}
-        dataName={panel.state.title}
+        dataName={sceneGraph.interpolate(panel, panel.state.title)}
         fieldConfig={panel.state.fieldConfig}
         onOptionsChange={model.onOptionsChange}
       />
@@ -81,8 +81,8 @@ function hasTransformations(dataProvider: SceneDataProvider) {
 }
 
 function getDataProviderToSubscribeTo(dataProvider: SceneDataProvider, withTransforms: boolean) {
-  if (withTransforms && dataProvider instanceof SceneDataTransformer) {
-    return dataProvider.state.$data!;
+  if (!withTransforms && dataProvider instanceof SceneDataTransformer && dataProvider.state.$data) {
+    return dataProvider.state.$data;
   }
 
   return dataProvider;

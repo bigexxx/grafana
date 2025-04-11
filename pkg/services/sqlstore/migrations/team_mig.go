@@ -37,6 +37,14 @@ func addTeamMigrations(mg *Migrator) {
 		Cols: []string{"org_id", "uid"}, Type: UniqueIndex,
 	}))
 
+	mg.AddMigration("Add column external_uid in team", NewAddColumnMigration(teamV1, &Column{
+		Name: "external_uid", Type: DB_NVarchar, Length: 256, Nullable: true,
+	}))
+
+	mg.AddMigration("Add column is_provisioned in team", NewAddColumnMigration(teamV1, &Column{
+		Name: "is_provisioned", Type: DB_Bool, Nullable: true,
+	}))
+
 	teamMemberV1 := Table{
 		Name: "team_member",
 		Columns: []*Column{
@@ -51,6 +59,7 @@ func addTeamMigrations(mg *Migrator) {
 			{Cols: []string{"org_id"}},
 			{Cols: []string{"org_id", "team_id", "user_id"}, Type: UniqueIndex},
 			{Cols: []string{"team_id"}},
+			{Cols: []string{"user_id", "org_id"}},
 		},
 	}
 
@@ -73,4 +82,5 @@ func addTeamMigrations(mg *Migrator) {
 	mg.AddMigration("Add column permission to team_member table", NewAddColumnMigration(teamMemberV1, &Column{
 		Name: "permission", Type: DB_SmallInt, Nullable: true,
 	}))
+	mg.AddMigration("add unique index team_member_user_id_org_id", NewAddIndexMigration(teamMemberV1, teamMemberV1.Indices[3]))
 }

@@ -1,11 +1,12 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
-import { GrafanaTheme2 } from '@grafana/data/src';
-import { Alert, useStyles2 } from '@grafana/ui/src';
+import { GrafanaTheme2 } from '@grafana/data';
+import { Alert, useStyles2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { AlertmanagerChoice } from '../../../../plugins/datasource/alertmanager/types';
 import { alertmanagerApi } from '../api/alertmanagerApi';
+import { AlertingAction, useAlertingAbility } from '../hooks/useAbilities';
 import { GRAFANA_RULES_SOURCE_NAME } from '../utils/datasource';
 
 interface GrafanaAlertmanagerDeliveryWarningProps {
@@ -14,17 +15,25 @@ interface GrafanaAlertmanagerDeliveryWarningProps {
 
 export function GrafanaAlertmanagerDeliveryWarning({ currentAlertmanager }: GrafanaAlertmanagerDeliveryWarningProps) {
   const styles = useStyles2(getStyles);
-  const viewingInternalAM = currentAlertmanager === GRAFANA_RULES_SOURCE_NAME;
+  const externalAlertmanager = currentAlertmanager !== GRAFANA_RULES_SOURCE_NAME;
 
-  const { currentData: amChoiceStatus } = alertmanagerApi.endpoints.getAlertmanagerChoiceStatus.useQuery(undefined, {
-    skip: !viewingInternalAM,
-  });
+  const [readConfigurationStatusSupported, readConfigurationStatusAllowed] = useAlertingAbility(
+    AlertingAction.ReadConfigurationStatus
+  );
+  const canReadConfigurationStatus = readConfigurationStatusSupported && readConfigurationStatusAllowed;
+
+  const { currentData: amChoiceStatus } = alertmanagerApi.endpoints.getGrafanaAlertingConfigurationStatus.useQuery(
+    undefined,
+    {
+      skip: externalAlertmanager || !canReadConfigurationStatus,
+    }
+  );
 
   const interactsWithExternalAMs =
     amChoiceStatus?.alertmanagersChoice &&
     [AlertmanagerChoice.External, AlertmanagerChoice.All].includes(amChoiceStatus?.alertmanagersChoice);
 
-  if (!interactsWithExternalAMs || !viewingInternalAM) {
+  if (!interactsWithExternalAMs || externalAlertmanager) {
     return null;
   }
 
@@ -32,7 +41,12 @@ export function GrafanaAlertmanagerDeliveryWarning({ currentAlertmanager }: Graf
 
   if (amChoiceStatus.alertmanagersChoice === AlertmanagerChoice.External) {
     return (
-      <Alert title="Grafana alerts are not delivered to Grafana Alertmanager">
+      <Alert
+        title={t(
+          'alerting.grafana-alertmanager-delivery-warning.title-grafana-alerts-delivered-alertmanager',
+          'Grafana alerts are not delivered to Grafana Alertmanager'
+        )}
+      >
         Grafana is configured to send alerts to external Alertmanagers only. Changing Grafana Alertmanager configuration
         will not affect delivery of your alerts.
         <div className={styles.adminHint}>
@@ -45,7 +59,13 @@ export function GrafanaAlertmanagerDeliveryWarning({ currentAlertmanager }: Graf
 
   if (amChoiceStatus.alertmanagersChoice === AlertmanagerChoice.All && hasActiveExternalAMs) {
     return (
-      <Alert title="You have additional Alertmanagers to configure" severity="warning">
+      <Alert
+        title={t(
+          'alerting.grafana-alertmanager-delivery-warning.title-you-have-additional-alertmanagers-to-configure',
+          'You have additional Alertmanagers to configure'
+        )}
+        severity="warning"
+      >
         Ensure you make configuration changes in the correct Alertmanagers; both internal and external. Changing one
         will not affect the others.
         <div className={styles.adminHint}>
@@ -60,8 +80,8 @@ export function GrafanaAlertmanagerDeliveryWarning({ currentAlertmanager }: Graf
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  adminHint: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
-    font-weight: ${theme.typography.bodySmall.fontWeight};
-  `,
+  adminHint: css({
+    fontSize: theme.typography.bodySmall.fontSize,
+    fontWeight: theme.typography.bodySmall.fontWeight,
+  }),
 });

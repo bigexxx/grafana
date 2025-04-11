@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/grafana/grafana/pkg/util/errutil"
+	"github.com/grafana/grafana/pkg/apimachinery/errutil"
 )
 
 var ErrPrefNotFound = errors.New("preference not found")
@@ -65,8 +65,10 @@ type SavePreferenceCommand struct {
 	WeekStart         string                  `json:"weekStart,omitempty"`
 	Theme             string                  `json:"theme,omitempty"`
 	Language          string                  `json:"language,omitempty"`
+	Locale            string                  `json:"locale,omitempty"`
 	QueryHistory      *QueryHistoryPreference `json:"queryHistory,omitempty"`
 	CookiePreferences []CookieType            `json:"cookiePreferences,omitempty"`
+	Navbar            *NavbarPreference       `json:"navbar,omitempty"`
 }
 
 type PatchPreferenceCommand struct {
@@ -80,18 +82,26 @@ type PatchPreferenceCommand struct {
 	WeekStart         *string                 `json:"weekStart,omitempty"`
 	Theme             *string                 `json:"theme,omitempty"`
 	Language          *string                 `json:"language,omitempty"`
+	Locale            *string                 `json:"locale,omitempty"`
 	QueryHistory      *QueryHistoryPreference `json:"queryHistory,omitempty"`
 	CookiePreferences []CookieType            `json:"cookiePreferences,omitempty"`
+	Navbar            *NavbarPreference       `json:"navbar,omitempty"`
 }
 
 type PreferenceJSONData struct {
 	Language          string                 `json:"language"`
+	Locale            string                 `json:"locale"`
 	QueryHistory      QueryHistoryPreference `json:"queryHistory"`
 	CookiePreferences map[string]struct{}    `json:"cookiePreferences"`
+	Navbar            NavbarPreference       `json:"navbar"`
 }
 
 type QueryHistoryPreference struct {
 	HomeTab string `json:"homeTab"`
+}
+
+type NavbarPreference struct {
+	BookmarkUrls []string `json:"bookmarkUrls"`
 }
 
 func (j *PreferenceJSONData) FromDB(data []byte) error {

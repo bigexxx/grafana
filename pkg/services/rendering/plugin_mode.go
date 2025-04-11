@@ -6,17 +6,10 @@ import (
 	"fmt"
 
 	"github.com/grafana/grafana/pkg/plugins/backendplugin/pluginextensionv2"
-	"github.com/grafana/grafana/pkg/services/featuremgmt"
 )
 
 func (rs *RenderingService) renderViaPlugin(ctx context.Context, renderType RenderType, renderKey string, opts Opts) (*RenderResult, error) {
-	if renderType == RenderPDF {
-		if !rs.features.IsEnabled(ctx, featuremgmt.FlagNewPDFRendering) {
-			return nil, fmt.Errorf("feature 'newPDFRendering' disabled")
-		}
-
-		opts.Encoding = "pdf"
-	}
+	logger := rs.log.FromContext(ctx)
 
 	// gives plugin some additional time to timeout and return possible errors.
 	ctx, cancel := context.WithTimeout(ctx, getRequestTimeout(opts.TimeoutOpts))
@@ -36,7 +29,7 @@ func (rs *RenderingService) renderViaPlugin(ctx context.Context, renderType Rend
 	}
 
 	req := &pluginextensionv2.RenderRequest{
-		Url:               rs.getURL(opts.Path),
+		Url:               rs.getGrafanaCallbackURL(opts.Path),
 		Width:             int32(opts.Width),
 		Height:            int32(opts.Height),
 		DeviceScaleFactor: float32(opts.DeviceScaleFactor),
@@ -47,9 +40,9 @@ func (rs *RenderingService) renderViaPlugin(ctx context.Context, renderType Rend
 		Domain:            rs.domain,
 		Headers:           headers,
 		AuthToken:         rs.Cfg.RendererAuthToken,
-		Encoding:          opts.Encoding,
+		Encoding:          string(renderType),
 	}
-	rs.log.Debug("Calling renderer plugin", "req", req)
+	logger.Debug("Calling renderer plugin", "req", req)
 
 	rc, err := rs.plugin.Client()
 	if err != nil {
@@ -57,7 +50,7 @@ func (rs *RenderingService) renderViaPlugin(ctx context.Context, renderType Rend
 	}
 	rsp, err := rc.Render(ctx, req)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		rs.log.Info("Rendering timed out")
+		logger.Error("Rendering timed out")
 		return nil, ErrTimeout
 	}
 	if err != nil {
@@ -71,6 +64,8 @@ func (rs *RenderingService) renderViaPlugin(ctx context.Context, renderType Rend
 }
 
 func (rs *RenderingService) renderCSVViaPlugin(ctx context.Context, renderKey string, opts CSVOpts) (*RenderCSVResult, error) {
+	logger := rs.log.FromContext(ctx)
+
 	// gives plugin some additional time to timeout and return possible errors.
 	ctx, cancel := context.WithTimeout(ctx, getRequestTimeout(opts.TimeoutOpts))
 	defer cancel()
@@ -88,7 +83,7 @@ func (rs *RenderingService) renderCSVViaPlugin(ctx context.Context, renderKey st
 	}
 
 	req := &pluginextensionv2.RenderCSVRequest{
-		Url:       rs.getURL(opts.Path),
+		Url:       rs.getGrafanaCallbackURL(opts.Path),
 		FilePath:  filePath,
 		RenderKey: renderKey,
 		Domain:    rs.domain,
@@ -97,7 +92,7 @@ func (rs *RenderingService) renderCSVViaPlugin(ctx context.Context, renderKey st
 		Headers:   headers,
 		AuthToken: rs.Cfg.RendererAuthToken,
 	}
-	rs.log.Debug("Calling renderer plugin", "req", req)
+	logger.Debug("Calling renderer plugin", "req", req)
 
 	rc, err := rs.plugin.Client()
 	if err != nil {
@@ -107,7 +102,7 @@ func (rs *RenderingService) renderCSVViaPlugin(ctx context.Context, renderKey st
 	rsp, err := rc.RenderCSV(ctx, req)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			rs.log.Info("Rendering timed out")
+			logger.Error("Rendering timed out")
 			return nil, ErrTimeout
 		}
 

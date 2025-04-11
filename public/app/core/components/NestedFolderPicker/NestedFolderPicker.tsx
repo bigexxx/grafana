@@ -1,18 +1,22 @@
 import { css } from '@emotion/css';
 import { autoUpdate, flip, useClick, useDismiss, useFloating, useInteractions } from '@floating-ui/react';
 import debounce from 'debounce-promise';
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { config } from '@grafana/runtime';
-import { Alert, Icon, Input, LoadingBar, useStyles2 } from '@grafana/ui';
+import { Alert, Icon, Input, LoadingBar, Stack, Text, useStyles2 } from '@grafana/ui';
 import { t } from 'app/core/internationalization';
 import { skipToken, useGetFolderQuery } from 'app/features/browse-dashboards/api/browseDashboardsAPI';
 import { DashboardViewItemWithUIItems, DashboardsTreeItem } from 'app/features/browse-dashboards/types';
-import { QueryResponse, getGrafanaSearcher } from 'app/features/search/service';
+import { getGrafanaSearcher } from 'app/features/search/service/searcher';
+import { QueryResponse } from 'app/features/search/service/types';
 import { queryResultToViewItem } from 'app/features/search/service/utils';
 import { DashboardViewItem } from 'app/features/search/types';
+import { PermissionLevelString } from 'app/types';
 
+import { FolderRepo } from './FolderRepo';
 import { getDOMId, NestedFolderList } from './NestedFolderList';
 import Trigger from './Trigger';
 import { ROOT_FOLDER_ITEM, useFoldersQuery } from './useFoldersQuery';
@@ -31,6 +35,9 @@ export interface NestedFolderPickerProps {
   /* Folder UIDs to exclude from the picker, to prevent invalid operations */
   excludeUIDs?: string[];
 
+  /* Show folders matching this permission, mainly used to also show folders user can view. Defaults to showing only folders user has Edit  */
+  permission?: 'view' | 'edit';
+
   /* Callback for when the user selects a folder */
   onChange?: (folderUID: string | undefined, folderName: string | undefined) => void;
 
@@ -40,11 +47,12 @@ export interface NestedFolderPickerProps {
 
 const debouncedSearch = debounce(getSearchResults, 300);
 
-async function getSearchResults(searchQuery: string) {
+async function getSearchResults(searchQuery: string, permission?: PermissionLevelString) {
   const queryResponse = await getGrafanaSearcher().search({
     query: searchQuery,
     kind: ['folder'],
     limit: 100,
+    permission,
   });
 
   const items = queryResponse.view.map((v) => queryResultToViewItem(v, queryResponse.view));
@@ -57,6 +65,7 @@ export function NestedFolderPicker({
   showRootFolder = true,
   clearable = false,
   excludeUIDs,
+  permission = 'edit',
   onChange,
 }: NestedFolderPickerProps) {
   const styles = useStyles2(getStyles);
@@ -74,12 +83,23 @@ export function NestedFolderPicker({
   const [error] = useState<Error | undefined>(undefined); // TODO: error not populated anymore
   const lastSearchTimestamp = useRef<number>(0);
 
+  // Map the permission string union to enum value for compatibility
+  const permissionLevel = useMemo(() => {
+    if (permission === 'view') {
+      return PermissionLevelString.View;
+    } else if (permission === 'edit') {
+      return PermissionLevelString.Edit;
+    }
+
+    throw new Error('Invalid permission');
+  }, [permission]);
+
   const isBrowsing = Boolean(overlayOpen && !(search && searchResults));
   const {
     items: browseFlatTree,
     isLoading: isBrowseLoading,
     requestNextPage: fetchFolderPage,
-  } = useFoldersQuery(isBrowsing, foldersOpenState);
+  } = useFoldersQuery(isBrowsing, foldersOpenState, permissionLevel);
 
   useEffect(() => {
     if (!search) {
@@ -90,7 +110,7 @@ export function NestedFolderPicker({
     const timestamp = Date.now();
     setIsFetchingSearchResults(true);
 
-    debouncedSearch(search).then((queryResponse) => {
+    debouncedSearch(search, permissionLevel).then((queryResponse) => {
       // Only keep the results if it's was issued after the most recently resolved search.
       // This prevents results showing out of order if first request is slower than later ones.
       // We don't need to worry about clearing the isFetching state either - if there's a later
@@ -102,7 +122,7 @@ export function NestedFolderPicker({
         lastSearchTimestamp.current = timestamp;
       }
     });
-  }, [search]);
+  }, [search, permissionLevel]);
 
   // the order of middleware is important!
   const middleware = [
@@ -247,10 +267,20 @@ export function NestedFolderPicker({
     label = 'Dashboards';
   }
 
+  // Display the folder name and provisioning status when the picker is closed
+  const labelComponent = label ? (
+    <Stack alignItems={'center'}>
+      <Text truncate>{label}</Text>
+      <FolderRepo folder={selectedFolder.data} />
+    </Stack>
+  ) : (
+    ''
+  );
+
   if (!overlayOpen) {
     return (
       <Trigger
-        label={label}
+        label={labelComponent}
         handleClearSelection={clearable && value !== undefined ? handleClearSelection : undefined}
         invalid={invalid}
         isLoading={selectedFolder.isLoading}

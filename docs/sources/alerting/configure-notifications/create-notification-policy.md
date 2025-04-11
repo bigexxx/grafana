@@ -1,8 +1,9 @@
 ---
 aliases:
-  - ../notifications/ # /docs/grafana/latest/alerting/notifications/
-  - ../unified-alerting/notifications/ # /docs/grafana/latest/alerting/unified-alerting/notifications/
-  - ../alerting-rules/create-notification-policy/ # /docs/grafana/latest/alerting/alerting-rules/create-notification-policy/
+  - ../notifications/ # /docs/grafana/<GRAFANA_VERSION>/alerting/notifications/
+  - ../unified-alerting/notifications/ # /docs/grafana/<GRAFANA_VERSION>/alerting/unified-alerting/notifications/
+  - ../alerting-rules/create-notification-policy/ # /docs/grafana/<GRAFANA_VERSION>/alerting/alerting-rules/create-notification-policy/
+  - ../manage-notifications/create-notification-policy/ # /docs/grafana/<GRAFANA_VERSION>/alerting/manage-notifications/create-notification-policy/
 canonical: https://grafana.com/docs/grafana/latest/alerting/configure-notifications/create-notification-policy/
 description: Configure notification policies to determine how alerts are routed to contact points
 keywords:
@@ -18,95 +19,139 @@ labels:
     - oss
 title: Configure notification policies
 weight: 420
+refs:
+  alertmanager-architecture:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/configure-notifications/#alertmanager-architecture
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/configure-notifications/#alertmanager-architecture
+  intro-notification-policies:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/fundamentals/notifications/notification-policies/
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/fundamentals/notifications/notification-policies/
+  configure-mute-timings:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/configure-notifications/mute-timings/
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/configure-notifications/mute-timings/
+  configure-contact-points:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/configure-notifications/manage-contact-points/
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/configure-notifications/manage-contact-points/
+  policy-routing:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/fundamentals/notifications/notification-policies/#routing
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/fundamentals/notifications/notification-policies/#routing
+  policy-inheritance:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/fundamentals/notifications/notification-policies/#inheritance
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/fundamentals/notifications/notification-policies/#inheritance
+  policy-grouping:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/fundamentals/notifications/group-alert-notifications/#group-notifications
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/fundamentals/notifications/group-alert-notifications/#group-notifications
+  policy-timing-options:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/fundamentals/notifications/group-alert-notifications/#timing-options
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/fundamentals/notifications/group-alert-notifications/#timing-options
 ---
 
 # Configure notification policies
 
 Notification policies determine how alerts are routed to contact points.
 
-Policies have a tree structure, where each policy can have one or more nested policies. Each policy, except for the default policy, can also match specific alert labels.
+Policies have a tree structure. Each policy can have one or more child policies and a set of label matchers.
 
-Each alert is evaluated by the default policy and subsequently by each nested policy.
+Each alert (or alert instance) is evaluated by the default policy and subsequently by each child policy. Alerts are routed to the appropriate notification policy by matching alert labels with the policy's label matchers. For further details, refer to [label matching and routing in notification policies](ref:intro-notification-policies).
 
-If the **Continue matching subsequent sibling nodes** option is enabled for a nested policy, then evaluation continues even after one or more matches. A parent policy’s configuration settings and contact point information govern the behavior of an alert that does not match any of the nested policies. A default policy governs any alert that does not match a nested policy.
+{{< figure src="/media/docs/alerting/get-started-notification-policy-tree-combo.png" max-width="750px" alt="A diagram displaying how the notification policy tree routes alerts" >}}
 
-You can configure Grafana-managed notification policies as well as notification policies for an external Alertmanager data source.
+When an alert instance is assigned to a notification policy, the notification policy is responsible for:
 
-For more information on notification policies, see [fundamentals of Notification Policies][notification-policies].
+- [Grouping similar alerts](ref:policy-grouping) to minimize the number of notifications.
+- Controlling when notifications are sent using the [timing options](ref:policy-timing-options).
+- Determining the [contact points](ref:configure-contact-points) that receive the alert notification.
 
-## Edit default notification policy
+{{% admonition type="note" %}}
+The default notification policy and its child policies are assigned to a [specific Alertmanager](ref:alertmanager-architecture), and they cannot use contact points or mute timings from other Alertmanagers.
+{{% /admonition %}}
+
+## Edit the default notification policy
 
 1. In the left-side menu, click **Alerts & IRM** and then **Alerting**.
 1. Click **Notification policies**.
 1. From the **Choose Alertmanager** dropdown, select an external Alertmanager. By default, the **Grafana Alertmanager** is selected.
 1. In the Default policy section, click **...** -> **Edit**.
-1. In **Default contact point**, update the contact point to whom notifications should be sent for rules when alert rules do not match any specific policy.
-1. In **Group by**, choose labels to group alerts by. If multiple alerts are matched for this policy, then they are grouped by these labels. A notification is sent per group. If the field is empty (default), then all notifications are sent in a single group. Use a special label `...` to group alerts by all labels (which effectively disables grouping).
-1. In **Timing options**, select from the following options:
-   - **Group wait** Time to wait to buffer alerts of the same group before sending an initial notification. Default is 30 seconds.
-   - **Group interval** Minimum time interval between two notifications for a group. Default is 5 minutes.
-   - **Repeat interval** Minimum time interval for re-sending a notification if no new alerts were added to the group. Default is 4 hours.
+1. In **Default contact point**, update the [contact point](ref:configure-contact-points) for where to send notifications when alert rules do not match any specific policy.
+1. In **Group by**, choose labels to group alerts. If multiple alerts match this policy, they are grouped by the selected labels, and notifications are sent per group. For more details on using this option, refer to [Group notifications](ref:policy-grouping).
+1. In **Timing options**, set the [timing options](ref:policy-timing-options) to configure when notifications are sent.
+   - **Group wait**: the time to wait before sending the first notification for a new group of alerts. Default is 30 seconds.
+   - **Group interval**: the time to wait before sending a notification about changes in the alert group. Default is 5 minutes.
+   - **Repeat interval**: the time to wait before sending a notification if the group has not changed since the last notification. Default is 4 hours.
 1. Click **Save** to save your changes.
 
-## Add new nested policy
+## Add a child policy
 
-To create a new notification policy, you need to follow its tree structure. New policies created on the trunk of the tree (default policy), are the tree branches. And, subsequently, each branch can bear their own child policies. This is why you will always be adding a new **nested** policy under either the default policy, or under a already nested policy.
+You can create a child policy under a default policy or under an existing child policy.
+
+If you want to choose where to position your policy, see the section on **Add a sibling policy**.
 
 1. In the left-side menu, click **Alerts & IRM** and then **Alerting**.
 1. Click **Notification policies**.
 1. From the **Choose Alertmanager** dropdown, select an Alertmanager. By default, the **Grafana Alertmanager** is selected.
-1. To add a top level specific policy, go to the Specific routing section (either to the default policy, or to another existing policy in which you would like to add a new nested policy) and click **+New nested policy**.
-1. In the Matching labels section, add one or more rules for matching alert labels.
-1. In the **Contact point** dropdown, select the contact point to send notification to if alert matches only this specific policy and not any of the nested policies.
-1. Optionally, enable **Continue matching subsequent sibling nodes** to continue matching sibling policies even after the alert matched the current policy. When this option is enabled, you can get more than one notification for one alert.
-1. Optionally, enable **Override grouping** to specify the same grouping as the default policy. If this option is not enabled, the default policy grouping is used.
-1. Optionally, enable **Override general timings** to override the timing options configured in the group notification policy.
+1. Click **+New child policy** from the default policy or an existing child policy.
+1. In the Matching labels section of the child policy, add one or more matching label rules to narrow down a specific case from the parent policy.
+
+   For instance, a child policy of the default policy handles `team=security` alerts, or a child policy handles only the `severity=critical` alerts of a parent policy.
+
+1. In the **Contact point** dropdown, select the [contact point](ref:configure-contact-points) to send notifications. If left empty, the contact point of the parent policy is [inherited](ref:policy-inheritance).
+1. Optionally, enable **Continue matching subsequent sibling nodes** to continue matching sibling policies even after the alert matched the current policy. If enabled, multiple policies can handle the same alert.
+1. Optionally, enable **Override grouping** to set different [grouping](ref:policy-grouping) than the parent policy. If disabled, the grouping of the parent policy is [inherited](ref:policy-inheritance).
+1. Optionally, enable **Override general timings** to set different [timing options](ref:policy-timing-options) than the parent policy. If disabled, the timing options of the parent policy are [inherited](ref:policy-inheritance).
 1. Click **Save policy** to save your changes.
 
-## Add nested policy
+## Add a sibling policy
 
 1. In the left-side menu, click **Alerts & IRM** and then **Alerting**.
 1. Click **Notification policies**.
-1. Expand the specific policy you want to update.
-1. Click **+ Add nested policy**, then add the details using information in [Add new specific policy](#add-new-nested-policy).
-1. Click **Save policy** to save your changes.
+1. Find the child policy you want to create a sibling for.
+1. Click **Add new policy** -> **New sibling above** or **New sibling below**.
 
-## Edit notification policies
+   It's important to determine which policy receives the alert first and to set the correct order of sibling and child policies.
 
-1. In the left-side menu, click **Alerts & IRM**, and then **Alerting**.
-1. Click **Notification policies**.
-1. Find the policy you want to edit, then click **...** -> **Edit**.
-1. Make any changes using instructions in [Add new specific policy](#add-new-nested-policy).
-1. Save your changes.
+   Policies are evaluated from top to bottom. If a matching policy is found, the system continues to evaluate its child policies in the order they are displayed. For more details, refer to [notification policies routing](ref:policy-routing).
 
-## Searching for policies
+1. Follow the instructions from step 5 onward in [adding a child policy](#add-a-child-policy).
+
+## Search for policies
 
 Grafana allows you to search within the tree of policies by the following:
 
 - **Label matchers**
 - **Contact Points**
 
-To search by contact point simply select a contact point from the **Search by contact point** dropdown. The policies that use that contact point will be highlighted in the user interface.
+To search by contact point simply select a contact point from the **Search by contact point** dropdown. The policies that use that contact point are highlighted in the user interface.
 
 To search by label matchers simply enter a valid matcher in the **Search by matchers** input field. Multiple matchers can be combined with a comma (`,`).
 
-An example of a valid matchers search input is:
+It is important to note that all matched policies are **exact** matches. Grafana supports regular expressions for creating label matchers. It does not support regular expression or partial matching in the search for policies.
 
-`severity=high, region=~EMEA|NASA`
+## Mute timings
 
-> All matched policies will be **exact** matches, we currently do not support regex-style or partial matching.
+Mute timings are not inherited from a parent notification policy, and they have to be configured on each level. For instructions, refer to [Configure mute timings](ref:configure-mute-timings).
 
 ## Example
 
 An example of an alert configuration.
 
 - Create a "default" contact point for slack notifications, and set it on the default policy.
-- Edit the default policy grouping to group alerts by `cluster`, `namespace` and `severity` so that you get a notification per alert rule and specific kubernetes cluster and namespace.
+- Edit the default policy grouping to group alerts by `cluster`, `namespace` and `severity` so that you get a notification per alert rule and specific Kubernetes cluster and namespace.
 - Create specific route for alerts coming from the development cluster with an appropriate contact point.
 - Create a specific route for alerts with "critical" severity with a more invasive contact point integration, like pager duty notification.
 - Create specific routes for particular teams that handle their own on-call rotations.
-
-{{% docs/reference %}}
-[notification-policies]: "/docs/grafana/ -> /docs/grafana/<GRAFANA_VERSION>/alerting/fundamentals/notification-policies/notifications"
-[notification-policies]: "/docs/grafana-cloud/ -> /docs/grafana-cloud/alerting-and-irm/alerting/fundamentals/notification-policies/notifications"
-{{% /docs/reference %}}

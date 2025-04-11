@@ -1,18 +1,20 @@
 import { css, cx } from '@emotion/css';
-import React, { useCallback, useId, useMemo, useRef } from 'react';
+import { useCallback, useId, useMemo, useRef } from 'react';
+import * as React from 'react';
 import Skeleton from 'react-loading-skeleton';
 import { FixedSizeList as List } from 'react-window';
 import InfiniteLoader from 'react-window-infinite-loader';
 
 import { GrafanaTheme2 } from '@grafana/data';
-import { IconButton, useStyles2 } from '@grafana/ui';
-import { Text } from '@grafana/ui/src/components/Text/Text';
+import { IconButton, useStyles2, Text } from '@grafana/ui';
 import { Indent } from 'app/core/components/Indent/Indent';
 import { Trans } from 'app/core/internationalization';
 import { childrenByParentUIDSelector, rootItemsSelector } from 'app/features/browse-dashboards/state';
 import { DashboardsTreeItem } from 'app/features/browse-dashboards/types';
 import { DashboardViewItem } from 'app/features/search/types';
 import { useSelector } from 'app/types';
+
+import { FolderRepo } from './FolderRepo';
 
 const ROW_HEIGHT = 40;
 const CHEVRON_SIZE = 'md';
@@ -159,9 +161,13 @@ function Row({ index, style: virtualStyles, data }: RowProps) {
   }
 
   if (item.kind !== 'folder') {
+    const itemKind = item.kind;
+    const itemUID = item.uid;
     return process.env.NODE_ENV !== 'production' ? (
       <span style={virtualStyles} className={styles.row}>
-        Non-folder {item.kind} {item.uid}
+        <Trans i18nKey="browse-dashboards.folder-picker.non-folder-item">
+          Non-folder {{ itemKind }} {{ itemUID }}
+        </Trans>
       </span>
     ) : null;
   }
@@ -208,6 +214,7 @@ function Row({ index, style: virtualStyles, data }: RowProps) {
 
         <label className={styles.label} id={labelId}>
           <Text truncate>{item.title}</Text>
+          <FolderRepo folder={item} />
         </label>
       </div>
     </div>
@@ -271,6 +278,9 @@ const getStyles = (theme: GrafanaTheme2) => {
     rowBody,
 
     label: css({
+      display: 'flex',
+      alignItems: 'center',
+      gap: theme.spacing(1),
       lineHeight: ROW_HEIGHT + 'px',
       flexGrow: 1,
       minWidth: 0,

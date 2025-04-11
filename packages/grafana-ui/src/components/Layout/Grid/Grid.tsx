@@ -1,5 +1,6 @@
 import { css } from '@emotion/css';
-import React, { forwardRef, HTMLAttributes } from 'react';
+import { forwardRef, HTMLAttributes } from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2, ThemeSpacingTokens } from '@grafana/data';
 
@@ -11,6 +12,8 @@ interface GridPropsBase extends Omit<HTMLAttributes<HTMLDivElement>, 'className'
   children: NonNullable<React.ReactNode>;
   /** Specifies the gutters between columns and rows. It is overwritten when a column or row gap has a value. */
   gap?: ResponsiveProp<ThemeSpacingTokens>;
+  rowGap?: ResponsiveProp<ThemeSpacingTokens>;
+  columnGap?: ResponsiveProp<ThemeSpacingTokens>;
   alignItems?: ResponsiveProp<AlignItems>;
 }
 
@@ -32,8 +35,8 @@ interface PropsWithMinColumnWidth extends GridPropsBase {
 type GridProps = PropsWithColumns | PropsWithMinColumnWidth;
 
 export const Grid = forwardRef<HTMLDivElement, GridProps>((props, ref) => {
-  const { alignItems, children, gap, columns, minColumnWidth, ...rest } = props;
-  const styles = useStyles2(getGridStyles, gap, columns, minColumnWidth, alignItems);
+  const { alignItems, children, gap, rowGap, columnGap, columns, minColumnWidth, ...rest } = props;
+  const styles = useStyles2(getGridStyles, gap, rowGap, columnGap, columns, minColumnWidth, alignItems);
 
   return (
     <div ref={ref} {...rest} className={styles.grid}>
@@ -47,6 +50,8 @@ Grid.displayName = 'Grid';
 const getGridStyles = (
   theme: GrafanaTheme2,
   gap: GridProps['gap'],
+  rowGap: GridProps['rowGap'],
+  columnGap: GridProps['columnGap'],
   columns: GridProps['columns'],
   minColumnWidth: GridProps['minColumnWidth'],
   alignItems: GridProps['alignItems']
@@ -56,6 +61,12 @@ const getGridStyles = (
       { display: 'grid' },
       getResponsiveStyle(theme, gap, (val) => ({
         gap: theme.spacing(val),
+      })),
+      getResponsiveStyle(theme, rowGap, (val) => ({
+        rowGap: theme.spacing(val),
+      })),
+      getResponsiveStyle(theme, columnGap, (val) => ({
+        columnGap: theme.spacing(val),
       })),
       minColumnWidth &&
         getResponsiveStyle(theme, minColumnWidth, (val) => ({

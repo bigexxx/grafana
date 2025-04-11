@@ -93,6 +93,10 @@ func (f *RulerApiHandler) handleRouteGetGrafanaRulesConfig(ctx *contextmodel.Req
 	return f.GrafanaRuler.RouteGetRulesConfig(ctx)
 }
 
+func (f *RulerApiHandler) handleRouteGetRuleByUID(ctx *contextmodel.ReqContext, ruleUID string) response.Response {
+	return f.GrafanaRuler.RouteGetRuleByUID(ctx, ruleUID)
+}
+
 func (f *RulerApiHandler) handleRoutePostNameGrafanaRulesConfig(ctx *contextmodel.ReqContext, conf apimodels.PostableRuleGroupConfig, namespace string) response.Response {
 	payloadType := conf.Type()
 	if payloadType != apimodels.GrafanaBackend {
@@ -119,4 +123,12 @@ func (f *RulerApiHandler) getService(ctx *contextmodel.ReqContext) (*LotexRuler,
 		return nil, err
 	}
 	return f.LotexRuler, nil
+}
+
+func (f *RulerApiHandler) handleRouteGetRuleVersionsByUID(ctx *contextmodel.ReqContext, ruleUID string) response.Response {
+	return f.GrafanaRuler.RouteGetRuleVersionsByUID(ctx, ruleUID)
+}
+
+func (f *RulerApiHandler) handleRouteDeleteRuleFromTrashByGUID(ctx *contextmodel.ReqContext, ruleGUID string) response.Response {
+	return f.GrafanaRuler.RouteDeleteAlertRuleFromTrashByGUID(ctx, ruleGUID)
 }

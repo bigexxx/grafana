@@ -1,7 +1,133 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/querybuilder/parsing.test.ts
 import { buildVisualQueryFromString } from './parsing';
 import { PromOperationId, PromVisualQuery } from './types';
 
 describe('buildVisualQueryFromString', () => {
+  describe('info function support', () => {
+    // Currently, the visual query editor throws an error when parsing the 'info' function
+    // because this function is only supported in code mode.
+    // TODO: When visual query editor support for the 'info' function is implemented,
+    // this test should be updated to expect successful parsing instead of an error.
+    it('should throw error when trying to parse info function', () => {
+      expect(
+        buildVisualQueryFromString(
+          'sum by (cluster, sdk_language) ( info( rate(server_req_dur_sec_count{instance="the-instance"}[2m]), {sdk_language="go"} ) )'
+        )
+      ).toEqual({
+        query: {
+          labels: [
+            {
+              label: 'instance',
+              op: '=',
+              value: 'the-instance',
+            },
+            {
+              label: 'sdk_language',
+              op: '=',
+              value: 'go',
+            },
+          ],
+          metric: 'server_req_dur_sec_count',
+          operations: [
+            {
+              id: 'rate',
+              params: ['2m'],
+            },
+            {
+              id: 'info',
+              params: [],
+            },
+            {
+              id: '__sum_by',
+              params: ['cluster', 'sdk_language'],
+            },
+          ],
+        },
+        errors: [
+          {
+            from: 33,
+            text: 'Query parsing is ambiguous.',
+            to: 121,
+          },
+        ],
+      });
+    });
+  });
+
+  describe('utf8 support', () => {
+    it('supports uts-8 label names', () => {
+      expect(buildVisualQueryFromString('{"glück:🍀.dot"="luck"} == 11')).toEqual({
+        query: {
+          labels: [
+            {
+              label: 'glück:🍀.dot',
+              op: '=',
+              value: 'luck',
+            },
+          ],
+          metric: '',
+          operations: [
+            {
+              id: PromOperationId.EqualTo,
+              params: [11, false],
+            },
+          ],
+        },
+        errors: [],
+      });
+    });
+
+    it('supports uts-8 metric names', () => {
+      expect(buildVisualQueryFromString('{"I am a metric"}')).toEqual({
+        query: {
+          labels: [],
+          metric: 'I am a metric',
+          operations: [],
+        },
+        errors: [],
+      });
+    });
+
+    it('supports uts-8 metric names with labels', () => {
+      expect(buildVisualQueryFromString('{"metric.name", label_field="label value"}')).toEqual({
+        query: {
+          labels: [
+            {
+              label: 'label_field',
+              op: '=',
+              value: 'label value',
+            },
+          ],
+          metric: 'metric.name',
+          operations: [],
+        },
+        errors: [],
+      });
+    });
+
+    it('supports uts-8 metric names with utf8 labels', () => {
+      expect(buildVisualQueryFromString('{"metric.name", "glück:🍀.dot"="luck"} == 11')).toEqual({
+        query: {
+          labels: [
+            {
+              label: 'glück:🍀.dot',
+              op: '=',
+              value: 'luck',
+            },
+          ],
+          metric: 'metric.name',
+          operations: [
+            {
+              id: PromOperationId.EqualTo,
+              params: [11, false],
+            },
+          ],
+        },
+        errors: [],
+      });
+    });
+  });
+
   it('creates no errors for empty query', () => {
     expect(buildVisualQueryFromString('')).toEqual(
       noErrors({
@@ -11,6 +137,7 @@ describe('buildVisualQueryFromString', () => {
       })
     );
   });
+
   it('parses simple binary comparison', () => {
     expect(buildVisualQueryFromString('{app="aggregator"} == 11')).toEqual({
       query: {
@@ -55,6 +182,7 @@ describe('buildVisualQueryFromString', () => {
       errors: [],
     });
   });
+
   it('parses simple query', () => {
     expect(buildVisualQueryFromString('counters_logins{app="frontend"}')).toEqual(
       noErrors({
@@ -86,6 +214,7 @@ describe('buildVisualQueryFromString', () => {
         ],
       });
     });
+
     it('throws error when visual query parse with aggregation is ambiguous (scalar)', () => {
       expect(buildVisualQueryFromString('topk(5, 1 / 2)')).toMatchObject({
         errors: [
@@ -97,6 +226,7 @@ describe('buildVisualQueryFromString', () => {
         ],
       });
     });
+
     it('throws error when visual query parse with functionCall is ambiguous', () => {
       expect(
         buildVisualQueryFromString(
@@ -112,6 +242,7 @@ describe('buildVisualQueryFromString', () => {
         ],
       });
     });
+
     it('does not throw error when visual query parse is unambiguous', () => {
       expect(
         buildVisualQueryFromString('topk(5, node_arp_entries) / node_arp_entries{cluster="dev-eu-west-2"}')
@@ -119,12 +250,14 @@ describe('buildVisualQueryFromString', () => {
         errors: [],
       });
     });
+
     it('does not throw error when visual query parse is unambiguous (scalar)', () => {
       // Note this topk query with scalars is not valid in prometheus, but it does not currently throw an error during parse
       expect(buildVisualQueryFromString('topk(5, 1) / 2')).toMatchObject({
         errors: [],
       });
     });
+
     it('does not throw error when visual query parse is unambiguous, function call', () => {
       // Note this topk query with scalars is not valid in prometheus, but it does not currently throw an error during parse
       expect(
@@ -238,6 +371,31 @@ describe('buildVisualQueryFromString', () => {
     );
   });
 
+  it('parses query with aggregation by utf8 labels', () => {
+    const visQuery = {
+      metric: 'metric_name',
+      labels: [
+        {
+          label: 'instance',
+          op: '=',
+          value: 'internal:3000',
+        },
+      ],
+      operations: [
+        {
+          id: '__sum_by',
+          params: ['cluster', '"app.version"'],
+        },
+      ],
+    };
+    expect(
+      buildVisualQueryFromString('sum(metric_name{instance="internal:3000"}) by ("app.version", cluster)')
+    ).toEqual(noErrors(visQuery));
+    expect(
+      buildVisualQueryFromString('sum by ("app.version", cluster)(metric_name{instance="internal:3000"})')
+    ).toEqual(noErrors(visQuery));
+  });
+
   it('parses aggregation with params', () => {
     expect(buildVisualQueryFromString('topk(5, http_requests_total)')).toEqual(
       noErrors({
@@ -284,6 +442,28 @@ describe('buildVisualQueryFromString', () => {
           {
             id: 'histogram_quantile',
             params: [0.99],
+          },
+        ],
+      },
+    });
+  });
+
+  it('parses a native histogram function correctly', () => {
+    expect(
+      buildVisualQueryFromString('histogram_count(rate(counters_logins{app="backend"}[$__rate_interval]))')
+    ).toEqual({
+      errors: [],
+      query: {
+        metric: 'counters_logins',
+        labels: [{ label: 'app', op: '=', value: 'backend' }],
+        operations: [
+          {
+            id: 'rate',
+            params: ['$__rate_interval'],
+          },
+          {
+            id: 'histogram_count',
+            params: [],
           },
         ],
       },
@@ -434,6 +614,12 @@ describe('buildVisualQueryFromString', () => {
           to: 27,
           parentType: 'VectorSelector',
         },
+        {
+          text: ')',
+          from: 38,
+          to: 39,
+          parentType: 'PromQL',
+        },
       ],
       query: {
         metric: '${func_var}',
@@ -478,7 +664,7 @@ describe('buildVisualQueryFromString', () => {
           text: 'afe}',
           from: 14,
           to: 18,
-          parentType: 'LabelMatcher',
+          parentType: 'UnquotedLabelMatcher',
         },
       ],
       query: {
@@ -687,7 +873,7 @@ describe('buildVisualQueryFromString', () => {
       errors: [
         {
           from: 6,
-          parentType: 'Expr',
+          parentType: 'BinaryExpr',
           text: '(bar + baz)',
           to: 17,
         },
@@ -709,6 +895,58 @@ describe('buildVisualQueryFromString', () => {
         ],
       },
     });
+  });
+
+  it('strips enclosing quotes', () => {
+    expect(buildVisualQueryFromString("counters_logins{app='frontend', host=`localhost`}")).toEqual(
+      noErrors({
+        metric: 'counters_logins',
+        labels: [
+          {
+            op: '=',
+            value: 'frontend',
+            label: 'app',
+          },
+          {
+            op: '=',
+            value: 'localhost',
+            label: 'host',
+          },
+        ],
+        operations: [],
+      })
+    );
+  });
+
+  it('leaves escaped quotes inside string', () => {
+    expect(buildVisualQueryFromString('counters_logins{app="fron\\"\\"tend"}')).toEqual(
+      noErrors({
+        metric: 'counters_logins',
+        labels: [
+          {
+            op: '=',
+            value: 'fron\\"\\"tend',
+            label: 'app',
+          },
+        ],
+        operations: [],
+      })
+    );
+  });
+
+  it('parses the group function as an aggregation', () => {
+    expect(buildVisualQueryFromString('group by (job) (go_goroutines)')).toEqual(
+      noErrors({
+        metric: 'go_goroutines',
+        labels: [],
+        operations: [
+          {
+            id: '__group_by',
+            params: ['job'],
+          },
+        ],
+      })
+    );
   });
 });
 

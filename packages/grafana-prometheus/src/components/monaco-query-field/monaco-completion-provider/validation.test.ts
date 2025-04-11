@@ -1,3 +1,4 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/components/monaco-query-field/monaco-completion-provider/validation.test.ts
 import { parser } from '@prometheus-io/lezer-promql';
 
 import { validateQuery } from './validation';
@@ -48,10 +49,10 @@ describe('Monaco Query Validation', () => {
     query = 'max_over_time(deriv(rate(distance_covered_total[5s])[30s5s])[10m:])';
     expect(validateQuery(query, query, [query], parser)).toEqual([
       {
-        endColumn: 60,
+        endColumn: 59,
         endLineNumber: 1,
-        error: 'rate(distance_covered_total[5s])[30s5s]',
-        startColumn: 21,
+        error: '5s',
+        startColumn: 57,
         startLineNumber: 1,
       },
     ]);

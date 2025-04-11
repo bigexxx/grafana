@@ -1,9 +1,10 @@
 import { css, cx } from '@emotion/css';
-import React, { useMemo, PropsWithChildren } from 'react';
+import { useMemo, PropsWithChildren } from 'react';
 
 import { dateTime, DateTimeInput, GrafanaTheme2 } from '@grafana/data';
 
 import { useTheme2 } from '../../themes';
+import { t, Trans } from '../../utils/i18n';
 import { Tooltip } from '../Tooltip';
 
 import { UserView } from './types';
@@ -66,7 +67,7 @@ export const UserIcon = ({
       type={'button'}
       onClick={onClick}
       className={cx(styles.container, onClick && styles.pointer, className)}
-      aria-label={`${user.name} icon`}
+      aria-label={t('grafana-ui.user-icon.label', '{{name}} icon', { name: user.name })}
     >
       {children ? (
         <div className={cx(styles.content, styles.textContent)}>{children}</div>
@@ -85,7 +86,9 @@ export const UserIcon = ({
         <div className={styles.tooltipDate}>
           {isActive ? (
             <div className={styles.dotContainer}>
-              <span>Active last 15m</span>
+              <span>
+                <Trans i18nKey="grafana-ui.user-icon.active-text">Active last 15m</Trans>
+              </span>
               <span className={styles.dot}></span>
             </div>
           ) : (

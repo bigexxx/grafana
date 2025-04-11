@@ -9,23 +9,24 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/grafana/grafana/apps/playlist/pkg/apis/playlist/v0alpha1"
 	"github.com/grafana/grafana/pkg/api/dtos"
 	"github.com/grafana/grafana/pkg/api/response"
 	"github.com/grafana/grafana/pkg/api/routing"
-	"github.com/grafana/grafana/pkg/apis/playlist/v0alpha1"
 	"github.com/grafana/grafana/pkg/middleware"
-	internalplaylist "github.com/grafana/grafana/pkg/registry/apis/playlist"
+	internalplaylist "github.com/grafana/grafana/pkg/registry/apps/playlist"
 	grafanaapiserver "github.com/grafana/grafana/pkg/services/apiserver"
 	"github.com/grafana/grafana/pkg/services/apiserver/endpoints/request"
 	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/playlist"
-	"github.com/grafana/grafana/pkg/util/errutil/errhttp"
+	"github.com/grafana/grafana/pkg/util/errhttp"
 	"github.com/grafana/grafana/pkg/web"
 )
 
 func (hs *HTTPServer) registerPlaylistAPI(apiRoute routing.RouteRegister) {
 	// Register the actual handlers
+	// TODO: remove kubernetesPlaylists feature flag
 	apiRoute.Group("/playlists", func(playlistRoute routing.RouteRegister) {
 		if hs.Features.IsEnabledGlobally(featuremgmt.FlagKubernetesPlaylists) {
 			// Use k8s client to implement legacy API
@@ -50,7 +51,7 @@ func (hs *HTTPServer) registerPlaylistAPI(apiRoute routing.RouteRegister) {
 
 func (hs *HTTPServer) validateOrgPlaylist(c *contextmodel.ReqContext) {
 	uid := web.Params(c.Req)[":uid"]
-	query := playlist.GetPlaylistByUidQuery{UID: uid, OrgId: c.SignedInUser.GetOrgID()}
+	query := playlist.GetPlaylistByUidQuery{UID: uid, OrgId: c.GetOrgID()}
 	p, err := hs.playlistService.GetWithoutItems(c.Req.Context(), &query)
 
 	if err != nil {
@@ -63,7 +64,7 @@ func (hs *HTTPServer) validateOrgPlaylist(c *contextmodel.ReqContext) {
 		return
 	}
 
-	if p.OrgId != c.SignedInUser.GetOrgID() {
+	if p.OrgId != c.GetOrgID() {
 		c.JsonApiErr(403, "You are not allowed to edit/view playlist", nil)
 		return
 	}
@@ -87,7 +88,7 @@ func (hs *HTTPServer) SearchPlaylists(c *contextmodel.ReqContext) response.Respo
 	searchQuery := playlist.GetPlaylistsQuery{
 		Name:  query,
 		Limit: limit,
-		OrgId: c.SignedInUser.GetOrgID(),
+		OrgId: c.GetOrgID(),
 	}
 
 	playlists, err := hs.playlistService.Search(c.Req.Context(), &searchQuery)
@@ -110,7 +111,7 @@ func (hs *HTTPServer) SearchPlaylists(c *contextmodel.ReqContext) response.Respo
 // 500: internalServerError
 func (hs *HTTPServer) GetPlaylist(c *contextmodel.ReqContext) response.Response {
 	uid := web.Params(c.Req)[":uid"]
-	cmd := playlist.GetPlaylistByUidQuery{UID: uid, OrgId: c.SignedInUser.GetOrgID()}
+	cmd := playlist.GetPlaylistByUidQuery{UID: uid, OrgId: c.GetOrgID()}
 
 	dto, err := hs.playlistService.Get(c.Req.Context(), &cmd)
 	if err != nil {
@@ -132,7 +133,7 @@ func (hs *HTTPServer) GetPlaylist(c *contextmodel.ReqContext) response.Response 
 // 500: internalServerError
 func (hs *HTTPServer) GetPlaylistItems(c *contextmodel.ReqContext) response.Response {
 	uid := web.Params(c.Req)[":uid"]
-	cmd := playlist.GetPlaylistByUidQuery{UID: uid, OrgId: c.SignedInUser.GetOrgID()}
+	cmd := playlist.GetPlaylistByUidQuery{UID: uid, OrgId: c.GetOrgID()}
 
 	dto, err := hs.playlistService.Get(c.Req.Context(), &cmd)
 	if err != nil {
@@ -155,7 +156,7 @@ func (hs *HTTPServer) GetPlaylistItems(c *contextmodel.ReqContext) response.Resp
 func (hs *HTTPServer) DeletePlaylist(c *contextmodel.ReqContext) response.Response {
 	uid := web.Params(c.Req)[":uid"]
 
-	cmd := playlist.DeletePlaylistCommand{UID: uid, OrgId: c.SignedInUser.GetOrgID()}
+	cmd := playlist.DeletePlaylistCommand{UID: uid, OrgId: c.GetOrgID()}
 	if err := hs.playlistService.Delete(c.Req.Context(), &cmd); err != nil {
 		return response.Error(http.StatusInternalServerError, "Failed to delete playlist", err)
 	}
@@ -178,7 +179,7 @@ func (hs *HTTPServer) CreatePlaylist(c *contextmodel.ReqContext) response.Respon
 	if err := web.Bind(c.Req, &cmd); err != nil {
 		return response.Error(http.StatusBadRequest, "bad request data", err)
 	}
-	cmd.OrgId = c.SignedInUser.GetOrgID()
+	cmd.OrgId = c.GetOrgID()
 
 	p, err := hs.playlistService.Create(c.Req.Context(), &cmd)
 	if err != nil {
@@ -203,7 +204,7 @@ func (hs *HTTPServer) UpdatePlaylist(c *contextmodel.ReqContext) response.Respon
 	if err := web.Bind(c.Req, &cmd); err != nil {
 		return response.Error(http.StatusBadRequest, "bad request data", err)
 	}
-	cmd.OrgId = c.SignedInUser.GetOrgID()
+	cmd.OrgId = c.GetOrgID()
 	cmd.UID = web.Params(c.Req)[":uid"]
 
 	_, err := hs.playlistService.Update(c.Req.Context(), &cmd)
@@ -213,7 +214,7 @@ func (hs *HTTPServer) UpdatePlaylist(c *contextmodel.ReqContext) response.Respon
 
 	dto, err := hs.playlistService.Get(c.Req.Context(), &playlist.GetPlaylistByUidQuery{
 		UID:   cmd.UID,
-		OrgId: c.SignedInUser.GetOrgID(),
+		OrgId: c.GetOrgID(),
 	})
 	if err != nil {
 		return response.Error(http.StatusInternalServerError, "Failed to load playlist", err)
@@ -329,8 +330,13 @@ type playlistK8sHandler struct {
 //-----------------------------------------------------------------------------------------
 
 func newPlaylistK8sHandler(hs *HTTPServer) *playlistK8sHandler {
+	gvr := schema.GroupVersionResource{
+		Group:    v0alpha1.PlaylistKind().Group(),
+		Version:  v0alpha1.PlaylistKind().Version(),
+		Resource: v0alpha1.PlaylistKind().Plural(),
+	}
 	return &playlistK8sHandler{
-		gvr:                  v0alpha1.PlaylistResourceInfo.GroupVersionResource(),
+		gvr:                  gvr,
 		namespacer:           request.GetNamespaceMapper(hs.Cfg),
 		clientConfigProvider: hs.clientConfigProvider,
 	}
@@ -417,6 +423,12 @@ func (pk8s *playlistK8sHandler) updatePlaylist(c *contextmodel.ReqContext) {
 	}
 	obj := internalplaylist.LegacyUpdateCommandToUnstructured(cmd)
 	obj.SetName(uid)
+	existing, err := client.Get(c.Req.Context(), uid, v1.GetOptions{})
+	if err != nil {
+		pk8s.writeError(c, err)
+		return
+	}
+	obj.SetResourceVersion(existing.GetResourceVersion())
 	out, err := client.Update(c.Req.Context(), &obj, v1.UpdateOptions{})
 	if err != nil {
 		pk8s.writeError(c, err)

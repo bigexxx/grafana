@@ -1,6 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React from 'react';
 
 import createMockDatasource from '../../__mocks__/datasource';
 import { createMockInstanceSetttings } from '../../__mocks__/instanceSettings';
@@ -35,7 +34,8 @@ export function createMockResourcePickerData() {
   const mockDatasource = createMockDatasource();
   const mockResourcePicker = new ResourcePickerData(
     createMockInstanceSetttings(),
-    mockDatasource.azureMonitorDatasource
+    mockDatasource.azureMonitorDatasource,
+    mockDatasource.azureResourceGraphDatasource
   );
 
   mockResourcePicker.getSubscriptions = jest.fn().mockResolvedValue(createMockSubscriptions());
@@ -158,7 +158,7 @@ describe('MetricsQueryEditor', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Apply' }));
 
     expect(onChange).toBeCalledTimes(1);
-    expect(onChange).toBeCalledWith(
+    expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         subscription: 'def-456',
         azureMonitor: expect.objectContaining({
@@ -213,7 +213,7 @@ describe('MetricsQueryEditor', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Apply' }));
 
     expect(onChange).toBeCalledTimes(1);
-    expect(onChange).toBeCalledWith(
+    expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         subscription: 'def-456',
         azureMonitor: expect.objectContaining({
@@ -461,7 +461,7 @@ describe('MetricsQueryEditor', () => {
     await userEvent.click(applyButton);
 
     expect(onChange).toBeCalledTimes(1);
-    expect(onChange).toBeCalledWith(
+    expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         azureMonitor: expect.objectContaining({
           resources: [{ subscription: 'def-123', metricNamespace: 'ns', resourceGroup: 'rg', resourceName: 'rn' }],

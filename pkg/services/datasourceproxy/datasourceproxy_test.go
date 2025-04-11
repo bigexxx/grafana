@@ -57,6 +57,10 @@ func TestDataProxy(t *testing.T) {
 				"/api/datasources/proxy/uid/26MI0wZ7k/api/services/afsd%2Fafsd/operations",
 				"api/services/afsd%2Fafsd/operations",
 			},
+			{
+				"/api/datasources/proxy/uid/26MI0wZ7k/api/services/afsd%2Fafsd/operations/",
+				"api/services/afsd%2Fafsd/operations/",
+			},
 		}
 		for _, tc := range testCases {
 			t.Run("Given raw path, should extract expected proxy path", func(t *testing.T) {
@@ -90,8 +94,8 @@ func TestDatasourceProxy_proxyDatasourceRequest(t *testing.T) {
 			}}
 
 			p := DataSourceProxyService{
-				PluginRequestValidator: &fakePluginRequestValidator{},
-				pluginStore:            pluginStore,
+				DataSourceRequestValidator: &fakeDataSourceRequestValidator{},
+				pluginStore:                pluginStore,
 			}
 
 			responseRecorder := httptest.NewRecorder()
@@ -125,8 +129,8 @@ func TestDatasourceProxy_proxyDatasourceRequest(t *testing.T) {
 	}
 }
 
-type fakePluginRequestValidator struct{}
+type fakeDataSourceRequestValidator struct{}
 
-func (rv *fakePluginRequestValidator) Validate(_ string, _ *http.Request) error {
+func (rv *fakeDataSourceRequestValidator) Validate(_ *datasources.DataSource, _ *http.Request) error {
 	return nil
 }

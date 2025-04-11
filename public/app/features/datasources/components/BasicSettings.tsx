@@ -1,9 +1,10 @@
 import { css } from '@emotion/css';
-import React from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { InlineField, InlineSwitch, Input, Badge, useStyles2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 export interface Props {
   dataSourceName: string;
@@ -16,22 +17,29 @@ export interface Props {
 export function BasicSettings({ dataSourceName, isDefault, onDefaultChange, onNameChange, disabled }: Props) {
   return (
     <>
-      <div className="gf-form-group" aria-label="Datasource settings page basic settings">
+      <div
+        className="gf-form-group"
+        aria-label={t(
+          'datasources.basic-settings.aria-label-datasource-settings-page-basic',
+          'Datasource settings page basic settings'
+        )}
+      >
         <div className="gf-form-inline">
           {/* Name */}
           <div className="gf-form max-width-30">
             <InlineField
-              label="Name"
+              label={t('datasources.basic-settings.label-name', 'Name')}
               tooltip="The name is used when you select the data source in panels. The default data source is
               'preselected in new panels."
               grow
               disabled={disabled}
+              labelWidth={14}
             >
               <Input
                 id="basic-settings-name"
                 type="text"
                 value={dataSourceName}
-                placeholder="Name"
+                placeholder={t('datasources.basic-settings.basic-settings-name-placeholder-name', 'Name')}
                 onChange={(event) => onNameChange(event.currentTarget.value)}
                 required
                 data-testid={selectors.pages.DataSource.name}
@@ -40,7 +48,11 @@ export function BasicSettings({ dataSourceName, isDefault, onDefaultChange, onNa
           </div>
 
           {/* Is Default */}
-          <InlineField label="Default" labelWidth={8} disabled={disabled}>
+          <InlineField
+            label={t('datasources.basic-settings.label-default', 'Default')}
+            labelWidth={8}
+            disabled={disabled}
+          >
             <InlineSwitch
               id="basic-settings-default"
               value={isDefault}
@@ -60,16 +72,24 @@ export function AlertingEnabled({ enabled }: { enabled: boolean }) {
   return (
     <div className={styles.badge}>
       {enabled ? (
-        <Badge color="green" icon="check-circle" text="Alerting supported" />
+        <Badge
+          color="green"
+          icon="check-circle"
+          text={t('datasources.alerting-enabled.text-alerting-supported', 'Alerting supported')}
+        />
       ) : (
-        <Badge color="orange" icon="exclamation-triangle" text="Alerting not supported" />
+        <Badge
+          color="orange"
+          icon="exclamation-triangle"
+          text={t('datasources.alerting-enabled.text-alerting-not-supported', 'Alerting not supported')}
+        />
       )}
     </div>
   );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  badge: css`
-    margin-bottom: ${theme.spacing(2)};
-  `,
+  badge: css({
+    marginBottom: theme.spacing(2),
+  }),
 });

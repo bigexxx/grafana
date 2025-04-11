@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
+	"github.com/grafana/grafana/pkg/util"
 )
 
 func TestSchedulableAlertRulesRegistry(t *testing.T) {
@@ -78,7 +79,8 @@ func TestSchedulableAlertRulesRegistry(t *testing.T) {
 }
 
 func TestSchedulableAlertRulesRegistry_set(t *testing.T) {
-	_, initialRules := models.GenerateUniqueAlertRules(100, models.AlertRuleGen())
+	gen := models.RuleGen
+	initialRules := gen.GenerateManyRef(100)
 	init := make(map[models.AlertRuleKey]*models.AlertRule, len(initialRules))
 	for _, rule := range initialRules {
 		init[rule.GetKey()] = rule
@@ -95,7 +97,7 @@ func TestSchedulableAlertRulesRegistry_set(t *testing.T) {
 	t.Run("should return empty diff if version does not change", func(t *testing.T) {
 		newRules := make([]*models.AlertRule, 0, len(initialRules))
 		// generate random and then override rule key + version
-		_, randomNew := models.GenerateUniqueAlertRules(len(initialRules), models.AlertRuleGen())
+		randomNew := gen.GenerateManyRef(len(initialRules))
 		for i := 0; i < len(initialRules); i++ {
 			rule := randomNew[i]
 			oldRule := initialRules[i]
@@ -128,7 +130,7 @@ func TestSchedulableAlertRulesRegistry_set(t *testing.T) {
 }
 
 func TestRuleWithFolderFingerprint(t *testing.T) {
-	rule := models.AlertRuleGen()()
+	rule := models.RuleGen.GenerateRef()
 	title := uuid.NewString()
 	f := ruleWithFolder{rule: rule, folderTitle: title}.Fingerprint()
 	t.Run("should calculate a fingerprint", func(t *testing.T) {
@@ -150,10 +152,14 @@ func TestRuleWithFolderFingerprint(t *testing.T) {
 		f2 := ruleWithFolder{rule: rule, folderTitle: uuid.NewString()}.Fingerprint()
 		require.NotEqual(t, f, f2)
 	})
-	t.Run("Version and Updated should be excluded from fingerprint", func(t *testing.T) {
+	t.Run("Version, Updated, IntervalSeconds, GUID and Annotations should be excluded from fingerprint", func(t *testing.T) {
 		cp := models.CopyRule(rule)
 		cp.Version++
 		cp.Updated = cp.Updated.Add(1 * time.Second)
+		cp.IntervalSeconds++
+		cp.Annotations = make(map[string]string)
+		cp.Annotations["test"] = "test"
+		cp.GUID = uuid.NewString()
 
 		f2 := ruleWithFolder{rule: cp, folderTitle: title}.Fingerprint()
 		require.Equal(t, f, f2)
@@ -188,7 +194,9 @@ func TestRuleWithFolderFingerprint(t *testing.T) {
 			RuleGroupIndex:  1,
 			NoDataState:     "test-nodata",
 			ExecErrState:    "test-err",
+			Record:          &models.Record{Metric: "my_metric", From: "A"},
 			For:             12,
+			KeepFiringFor:   456,
 			Annotations: map[string]string{
 				"key-annotation": "value-annotation",
 			},
@@ -199,6 +207,13 @@ func TestRuleWithFolderFingerprint(t *testing.T) {
 			NotificationSettings: []models.NotificationSettings{
 				models.NotificationSettingsGen()(),
 			},
+			Metadata: models.AlertRuleMetadata{
+				EditorSettings: models.EditorSettings{
+					SimplifiedQueryAndExpressionsSection: false,
+					SimplifiedNotificationsSection:       false,
+				},
+			},
+			MissingSeriesEvalsToResolve: util.Pointer(2),
 		}
 		r2 := &models.AlertRule{
 			ID:        2,
@@ -226,7 +241,9 @@ func TestRuleWithFolderFingerprint(t *testing.T) {
 			RuleGroupIndex:  22,
 			NoDataState:     "test-nodata2",
 			ExecErrState:    "test-err2",
+			Record:          &models.Record{Metric: "my_metric2", From: "B"},
 			For:             1141,
+			KeepFiringFor:   123,
 			Annotations: map[string]string{
 				"key-annotation2": "value-annotation",
 			},
@@ -237,11 +254,23 @@ func TestRuleWithFolderFingerprint(t *testing.T) {
 			NotificationSettings: []models.NotificationSettings{
 				models.NotificationSettingsGen()(),
 			},
+			Metadata: models.AlertRuleMetadata{
+				EditorSettings: models.EditorSettings{
+					SimplifiedQueryAndExpressionsSection: true,
+				},
+			},
+			MissingSeriesEvalsToResolve: util.Pointer(1),
 		}
 
 		excludedFields := map[string]struct{}{
-			"Version": {},
-			"Updated": {},
+			"Version":         {},
+			"Updated":         {},
+			"UpdatedBy":       {},
+			"IntervalSeconds": {},
+			"Annotations":     {},
+			"ID":              {},
+			"OrgID":           {},
+			"GUID":            {},
 		}
 
 		tp := reflect.TypeOf(rule).Elem()

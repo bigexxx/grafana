@@ -1,9 +1,14 @@
 import { findByText, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { UserEvent } from '@testing-library/user-event/dist/types/setup/setup';
-import React from 'react';
+import userEvent, { UserEvent } from '@testing-library/user-event';
 
-import { DataSourceInstanceSettings, DataSourcePluginMeta, PluginMetaInfo, PluginType } from '@grafana/data';
+import {
+  DataSourceInstanceSettings,
+  DataSourcePluginMeta,
+  GrafanaConfig,
+  PluginMetaInfo,
+  PluginType,
+  locationUtil,
+} from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { ModalRoot, ModalsProvider } from '@grafana/ui';
 import config from 'app/core/config';
@@ -52,26 +57,24 @@ async function setupOpenDropdown(user: UserEvent, props: DataSourcePickerProps) 
   await user.click(searchBox!);
 }
 
-jest.mock('@grafana/runtime', () => {
-  const actual = jest.requireActual('@grafana/runtime');
-  return {
-    ...actual,
-    getTemplateSrv: () => {
-      return {
-        getVariables: () => [{ id: 'foo', type: 'datasource' }],
-      };
-    },
-  };
+locationUtil.initialize({
+  config: { appSubUrl: '/my-sub-path' } as GrafanaConfig,
+  getVariablesUrlParams: jest.fn(),
+  getTimeRangeForUrl: jest.fn(),
 });
 
-jest.mock('@grafana/runtime/src/services/dataSourceSrv', () => {
-  return {
-    getDataSourceSrv: () => ({
-      getList: getListMock,
-      getInstanceSettings: getInstanceSettingsMock,
-    }),
-  };
-});
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getTemplateSrv: () => {
+    return {
+      getVariables: () => [{ id: 'foo', type: 'datasource' }],
+    };
+  },
+  getDataSourceSrv: () => ({
+    getList: getListMock,
+    getInstanceSettings: getInstanceSettingsMock,
+  }),
+}));
 
 const pushRecentlyUsedDataSourceMock = jest.fn();
 jest.mock('../../hooks', () => {
@@ -282,6 +285,8 @@ describe('DataSourcePicker', () => {
       await user.keyboard('foobarbaz'); //Search for a DS that should not exist
 
       expect(await screen.findByText('Configure a new data source')).toBeInTheDocument();
+      // It should point to the new data source page including any sub url configured
+      expect(screen.getByRole('link')).toHaveAttribute('href', '/my-sub-path/connections/datasources/new');
     });
 
     it('should call onChange with the default query when add csv is clicked', async () => {

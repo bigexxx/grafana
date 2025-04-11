@@ -1,9 +1,10 @@
 import { css } from '@emotion/css';
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 import { GrafanaTheme2, CoreApp, DataFrame } from '@grafana/data';
 import { reportInteraction } from '@grafana/runtime';
 import { Icon, useTheme2 } from '@grafana/ui';
+import { t, Trans } from 'app/core/internationalization';
 
 import { config } from '../../../../../../core/config';
 import { downloadTraceAsJson } from '../../../../../inspector/utils/download';
@@ -20,12 +21,15 @@ export const getStyles = (theme: GrafanaTheme2) => {
       gap: '4px',
       marginBottom: '10px',
     }),
+    feedbackContainer: css({
+      color: theme.colors.text.link,
+    }),
     feedback: css({
-      margin: '6px 6px 6px 0',
-      color: theme.colors.text.secondary,
+      margin: '6px',
+      color: theme.colors.text.link,
       fontSize: theme.typography.bodySmall.fontSize,
       '&:hover': {
-        color: theme.colors.text.link,
+        textDecoration: 'underline',
       },
     }),
   };
@@ -63,15 +67,23 @@ export default function TracePageActions(props: TracePageActionsProps) {
 
   return (
     <div className={styles.TracePageActions}>
-      <a
-        href="https://forms.gle/RZDEx8ScyZNguDoC8"
-        className={styles.feedback}
-        title="Share your thoughts about tracing in Grafana."
-        target="_blank"
-        rel="noreferrer noopener"
-      >
-        <Icon name="comment-alt-message" /> Give feedback
-      </a>
+      {config.feedbackLinksEnabled && (
+        <div className={styles.feedbackContainer}>
+          <Icon name="comment-alt-message" />
+          <a
+            href="https://forms.gle/RZDEx8ScyZNguDoC8"
+            className={styles.feedback}
+            title={t(
+              'explore.trace-page-actions.title-share-thoughts-about-tracing-grafana',
+              'Share your thoughts about tracing in Grafana.'
+            )}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <Trans i18nKey="explore.trace-page-actions.give-feedback">Give feedback</Trans>
+          </a>
+        </div>
+      )}
 
       <ActionButton
         onClick={copyTraceId}
@@ -79,7 +91,12 @@ export default function TracePageActions(props: TracePageActionsProps) {
         label={copyTraceIdClicked ? 'Copied!' : 'Trace ID'}
         icon={'copy'}
       />
-      <ActionButton onClick={exportTrace} ariaLabel={'Export Trace'} label={'Export'} icon={'save'} />
+      <ActionButton
+        onClick={exportTrace}
+        ariaLabel={'Export Trace'}
+        label={t('explore.trace-page-actions.label-export', 'Export')}
+        icon={'save'}
+      />
     </div>
   );
 }

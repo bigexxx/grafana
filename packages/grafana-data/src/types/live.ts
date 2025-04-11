@@ -12,6 +12,7 @@ export enum LiveChannelScope {
   Plugin = 'plugin', // namespace = plugin name (singleton works for apps too)
   Grafana = 'grafana', // namespace = feature
   Stream = 'stream', // namespace = id for the managed data stream
+  Watch = 'watch', // namespace = k8s group we will watch
 }
 
 /**
@@ -185,7 +186,7 @@ export function toLiveChannelId(addr: LiveChannelAddress): LiveChannelId {
   if (!addr.scope) {
     return '';
   }
-  let id = addr.scope as string;
+  let id: string = addr.scope;
   if (!addr.namespace) {
     return id;
   }

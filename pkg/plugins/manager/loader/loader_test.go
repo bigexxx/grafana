@@ -20,8 +20,8 @@ import (
 	"github.com/grafana/grafana/pkg/plugins/manager/pipeline/termination"
 	"github.com/grafana/grafana/pkg/plugins/manager/pipeline/validation"
 	"github.com/grafana/grafana/pkg/plugins/manager/sources"
-	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/org"
+	"github.com/grafana/grafana/pkg/services/pluginsintegration/pluginerrs"
 )
 
 var compareOpts = []cmp.Option{cmpopts.IgnoreFields(plugins.Plugin{}, "client", "log", "mu"), fsComparer}
@@ -58,6 +58,7 @@ func TestLoader_Load(t *testing.T) {
 		t.Errorf("could not construct absolute path of current dir")
 		return
 	}
+	zeroCfg := &config.PluginManagementCfg{}
 	tests := []struct {
 		name        string
 		class       plugins.Class
@@ -68,7 +69,7 @@ func TestLoader_Load(t *testing.T) {
 		{
 			name:        "Load a Core plugin",
 			class:       plugins.ClassCore,
-			cfg:         &config.PluginManagementCfg{Features: featuremgmt.WithFeatures()},
+			cfg:         &config.PluginManagementCfg{},
 			pluginPaths: []string{filepath.Join(corePluginDir, "app/plugins/datasource/cloudwatch")},
 			want: []*plugins.Plugin{
 				{
@@ -82,9 +83,14 @@ func TestLoader_Load(t *testing.T) {
 								URL:  "https://grafana.com",
 							},
 							Description: "Data source for Amazon AWS monitoring service",
+							Keywords:    []string{"aws", "amazon"},
 							Logos: plugins.Logos{
 								Small: "public/app/plugins/datasource/cloudwatch/img/amazon-web-services.png",
 								Large: "public/app/plugins/datasource/cloudwatch/img/amazon-web-services.png",
+							},
+							Links: []plugins.InfoLink{
+								{Name: "Raise issue", URL: "https://github.com/grafana/grafana/issues/new"},
+								{Name: "Documentation", URL: "https://grafana.com/docs/grafana/latest/datasources/aws-cloudwatch/"},
 							},
 						},
 						Includes: []*plugins.Includes{
@@ -97,6 +103,16 @@ func TestLoader_Load(t *testing.T) {
 						Dependencies: plugins.Dependencies{
 							GrafanaVersion: "*",
 							Plugins:        []plugins.Dependency{},
+							Extensions: plugins.ExtensionsDependencies{
+								ExposedComponents: []string{},
+							},
+						},
+						Extensions: plugins.Extensions{
+							AddedLinks:        []plugins.AddedLink{},
+							AddedComponents:   []plugins.AddedComponent{},
+							AddedFunctions:    []plugins.AddedFunction{},
+							ExposedComponents: []plugins.ExposedComponent{},
+							ExtensionPoints:   []plugins.ExtensionPoint{},
 						},
 						Category:     "cloud",
 						Annotations:  true,
@@ -115,50 +131,9 @@ func TestLoader_Load(t *testing.T) {
 			},
 		},
 		{
-			name:        "Load a Bundled plugin",
-			class:       plugins.ClassBundled,
-			cfg:         &config.PluginManagementCfg{Features: featuremgmt.WithFeatures()},
-			pluginPaths: []string{"../testdata/valid-v2-signature"},
-			want: []*plugins.Plugin{
-				{
-					JSONData: plugins.JSONData{
-						ID:   "test-datasource",
-						Type: plugins.TypeDataSource,
-						Name: "Test",
-						Info: plugins.Info{
-							Author: plugins.InfoLink{
-								Name: "Will Browne",
-								URL:  "https://willbrowne.com",
-							},
-							Version: "1.0.0",
-							Logos: plugins.Logos{
-								Small: "public/img/icn-datasource.svg",
-								Large: "public/img/icn-datasource.svg",
-							},
-							Description: "Test",
-						},
-						Dependencies: plugins.Dependencies{
-							GrafanaVersion: "*",
-							Plugins:        []plugins.Dependency{},
-						},
-						Executable: "test",
-						Backend:    true,
-						State:      "alpha",
-					},
-					Module:        "public/plugins/test-datasource/module.js",
-					BaseURL:       "public/plugins/test-datasource",
-					FS:            mustNewStaticFSForTests(t, filepath.Join(parentDir, "testdata/valid-v2-signature/plugin/")),
-					Signature:     "valid",
-					SignatureType: plugins.SignatureTypeGrafana,
-					SignatureOrg:  "Grafana Labs",
-					Class:         plugins.ClassBundled,
-				},
-			},
-		},
-		{
 			name:        "Load plugin with symbolic links",
 			class:       plugins.ClassExternal,
-			cfg:         &config.PluginManagementCfg{Features: featuremgmt.WithFeatures()},
+			cfg:         &config.PluginManagementCfg{},
 			pluginPaths: []string{"../testdata/symbolic-plugin-dirs"},
 			want: []*plugins.Plugin{
 				{
@@ -191,37 +166,52 @@ func TestLoader_Load(t *testing.T) {
 						Dependencies: plugins.Dependencies{
 							GrafanaVersion: "3.x.x",
 							Plugins: []plugins.Dependency{
-								{Type: "datasource", ID: "graphite", Name: "Graphite", Version: "1.0.0"},
-								{Type: "panel", ID: "graph", Name: "Graph", Version: "1.0.0"},
+								{Type: "datasource", ID: "graphite", Name: "Graphite"},
+								{Type: "panel", ID: "graph", Name: "Graph"},
+							},
+							Extensions: plugins.ExtensionsDependencies{
+								ExposedComponents: []string{},
 							},
 						},
 						Includes: []*plugins.Includes{
 							{
-								Name: "Nginx Connections",
-								Path: "dashboards/connections.json",
-								Type: "dashboard",
-								Role: org.RoleViewer,
-								Slug: "nginx-connections",
+								Name:   "Nginx Connections",
+								Path:   "dashboards/connections.json",
+								Type:   "dashboard",
+								Role:   org.RoleViewer,
+								Action: plugins.ActionAppAccess,
+								Slug:   "nginx-connections",
 							},
 							{
-								Name: "Nginx Memory",
-								Path: "dashboards/memory.json",
-								Type: "dashboard",
-								Role: org.RoleViewer,
-								Slug: "nginx-memory",
+								Name:   "Nginx Memory",
+								Path:   "dashboards/memory.json",
+								Type:   "dashboard",
+								Role:   org.RoleViewer,
+								Action: plugins.ActionAppAccess,
+								Slug:   "nginx-memory",
 							},
 							{
-								Name: "Nginx Panel",
-								Type: string(plugins.TypePanel),
-								Role: org.RoleViewer,
-								Slug: "nginx-panel",
+								Name:   "Nginx Panel",
+								Type:   string(plugins.TypePanel),
+								Role:   org.RoleViewer,
+								Action: plugins.ActionAppAccess,
+								Slug:   "nginx-panel",
 							},
 							{
-								Name: "Nginx Datasource",
-								Type: string(plugins.TypeDataSource),
-								Role: org.RoleViewer,
-								Slug: "nginx-datasource",
+								Name:   "Nginx Datasource",
+								Type:   string(plugins.TypeDataSource),
+								Role:   org.RoleViewer,
+								Action: plugins.ActionAppAccess,
+								Slug:   "nginx-datasource",
 							},
+						},
+						Extensions: plugins.Extensions{
+							AddedLinks:      []plugins.AddedLink{},
+							AddedComponents: []plugins.AddedComponent{},
+							AddedFunctions:  []plugins.AddedFunction{},
+
+							ExposedComponents: []plugins.ExposedComponent{},
+							ExtensionPoints:   []plugins.ExtensionPoint{},
 						},
 					},
 					Class:         plugins.ClassExternal,
@@ -238,8 +228,7 @@ func TestLoader_Load(t *testing.T) {
 			name:  "Load an unsigned plugin (development)",
 			class: plugins.ClassExternal,
 			cfg: &config.PluginManagementCfg{
-				DevMode:  true,
-				Features: featuremgmt.WithFeatures(),
+				DevMode: true,
 			},
 			pluginPaths: []string{"../testdata/unsigned-datasource"},
 			want: []*plugins.Plugin{
@@ -262,6 +251,17 @@ func TestLoader_Load(t *testing.T) {
 						Dependencies: plugins.Dependencies{
 							GrafanaVersion: "*",
 							Plugins:        []plugins.Dependency{},
+							Extensions: plugins.ExtensionsDependencies{
+								ExposedComponents: []string{},
+							},
+						},
+						Extensions: plugins.Extensions{
+							AddedLinks:      []plugins.AddedLink{},
+							AddedComponents: []plugins.AddedComponent{},
+							AddedFunctions:  []plugins.AddedFunction{},
+
+							ExposedComponents: []plugins.ExposedComponent{},
+							ExtensionPoints:   []plugins.ExtensionPoint{},
 						},
 						Backend: true,
 						State:   plugins.ReleaseStateAlpha,
@@ -277,7 +277,7 @@ func TestLoader_Load(t *testing.T) {
 		{
 			name:        "Load an unsigned plugin (production)",
 			class:       plugins.ClassExternal,
-			cfg:         &config.PluginManagementCfg{Features: featuremgmt.WithFeatures()},
+			cfg:         &config.PluginManagementCfg{},
 			pluginPaths: []string{"../testdata/unsigned-datasource"},
 			want:        []*plugins.Plugin{},
 		},
@@ -286,7 +286,6 @@ func TestLoader_Load(t *testing.T) {
 			class: plugins.ClassExternal,
 			cfg: &config.PluginManagementCfg{
 				PluginsAllowUnsigned: []string{"test-datasource"},
-				Features:             featuremgmt.WithFeatures(),
 			},
 			pluginPaths: []string{"../testdata/unsigned-datasource"},
 			want: []*plugins.Plugin{
@@ -309,6 +308,17 @@ func TestLoader_Load(t *testing.T) {
 						Dependencies: plugins.Dependencies{
 							GrafanaVersion: "*",
 							Plugins:        []plugins.Dependency{},
+							Extensions: plugins.ExtensionsDependencies{
+								ExposedComponents: []string{},
+							},
+						},
+						Extensions: plugins.Extensions{
+							AddedLinks:      []plugins.AddedLink{},
+							AddedComponents: []plugins.AddedComponent{},
+							AddedFunctions:  []plugins.AddedFunction{},
+
+							ExposedComponents: []plugins.ExposedComponent{},
+							ExtensionPoints:   []plugins.ExtensionPoint{},
 						},
 						Backend: true,
 						State:   plugins.ReleaseStateAlpha,
@@ -324,7 +334,7 @@ func TestLoader_Load(t *testing.T) {
 		{
 			name:        "Load a plugin with v1 manifest should return signatureInvalid",
 			class:       plugins.ClassExternal,
-			cfg:         &config.PluginManagementCfg{Features: featuremgmt.WithFeatures()},
+			cfg:         &config.PluginManagementCfg{},
 			pluginPaths: []string{"../testdata/lacking-files"},
 			want:        []*plugins.Plugin{},
 		},
@@ -333,7 +343,6 @@ func TestLoader_Load(t *testing.T) {
 			class: plugins.ClassExternal,
 			cfg: &config.PluginManagementCfg{
 				PluginsAllowUnsigned: []string{"test-datasource"},
-				Features:             featuremgmt.WithFeatures(),
 			},
 			pluginPaths: []string{"../testdata/lacking-files"},
 			want:        []*plugins.Plugin{},
@@ -343,7 +352,6 @@ func TestLoader_Load(t *testing.T) {
 			class: plugins.ClassExternal,
 			cfg: &config.PluginManagementCfg{
 				PluginsAllowUnsigned: []string{"test-datasource"},
-				Features:             featuremgmt.WithFeatures(),
 			},
 			pluginPaths: []string{"../testdata/invalid-v2-missing-file"},
 			want:        []*plugins.Plugin{},
@@ -353,7 +361,6 @@ func TestLoader_Load(t *testing.T) {
 			class: plugins.ClassExternal,
 			cfg: &config.PluginManagementCfg{
 				PluginsAllowUnsigned: []string{"test-datasource"},
-				Features:             featuremgmt.WithFeatures(),
 			},
 			pluginPaths: []string{"../testdata/invalid-v2-extra-file"},
 			want:        []*plugins.Plugin{},
@@ -363,7 +370,6 @@ func TestLoader_Load(t *testing.T) {
 			class: plugins.ClassExternal,
 			cfg: &config.PluginManagementCfg{
 				PluginsAllowUnsigned: []string{"test-app"},
-				Features:             featuremgmt.WithFeatures(),
 			},
 			pluginPaths: []string{"../testdata/test-app-with-includes"},
 			want: []*plugins.Plugin{
@@ -394,10 +400,21 @@ func TestLoader_Load(t *testing.T) {
 							GrafanaDependency: ">=8.0.0",
 							GrafanaVersion:    "*",
 							Plugins:           []plugins.Dependency{},
+							Extensions: plugins.ExtensionsDependencies{
+								ExposedComponents: []string{},
+							},
 						},
 						Includes: []*plugins.Includes{
-							{Name: "Nginx Memory", Path: "dashboards/memory.json", Type: "dashboard", Role: org.RoleViewer, Slug: "nginx-memory"},
-							{Name: "Root Page (react)", Type: "page", Role: org.RoleViewer, Path: "/a/my-simple-app", DefaultNav: true, AddToNav: true, Slug: "root-page-react"},
+							{Name: "Nginx Memory", Path: "dashboards/memory.json", Type: "dashboard", Role: org.RoleViewer, Action: plugins.ActionAppAccess, Slug: "nginx-memory"},
+							{Name: "Root Page (react)", Type: "page", Role: org.RoleViewer, Action: plugins.ActionAppAccess, Path: "/a/my-simple-app", DefaultNav: true, AddToNav: true, Slug: "root-page-react"},
+						},
+						Extensions: plugins.Extensions{
+							AddedLinks:      []plugins.AddedLink{},
+							AddedComponents: []plugins.AddedComponent{},
+							AddedFunctions:  []plugins.AddedFunction{},
+
+							ExposedComponents: []plugins.ExposedComponent{},
+							ExtensionPoints:   []plugins.ExtensionPoint{},
 						},
 						Backend: false,
 					},
@@ -415,10 +432,11 @@ func TestLoader_Load(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			terminationStage, err := termination.New(tt.cfg, termination.Opts{})
 			require.NoError(t, err)
+			et := pluginerrs.ProvideErrorTracker()
 
-			l := New(discovery.New(tt.cfg, discovery.Opts{}), bootstrap.New(tt.cfg, bootstrap.Opts{}),
+			l := New(zeroCfg, discovery.New(tt.cfg, discovery.Opts{}), bootstrap.New(tt.cfg, bootstrap.Opts{}),
 				validation.New(tt.cfg, validation.Opts{}), initialization.New(tt.cfg, initialization.Opts{}),
-				terminationStage)
+				terminationStage, et)
 
 			got, err := l.Load(context.Background(), sources.NewLocalSource(tt.class, tt.pluginPaths))
 			require.NoError(t, err)
@@ -440,6 +458,7 @@ func TestLoader_Load(t *testing.T) {
 				return plugins.Signature{}, false
 			},
 		}
+		et := pluginerrs.ProvideErrorTracker()
 		pluginJSON := plugins.JSONData{ID: "test-datasource", Type: plugins.TypeDataSource, Info: plugins.Info{Version: "1.0.0"}}
 		plugin := &plugins.Plugin{
 			JSONData:      pluginJSON,
@@ -450,6 +469,7 @@ func TestLoader_Load(t *testing.T) {
 
 		var steps []string
 		l := New(
+			zeroCfg,
 			&fakes.FakeDiscoverer{
 				DiscoverFunc: func(ctx context.Context, s plugins.PluginSource) ([]*plugins.FoundBundle, error) {
 					require.Equal(t, src, s)
@@ -457,38 +477,160 @@ func TestLoader_Load(t *testing.T) {
 					return []*plugins.FoundBundle{{Primary: plugins.FoundPlugin{JSONData: pluginJSON}}}, nil
 				},
 			}, &fakes.FakeBootstrapper{
-				BootstrapFunc: func(ctx context.Context, s plugins.PluginSource, b []*plugins.FoundBundle) ([]*plugins.Plugin, error) {
-					require.True(t, len(b) == 1)
-					require.Equal(t, b[0].Primary.JSONData, pluginJSON)
+				BootstrapFunc: func(ctx context.Context, s plugins.PluginSource, b *plugins.FoundBundle) ([]*plugins.Plugin, error) {
+					require.Equal(t, b.Primary.JSONData, pluginJSON)
 					require.Equal(t, src, s)
 
 					steps = append(steps, "bootstrap")
 					return []*plugins.Plugin{plugin}, nil
 				},
-			}, &fakes.FakeValidator{ValidateFunc: func(ctx context.Context, ps []*plugins.Plugin) ([]*plugins.Plugin, error) {
-				require.Equal(t, []*plugins.Plugin{plugin}, ps)
+			}, &fakes.FakeValidator{ValidateFunc: func(ctx context.Context, ps *plugins.Plugin) error {
+				require.Equal(t, plugin, ps)
 
 				steps = append(steps, "validate")
-				return ps, nil
+				return nil
 			}},
 			&fakes.FakeInitializer{
-				IntializeFunc: func(ctx context.Context, ps []*plugins.Plugin) ([]*plugins.Plugin, error) {
-					require.True(t, len(ps) == 1)
-					require.Equal(t, ps[0].JSONData, pluginJSON)
+				IntializeFunc: func(ctx context.Context, ps *plugins.Plugin) (*plugins.Plugin, error) {
+					require.Equal(t, ps.JSONData, pluginJSON)
 					steps = append(steps, "initialize")
 					return ps, nil
 				},
-			}, &fakes.FakeTerminator{})
+			}, &fakes.FakeTerminator{}, et)
 
 		got, err := l.Load(context.Background(), src)
 		require.NoError(t, err)
 		require.Equal(t, []*plugins.Plugin{plugin}, got)
 		require.Equal(t, []string{"discover", "bootstrap", "validate", "initialize"}, steps)
 	})
+
+	t.Run("With error", func(t *testing.T) {
+		src := &fakes.FakePluginSource{
+			PluginClassFunc: func(ctx context.Context) plugins.Class {
+				return plugins.ClassExternal
+			},
+			PluginURIsFunc: func(ctx context.Context) []string {
+				return []string{"http://example.com"}
+			},
+			DefaultSignatureFunc: func(ctx context.Context) (plugins.Signature, bool) {
+				return plugins.Signature{}, false
+			},
+		}
+		et := pluginerrs.ProvideErrorTracker()
+		pluginJSON := plugins.JSONData{ID: "test-datasource", Type: plugins.TypeDataSource, Info: plugins.Info{Version: "1.0.0"}}
+		plugin := &plugins.Plugin{
+			JSONData:      pluginJSON,
+			Signature:     plugins.SignatureStatusValid,
+			SignatureType: plugins.SignatureTypeCommunity,
+			FS:            plugins.NewFakeFS(),
+		}
+
+		var steps []string
+		l := New(
+			zeroCfg,
+			&fakes.FakeDiscoverer{
+				DiscoverFunc: func(ctx context.Context, s plugins.PluginSource) ([]*plugins.FoundBundle, error) {
+					require.Equal(t, src, s)
+					steps = append(steps, "discover")
+					return []*plugins.FoundBundle{{Primary: plugins.FoundPlugin{JSONData: pluginJSON}}}, nil
+				},
+			}, &fakes.FakeBootstrapper{
+				BootstrapFunc: func(ctx context.Context, s plugins.PluginSource, b *plugins.FoundBundle) ([]*plugins.Plugin, error) {
+					require.Equal(t, b.Primary.JSONData, pluginJSON)
+					require.Equal(t, src, s)
+
+					steps = append(steps, "bootstrap")
+					return []*plugins.Plugin{plugin}, nil
+				},
+			}, &fakes.FakeValidator{ValidateFunc: func(ctx context.Context, ps *plugins.Plugin) error {
+				require.Equal(t, plugin, ps)
+
+				steps = append(steps, "validate")
+				return errors.New("validation error")
+			}},
+			&fakes.FakeInitializer{
+				IntializeFunc: func(ctx context.Context, ps *plugins.Plugin) (*plugins.Plugin, error) {
+					require.Equal(t, ps.JSONData, pluginJSON)
+					steps = append(steps, "initialize")
+					return ps, nil
+				},
+			}, &fakes.FakeTerminator{}, et)
+
+		got, err := l.Load(context.Background(), src)
+		require.NoError(t, err)
+		require.Equal(t, []*plugins.Plugin{}, got)
+		// Initialize should not be executed if validation fails
+		require.Equal(t, []string{"discover", "bootstrap", "validate"}, steps)
+		errs := et.Errors(context.Background())
+		require.Len(t, errs, 1)
+		require.ErrorContains(t, errs[0], "validation error")
+	})
+
+	t.Run("Cleans up a previous error", func(t *testing.T) {
+		src := &fakes.FakePluginSource{
+			PluginClassFunc: func(ctx context.Context) plugins.Class {
+				return plugins.ClassExternal
+			},
+			PluginURIsFunc: func(ctx context.Context) []string {
+				return []string{"http://example.com"}
+			},
+			DefaultSignatureFunc: func(ctx context.Context) (plugins.Signature, bool) {
+				return plugins.Signature{}, false
+			},
+		}
+		et := pluginerrs.ProvideErrorTracker()
+		pluginJSON := plugins.JSONData{ID: "test-datasource", Type: plugins.TypeDataSource, Info: plugins.Info{Version: "1.0.0"}}
+		plugin := &plugins.Plugin{
+			JSONData:      pluginJSON,
+			Signature:     plugins.SignatureStatusValid,
+			SignatureType: plugins.SignatureTypeCommunity,
+			FS:            plugins.NewFakeFS(),
+		}
+		et.Record(context.Background(), &plugins.Error{PluginID: "test-datasource", ErrorCode: plugins.ErrorCode("previous error")})
+
+		var steps []string
+		l := New(
+			zeroCfg,
+			&fakes.FakeDiscoverer{
+				DiscoverFunc: func(ctx context.Context, s plugins.PluginSource) ([]*plugins.FoundBundle, error) {
+					require.Equal(t, src, s)
+					steps = append(steps, "discover")
+					return []*plugins.FoundBundle{{Primary: plugins.FoundPlugin{JSONData: pluginJSON}}}, nil
+				},
+			}, &fakes.FakeBootstrapper{
+				BootstrapFunc: func(ctx context.Context, s plugins.PluginSource, b *plugins.FoundBundle) ([]*plugins.Plugin, error) {
+					require.Equal(t, b.Primary.JSONData, pluginJSON)
+					require.Equal(t, src, s)
+
+					steps = append(steps, "bootstrap")
+					return []*plugins.Plugin{plugin}, nil
+				},
+			}, &fakes.FakeValidator{ValidateFunc: func(ctx context.Context, ps *plugins.Plugin) error {
+				require.Equal(t, plugin, ps)
+
+				steps = append(steps, "validate")
+				return nil
+			}},
+			&fakes.FakeInitializer{
+				IntializeFunc: func(ctx context.Context, ps *plugins.Plugin) (*plugins.Plugin, error) {
+					require.Equal(t, ps.JSONData, pluginJSON)
+					steps = append(steps, "initialize")
+					return ps, nil
+				},
+			}, &fakes.FakeTerminator{}, et)
+
+		got, err := l.Load(context.Background(), src)
+		require.NoError(t, err)
+		require.Equal(t, []*plugins.Plugin{plugin}, got)
+		require.Equal(t, []string{"discover", "bootstrap", "validate", "initialize"}, steps)
+		errs := et.Errors(context.Background())
+		require.Len(t, errs, 0)
+	})
 }
 
 func TestLoader_Unload(t *testing.T) {
 	t.Run("Termination stage error is returned from Unload", func(t *testing.T) {
+		et := pluginerrs.ProvideErrorTracker()
 		plugin := &plugins.Plugin{
 			JSONData: plugins.JSONData{ID: "test-datasource", Type: plugins.TypeDataSource, Info: plugins.Info{Version: "1.0.0"}},
 		}
@@ -504,7 +646,9 @@ func TestLoader_Unload(t *testing.T) {
 		}
 
 		for _, tc := range tcs {
-			l := New(&fakes.FakeDiscoverer{},
+			l := New(
+				&config.PluginManagementCfg{},
+				&fakes.FakeDiscoverer{},
 				&fakes.FakeBootstrapper{},
 				&fakes.FakeValidator{},
 				&fakes.FakeInitializer{},
@@ -513,7 +657,7 @@ func TestLoader_Unload(t *testing.T) {
 						require.Equal(t, plugin, p)
 						return p, tc.expectedErr
 					},
-				})
+				}, et)
 
 			_, err := l.Unload(context.Background(), plugin)
 			require.ErrorIs(t, err, tc.expectedErr)

@@ -1,6 +1,8 @@
 //DOCS: https://prometheus.io/docs/alerting/latest/configuration/
+import { DataSourceJsonData, WithAccessControlMetadata } from '@grafana/data';
+import { IoK8SApimachineryPkgApisMetaV1ObjectMeta } from 'app/features/alerting/unified/openapi/receiversApi.gen';
 
-import { DataSourceJsonData } from '@grafana/data';
+export const ROUTES_META_SYMBOL = Symbol('routes_metadata');
 
 export type AlertManagerCortexConfig = {
   template_files: Record<string, string>;
@@ -66,14 +68,25 @@ export type WebhookConfig = {
   max_alerts?: number;
 };
 
+type GrafanaManagedReceiverConfigSettings<T = any> = Record<string, T>;
 export type GrafanaManagedReceiverConfig = {
   uid?: string;
-  disableResolveMessage: boolean;
+  disableResolveMessage?: boolean;
   secureFields?: Record<string, boolean>;
-  secureSettings?: Record<string, any>;
-  settings?: Record<string, any>; // sometimes settings are optional for security reasons (RBAC)
+  secureSettings?: GrafanaManagedReceiverConfigSettings;
+  /** If retrieved from k8s API, SecureSettings property name is different */
+  // SecureSettings?: GrafanaManagedReceiverConfigSettings<boolean>;
+  settings: GrafanaManagedReceiverConfigSettings;
   type: string;
-  name: string;
+  /**
+   * Name of the _receiver_, which in most cases will be the
+   * same as the contact point's name. This should not be used, and is optional because the
+   * kubernetes API does not return it for us (and we don't want to/shouldn't use it)
+   *
+   * @deprecated Do not rely on this property - it won't be present in kuberenetes API responses
+   * and should be the same as the contact point name anyway
+   */
+  name?: string;
   updated?: string;
   created?: string;
   provenance?: string;
@@ -81,6 +94,10 @@ export type GrafanaManagedReceiverConfig = {
 
 export interface GrafanaManagedContactPoint {
   name: string;
+  /** If parsed from k8s API, we'll have an ID property */
+  id?: string;
+  metadata?: IoK8SApimachineryPkgApisMetaV1ObjectMeta;
+  provisioned?: boolean;
   grafana_managed_receiver_configs?: GrafanaManagedReceiverConfig[];
 }
 
@@ -112,9 +129,18 @@ export type Route = {
   group_interval?: string;
   repeat_interval?: string;
   routes?: Route[];
+  /** Times when the route should be muted. */
   mute_time_intervals?: string[];
+  /** Times when the route should be active. This is the opposite of `mute_time_intervals` */
+  active_time_intervals?: string[];
   /** only the root policy might have a provenance field defined */
   provenance?: string;
+  /** this is used to add additional metadata to the routes without interfering with original route definition (symbols aren't iterable)  */
+  [ROUTES_META_SYMBOL]?: {
+    provisioned?: boolean;
+    resourceVersion?: string;
+    name?: string;
+  };
 };
 
 export interface RouteWithID extends Route {
@@ -189,7 +215,7 @@ export enum MatcherOperator {
   notRegex = '!~',
 }
 
-export type Silence = {
+export interface Silence extends WithAccessControlMetadata {
   id: string;
   matchers?: Matcher[];
   startsAt: string;
@@ -200,7 +226,12 @@ export type Silence = {
   status: {
     state: SilenceState;
   };
-};
+  metadata?: {
+    rule_uid?: string;
+    rule_title?: string;
+    folder_uid?: string;
+  };
+}
 
 export type SilenceCreatePayload = {
   id?: string;
@@ -218,11 +249,7 @@ export type AlertmanagerAlert = {
   generatorURL?: string;
   labels: { [key: string]: string };
   annotations: { [key: string]: string };
-  receivers: [
-    {
-      name: string;
-    },
-  ];
+  receivers: Array<{ name: string }>;
   fingerprint: string;
   status: {
     state: AlertState;
@@ -255,7 +282,12 @@ export interface AlertmanagerStatus {
 }
 
 export type TestReceiversAlert = Pick<AlertmanagerAlert, 'annotations' | 'labels'>;
-export type TestTemplateAlert = Pick<AlertmanagerAlert, 'annotations' | 'labels' | 'startsAt' | 'endsAt'>;
+export type TestTemplateAlert = Pick<
+  AlertmanagerAlert,
+  'annotations' | 'labels' | 'startsAt' | 'endsAt' | 'generatorURL' | 'fingerprint'
+> & {
+  status: 'firing' | 'resolved';
+};
 
 export interface TestReceiversPayload {
   receivers?: Receiver[];
@@ -278,7 +310,7 @@ export interface TestReceiversResult {
   receivers: TestReceiversResultReceiver[];
 }
 
-export interface ExternalAlertmanagers {
+export interface ExternalAlertmanagersConnectionStatus {
   activeAlertManagers: AlertmanagerUrl[];
   droppedAlertManagers: AlertmanagerUrl[];
 }
@@ -287,8 +319,8 @@ export interface AlertmanagerUrl {
   url: string;
 }
 
-export interface ExternalAlertmanagersResponse {
-  data: ExternalAlertmanagers;
+export interface ExternalAlertmanagersStatusResponse {
+  data: ExternalAlertmanagersConnectionStatus;
 }
 
 export enum AlertmanagerChoice {
@@ -297,7 +329,7 @@ export enum AlertmanagerChoice {
   All = 'all',
 }
 
-export interface ExternalAlertmanagerConfig {
+export interface GrafanaAlertingConfiguration {
   alertmanagersChoice: AlertmanagerChoice;
 }
 
@@ -325,7 +357,7 @@ export interface TimeInterval {
 export type MuteTimeInterval = {
   name: string;
   time_intervals: TimeInterval[];
-  provenance?: string;
+  provisioned?: boolean;
 };
 
 export interface AlertManagerDataSourceJsonData extends DataSourceJsonData {

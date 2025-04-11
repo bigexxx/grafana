@@ -1,5 +1,5 @@
 import { cx, css } from '@emotion/css';
-import React, { FormEventHandler, KeyboardEventHandler, ReactNode, useCallback } from 'react';
+import { FormEventHandler, KeyboardEventHandler, ReactNode, useCallback } from 'react';
 
 import {
   DataFrame,
@@ -13,6 +13,7 @@ import {
 import { selectors } from '@grafana/e2e-selectors';
 import { Card, Drawer, FilterPill, IconButton, Input, Switch, useStyles2 } from '@grafana/ui';
 import config from 'app/core/config';
+import { t, Trans } from 'app/core/internationalization';
 import { PluginStateInfo } from 'app/features/plugins/components/PluginStateInfo';
 import { categoriesLabels } from 'app/features/transformers/utils';
 
@@ -32,8 +33,7 @@ interface TransformationPickerNgProps {
   onSearchKeyDown: KeyboardEventHandler<HTMLInputElement>;
   onClose?: () => void;
   noTransforms: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  xforms: Array<TransformerRegistryItem<any>>;
+  xforms: TransformerRegistryItem[];
   search: string;
   suffix: ReactNode;
   data: DataFrame[];
@@ -72,21 +72,27 @@ export function TransformationPickerNg(props: TransformationPickerNgProps) {
       onClose={() => {
         onClose && onClose();
       }}
-      title="Add another transformation"
+      title={t('dashboard.transformation-picker-ng.title-add-another-transformation', 'Add another transformation')}
     >
       <div className={styles.searchWrapper}>
         <Input
           data-testid={selectors.components.Transforms.searchInput}
           className={styles.searchInput}
           value={search ?? ''}
-          placeholder="Search for transformation"
+          placeholder={t(
+            'dashboard.transformation-picker-ng.placeholder-search-for-transformation',
+            'Search for transformation'
+          )}
           onChange={onSearchChange}
           onKeyDown={onSearchKeyDown}
           suffix={suffix}
           ref={searchInputRef}
+          autoFocus={true}
         />
         <div className={styles.showImages}>
-          <span className={styles.illustationSwitchLabel}>Show images</span>{' '}
+          <span className={styles.illustationSwitchLabel}>
+            <Trans i18nKey="dashboard.transformation-picker-ng.show-images">Show images</Trans>
+          </span>{' '}
           <Switch
             value={showIllustrations}
             onChange={() => onShowIllustrationsChange && onShowIllustrationsChange(!showIllustrations)}
@@ -159,8 +165,7 @@ function getTransformationPickerStyles(theme: GrafanaTheme2) {
 }
 
 interface TransformationsGridProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  transformations: Array<TransformerRegistryItem<any>>;
+  transformations: TransformerRegistryItem[];
   showIllustrations?: boolean;
   onClick: (id: string) => void;
   data: DataFrame[];
@@ -232,16 +237,16 @@ function TransformationsGrid({ showIllustrations, transformations, onClick, data
 
 function getTransformationGridStyles(theme: GrafanaTheme2) {
   return {
-    // eslint-disable-next-line @emotion/syntax-preference
-    heading: css`
-            font-weight: 400,
-            > button: {
-                width: '100%',
-                display: 'flex',
-                justify-content: 'space-between',
-                align-items: 'center',
-                flex-wrap: 'no-wrap',
-        },`,
+    heading: css({
+      fontWeight: 400,
+      '> button': {
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'nowrap',
+      },
+    }),
     description: css({
       fontSize: '12px',
       display: 'flex',
@@ -263,6 +268,10 @@ function getTransformationGridStyles(theme: GrafanaTheme2) {
     cardDisabled: css({
       backgroundColor: 'rgb(204, 204, 220, 0.045)',
       color: `${theme.colors.text.disabled} !important`,
+      img: {
+        filter: 'grayscale(100%)',
+        opacity: 0.33,
+      },
     }),
     cardApplicableInfo: css({
       position: 'absolute',
@@ -279,13 +288,7 @@ function getTransformationGridStyles(theme: GrafanaTheme2) {
 }
 
 const getImagePath = (id: string, disabled: boolean) => {
-  let folder = null;
-  if (!disabled) {
-    folder = config.theme2.isDark ? 'dark' : 'light';
-  } else {
-    folder = 'disabled';
-  }
-
+  const folder = config.theme2.isDark ? 'dark' : 'light';
   return `public/img/transformations/${folder}/${id}.svg`;
 };
 

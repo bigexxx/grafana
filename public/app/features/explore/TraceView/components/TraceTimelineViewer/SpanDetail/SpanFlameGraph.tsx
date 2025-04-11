@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import React, { useCallback, useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useMeasure } from 'react-use';
 import { lastValueFrom } from 'rxjs';
 
@@ -16,8 +16,8 @@ import { FlameGraph } from '@grafana/flamegraph';
 import { TraceToProfilesOptions } from '@grafana/o11y-ds-frontend';
 import { config, DataSourceWithBackend, getTemplateSrv } from '@grafana/runtime';
 import { useStyles2 } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
 import { getDatasourceSrv } from 'app/features/plugins/datasource_srv';
-import { PyroscopeQueryType } from 'app/plugins/datasource/grafana-pyroscope-datasource/dataquery.gen';
 import { Query } from 'app/plugins/datasource/grafana-pyroscope-datasource/types';
 
 import {
@@ -125,7 +125,7 @@ export default function SpanFlameGraph(props: SpanFlameGraphProps) {
             labelSelector,
             groupBy: [],
             profileTypeId: traceToProfilesOptions.profileTypeId ?? '',
-            queryType: 'profile' as PyroscopeQueryType,
+            queryType: 'profile' as const,
             spanSelector: [profileTagValue],
             refId: 'span-flamegraph-refId',
             datasource: {
@@ -175,7 +175,9 @@ export default function SpanFlameGraph(props: SpanFlameGraphProps) {
 
   return (
     <div className={styles.flameGraph} ref={sizeRef}>
-      <div className={styles.flameGraphTitle}>Flame graph</div>
+      <div className={styles.flameGraphTitle}>
+        <Trans i18nKey="explore.span-flame-graph.flame-graph">Flame graph</Trans>
+      </div>
       <FlameGraph
         data={traceFlameGraphs[profileTagValue]}
         getTheme={() => config.theme2}

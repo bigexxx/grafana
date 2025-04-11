@@ -1,7 +1,6 @@
-import React from 'react';
-import { FieldArrayWithId, useFormContext } from 'react-hook-form';
+import { Controller, FieldArrayWithId, useFormContext } from 'react-hook-form';
 
-import { InputControl, Text, Stack } from '@grafana/ui';
+import { Stack, Text } from '@grafana/ui';
 
 import { RuleFormValues } from '../../types/rule-form';
 import { Annotation, annotationDescriptions, annotationLabels } from '../../utils/constants';
@@ -13,19 +12,21 @@ const AnnotationHeaderField = ({
   annotations,
   annotation,
   index,
+  labelId,
 }: {
   annotationField: FieldArrayWithId<RuleFormValues, 'annotations', 'id'>;
   annotations: Array<{ key: string; value: string }>;
   annotation: Annotation;
   index: number;
+  labelId: string;
 }) => {
   const { control } = useFormContext<RuleFormValues>();
 
   return (
     <Stack direction="column" gap={0}>
-      <label>
+      <label htmlFor={labelId}>
         {
-          <InputControl
+          <Controller
             name={`annotations.${index}.key`}
             defaultValue={annotationField.key}
             render={({ field: { ref, ...field } }) => {

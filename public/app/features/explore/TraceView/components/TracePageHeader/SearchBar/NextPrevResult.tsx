@@ -14,12 +14,14 @@
 
 import { css, cx } from '@emotion/css';
 import { get, maxBy, values } from 'lodash';
-import React, { memo, Dispatch, SetStateAction, useEffect, useCallback } from 'react';
+import { memo, Dispatch, SetStateAction, useEffect, useCallback } from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { config, reportInteraction } from '@grafana/runtime';
 import { Icon, PopoverContent, Tooltip, useTheme2 } from '@grafana/ui';
-import { getButtonStyles } from '@grafana/ui/src/components/Button';
+import { getButtonStyles } from '@grafana/ui/internal';
+import { Trans } from 'app/core/internationalization';
 
 import { Trace } from '../../types';
 
@@ -145,7 +147,9 @@ export default memo(function NextPrevResult(props: NextPrevResultProps) {
         if (spanFilterMatches.size === 0) {
           metadata = (
             <>
-              <span>0 matches</span>
+              <span>
+                <Trans i18nKey="explore.get-matches-metadata.matches">0 matches</Trans>
+              </span>
               {getTooltip(
                 'There are 0 span matches for the filters selected. Please try removing some of the selected filters.'
               )}
@@ -201,7 +205,7 @@ export default memo(function NextPrevResult(props: NextPrevResultProps) {
           role="button"
           tabIndex={buttonEnabled ? 0 : -1}
         >
-          Prev
+          <Trans i18nKey="explore.prev">Prev</Trans>
         </div>
         <div
           aria-label="Next result button"
@@ -211,7 +215,7 @@ export default memo(function NextPrevResult(props: NextPrevResultProps) {
           role="button"
           tabIndex={buttonEnabled ? 0 : -1}
         >
-          Next
+          <Trans i18nKey="explore.next">Next</Trans>
         </div>
       </div>
     </>
@@ -228,27 +232,22 @@ export const getStyles = (theme: GrafanaTheme2, showSpanFilters: boolean) => {
   });
 
   return {
-    buttons: css`
-      display: inline-flex;
-      gap: 4px;
-    `,
-    buttonsDisabled: css`
-      cursor: not-allowed;
-    `,
-    button: css`
-      ${buttonStyles.button};
-    `,
-    buttonDisabled: css`
-      ${buttonStyles.disabled};
-      pointer-events: none;
-    `,
-    matches: css`
-      margin-right: ${theme.spacing(2)};
-      text-wrap: nowrap;
-    `,
-    tooltip: css`
-      color: #aaa;
-      margin: 0 0 0 5px;
-    `,
+    buttons: css({
+      display: 'inline-flex',
+      gap: '4px',
+    }),
+    buttonsDisabled: css({
+      cursor: 'not-allowed',
+    }),
+    button: buttonStyles.button,
+    buttonDisabled: css(buttonStyles.disabled, { pointerEvents: 'none' }),
+    matches: css({
+      marginRight: theme.spacing(2),
+      textWrap: 'nowrap',
+    }),
+    tooltip: css({
+      color: '#aaa',
+      margin: '0 0 0 5px',
+    }),
   };
 };

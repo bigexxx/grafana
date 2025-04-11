@@ -1,10 +1,11 @@
 import { css } from '@emotion/css';
-import React, { PureComponent } from 'react';
+import { PureComponent } from 'react';
 import { Unsubscribable } from 'rxjs';
 
 import { GrafanaTheme2, OrgRole } from '@grafana/data';
 import { config, getGrafanaLiveSrv } from '@grafana/runtime';
 import { Alert, stylesFactory } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 import { contextSrv } from 'app/core/services/context_srv';
 
 export interface Props {}
@@ -52,7 +53,14 @@ export class LiveConnectionWarning extends PureComponent<Props, State> {
 
       return (
         <div className={this.styles.foot}>
-          <Alert severity={'warning'} className={this.styles.warn} title="connection to server is lost..." />
+          <Alert
+            severity={'warning'}
+            className={this.styles.warn}
+            title={t(
+              'live.live-connection-warning.title-connection-to-server-is-lost',
+              'Connection to server is lost...'
+            )}
+          />
         </div>
       );
     }
@@ -62,18 +70,18 @@ export class LiveConnectionWarning extends PureComponent<Props, State> {
 
 const getStyle = stylesFactory((theme: GrafanaTheme2) => {
   return {
-    foot: css`
-      position: absolute;
-      bottom: 0px;
-      left: 0px;
-      right: 0px;
-      z-index: 10000;
-      cursor: wait;
-      margin: 16px;
-    `,
-    warn: css`
-      max-width: 400px;
-      margin: auto;
-    `,
+    foot: css({
+      position: 'fixed',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      zIndex: 10000,
+      cursor: 'wait',
+      margin: theme.spacing(2),
+    }),
+    warn: css({
+      maxWidth: '400px',
+      margin: 'auto',
+    }),
   };
 });

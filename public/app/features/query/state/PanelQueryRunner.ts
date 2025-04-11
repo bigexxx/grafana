@@ -1,4 +1,4 @@
-import { cloneDeep, merge } from 'lodash';
+import { cloneDeep, merge, isEqual } from 'lodash';
 import { Observable, of, ReplaySubject, Unsubscribable } from 'rxjs';
 import { map, mergeMap, catchError } from 'rxjs/operators';
 
@@ -31,13 +31,13 @@ import {
   DataTopic,
 } from '@grafana/data';
 import { toDataQueryError } from '@grafana/runtime';
-import { ExpressionDatasourceRef } from '@grafana/runtime/src/utils/DataSourceWithBackend';
+import { ExpressionDatasourceRef } from '@grafana/runtime/internal';
 import { isStreamingDataFrame } from 'app/features/live/data/utils';
 import { getDatasourceSrv } from 'app/features/plugins/datasource_srv';
 import { getTemplateSrv } from 'app/features/templating/template_srv';
 
-import { isSharedDashboardQuery, runSharedRequest } from '../../../plugins/datasource/dashboard';
-import { PanelModel } from '../../dashboard/state';
+import { isSharedDashboardQuery, runSharedRequest } from '../../../plugins/datasource/dashboard/runSharedRequest';
+import { PanelModel } from '../../dashboard/state/PanelModel';
 
 import { getDashboardQueryRunner } from './DashboardQueryRunner/DashboardQueryRunner';
 import { mergePanelAndDashData } from './mergePanelAndDashData';
@@ -50,6 +50,7 @@ export interface QueryRunnerOptions<
   datasource: DataSourceRef | DataSourceApi<TQuery, TOptions> | null;
   queries: TQuery[];
   panelId?: number;
+  panelName?: string;
   panelPluginId?: string;
   dashboardUID?: string;
   timezone: TimeZone;
@@ -258,6 +259,7 @@ export class PanelQueryRunner {
       timezone,
       datasource,
       panelId,
+      panelName,
       panelPluginId,
       dashboardUID,
       timeRange,
@@ -275,11 +277,15 @@ export class PanelQueryRunner {
       return;
     }
 
+    //check if datasource is a variable datasource and if that variable has multiple values
+    const addErroDSVariable = this.shouldAddErrorWhenDatasourceVariableIsMultiple(datasource, scopedVars);
+
     const request: DataQueryRequest = {
       app: app ?? CoreApp.Dashboard,
       requestId: getNextRequestId(),
       timezone,
       panelId,
+      panelName,
       panelPluginId,
       dashboardUID,
       range: timeRange,
@@ -325,9 +331,12 @@ export class PanelQueryRunner {
       request.intervalMs = norm.intervalMs;
       request.filters = this.templateSrv.getAdhocFilters(ds.name, true);
 
+      request.panelId = panelId;
+      request.panelName = panelName;
+
       this.lastRequest = request;
 
-      this.pipeToSubject(runRequest(ds, request), panelId);
+      this.pipeToSubject(runRequest(ds, request), panelId, false, addErroDSVariable);
     } catch (err) {
       this.pipeToSubject(
         of({
@@ -341,7 +350,12 @@ export class PanelQueryRunner {
     }
   }
 
-  private pipeToSubject(observable: Observable<PanelData>, panelId?: number, skipPreProcess = false) {
+  private pipeToSubject(
+    observable: Observable<PanelData>,
+    panelId?: number,
+    skipPreProcess = false,
+    addErroDSVariable = false
+  ) {
     if (this.subscription) {
       this.subscription.unsubscribe();
     }
@@ -363,6 +377,7 @@ export class PanelQueryRunner {
           let sameSeries = compareArrayValues(last.series ?? [], next.series ?? [], (a, b) => a === b);
           let sameAnnotations = compareArrayValues(last.annotations ?? [], next.annotations ?? [], (a, b) => a === b);
           let sameState = last.state === next.state;
+          let sameErrors = compareArrayValues(last.errors ?? [], next.errors ?? [], (a, b) => isEqual(a, b));
 
           if (sameSeries) {
             next.series = last.series;
@@ -372,12 +387,23 @@ export class PanelQueryRunner {
             next.annotations = last.annotations;
           }
 
-          if (sameSeries && sameAnnotations && sameState) {
+          if (sameSeries && sameAnnotations && sameState && sameErrors) {
             return;
           }
         }
 
         this.lastResult = next;
+
+        //add error message if datasource is a variable and has multiple values
+        if (addErroDSVariable) {
+          next.errors = [
+            {
+              message:
+                'Panel is using a variable datasource with multiple values without repeat option. Please configure the panel to be repeated by the same datasource variable.',
+            },
+          ];
+          next.state = LoadingState.Error;
+        }
 
         // Store preprocessed query results for applying overrides later on in the pipeline
         this.subject.next(next);
@@ -450,6 +476,28 @@ export class PanelQueryRunner {
 
   getLastRequest(): DataQueryRequest | undefined {
     return this.lastRequest;
+  }
+
+  shouldAddErrorWhenDatasourceVariableIsMultiple(
+    datasource: DataSourceRef | DataSourceApi | null,
+    scopedVars: ScopedVars | undefined
+  ): boolean {
+    let addWarningMessageMultipleDatasourceVariable = false;
+
+    //If datasource is a variable
+    if (datasource?.uid?.startsWith('${')) {
+      // we can access the raw datasource variable values inside the replace function if we pass a custom format function
+      this.templateSrv.replace(datasource.uid, scopedVars, (value: string | string[]) => {
+        // if the variable has multiple values it means it's not being repeated
+        if (Array.isArray(value) && value.length > 1) {
+          addWarningMessageMultipleDatasourceVariable = true;
+        }
+        // return empty string to avoid replacing the variable
+        return '';
+      });
+    }
+
+    return addWarningMessageMultipleDatasourceVariable;
   }
 }
 

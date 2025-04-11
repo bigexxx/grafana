@@ -1,10 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { Provider } from 'react-redux';
 
 import { PluginExtensionPoints, PluginExtensionTypes } from '@grafana/data';
-import { getPluginLinkExtensions } from '@grafana/runtime';
+import { usePluginLinks } from '@grafana/runtime';
 import { DataQuery } from '@grafana/schema';
 import { contextSrv } from 'app/core/services/context_srv';
 import { configureStore } from 'app/store/configureStore';
@@ -16,13 +16,13 @@ import { ToolbarExtensionPoint } from './ToolbarExtensionPoint';
 
 jest.mock('@grafana/runtime', () => ({
   ...jest.requireActual('@grafana/runtime'),
-  getPluginLinkExtensions: jest.fn(),
+  usePluginLinks: jest.fn(),
 }));
 
 jest.mock('app/core/services/context_srv');
 
 const contextSrvMock = jest.mocked(contextSrv);
-const getPluginLinkExtensionsMock = jest.mocked(getPluginLinkExtensions);
+const usePluginLinksMock = jest.mocked(usePluginLinks);
 
 type storeOptions = {
   targets: DataQuery[];
@@ -51,11 +51,23 @@ function renderWithExploreStore(
   render(<Provider store={store}>{children}</Provider>, {});
 }
 
+function setupToolbarExtensionPoint(
+  { noTimezone, showQuerylessApps }: { noTimezone?: boolean; showQuerylessApps?: boolean } = { noTimezone: false }
+) {
+  return (
+    <ToolbarExtensionPoint
+      exploreId="left"
+      timeZone={noTimezone ? '' : 'browser'}
+      extensionsToShow={showQuerylessApps ? 'queryless' : 'basic'}
+    />
+  );
+}
+
 describe('ToolbarExtensionPoint', () => {
   describe('with extension points', () => {
     beforeAll(() => {
-      getPluginLinkExtensionsMock.mockReturnValue({
-        extensions: [
+      usePluginLinksMock.mockReturnValue({
+        links: [
           {
             pluginId: 'grafana',
             id: '1',
@@ -74,17 +86,18 @@ describe('ToolbarExtensionPoint', () => {
             path: '/a/grafana-ml-ap/forecast',
           },
         ],
+        isLoading: false,
       });
     });
 
     it('should render "Add" extension point menu button', () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
       expect(screen.getByRole('button', { name: 'Add' })).toBeVisible();
     });
 
     it('should render menu with extensions when "Add" is clicked', async () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
       await userEvent.click(screen.getByRole('button', { name: 'Add' }));
 
@@ -94,19 +107,21 @@ describe('ToolbarExtensionPoint', () => {
     });
 
     it('should call onClick from extension when menu item is clicked', async () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
       await userEvent.click(screen.getByRole('button', { name: 'Add' }));
       await userEvent.click(screen.getByRole('menuitem', { name: 'Add to dashboard' }));
 
-      const { extensions } = getPluginLinkExtensions({ extensionPointId: PluginExtensionPoints.ExploreToolbarAction });
-      const [extension] = extensions;
+      const { links } = usePluginLinksMock({
+        extensionPointId: PluginExtensionPoints.ExploreToolbarAction,
+      });
+      const [extension] = links;
 
       expect(jest.mocked(extension.onClick)).toBeCalledTimes(1);
     });
 
     it('should render confirm navigation modal when extension with path is clicked', async () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
       await userEvent.click(screen.getByRole('button', { name: 'Add' }));
       await userEvent.click(screen.getByRole('menuitem', { name: 'ML: Forecast' }));
@@ -120,12 +135,12 @@ describe('ToolbarExtensionPoint', () => {
       const targets = [{ refId: 'A' }];
       const data = createEmptyQueryResponse();
 
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />, {
+      renderWithExploreStore(setupToolbarExtensionPoint(), {
         targets,
         data,
       });
 
-      const [options] = getPluginLinkExtensionsMock.mock.calls[0];
+      const [options] = usePluginLinksMock.mock.calls[0];
       const { context } = options;
 
       expect(context).toEqual({
@@ -145,21 +160,21 @@ describe('ToolbarExtensionPoint', () => {
       const targets = [{ refId: 'A' }];
       const data = createEmptyQueryResponse();
 
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="" />, {
+      renderWithExploreStore(setupToolbarExtensionPoint({ noTimezone: true }), {
         targets,
         data,
       });
 
-      const [options] = getPluginLinkExtensionsMock.mock.calls[0];
+      const [options] = usePluginLinksMock.mock.calls[0];
       const { context } = options;
 
       expect(context).toHaveProperty('timeZone', 'browser');
     });
 
     it('should correct extension point id when fetching extensions', async () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
-      const [options] = getPluginLinkExtensionsMock.mock.calls[0];
+      const [options] = usePluginLinksMock.mock.calls[0];
       const { extensionPointId } = options;
 
       expect(extensionPointId).toBe(PluginExtensionPoints.ExploreToolbarAction);
@@ -168,8 +183,8 @@ describe('ToolbarExtensionPoint', () => {
 
   describe('with extension points without categories', () => {
     beforeAll(() => {
-      getPluginLinkExtensionsMock.mockReturnValue({
-        extensions: [
+      usePluginLinksMock.mockReturnValue({
+        links: [
           {
             pluginId: 'grafana',
             id: '1',
@@ -187,17 +202,18 @@ describe('ToolbarExtensionPoint', () => {
             path: '/a/grafana-ml-ap/forecast',
           },
         ],
+        isLoading: false,
       });
     });
 
     it('should render "Add" extension point menu button', () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
       expect(screen.getByRole('button', { name: 'Add' })).toBeVisible();
     });
 
     it('should render menu with extensions when "Add" is clicked', async () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
       await userEvent.click(screen.getByRole('button', { name: 'Add' }));
 
@@ -211,11 +227,11 @@ describe('ToolbarExtensionPoint', () => {
   describe('without extension points', () => {
     beforeAll(() => {
       contextSrvMock.hasPermission.mockReturnValue(true);
-      getPluginLinkExtensionsMock.mockReturnValue({ extensions: [] });
+      usePluginLinksMock.mockReturnValue({ links: [], isLoading: false });
     });
 
     it('should render "add to dashboard" action button if one pane is visible', async () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
       await waitFor(() => {
         const button = screen.getByRole('button', { name: /add to dashboard/i });
@@ -229,13 +245,123 @@ describe('ToolbarExtensionPoint', () => {
   describe('with insufficient permissions', () => {
     beforeAll(() => {
       contextSrvMock.hasPermission.mockReturnValue(false);
-      getPluginLinkExtensionsMock.mockReturnValue({ extensions: [] });
+      usePluginLinksMock.mockReturnValue({ links: [], isLoading: false });
     });
 
     it('should not render "add to dashboard" action button', async () => {
-      renderWithExploreStore(<ToolbarExtensionPoint exploreId="left" timeZone="browser" />);
+      renderWithExploreStore(setupToolbarExtensionPoint());
 
       expect(screen.queryByRole('button', { name: /add to dashboard/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('with multiple queryless apps links', () => {
+    beforeAll(() => {
+      usePluginLinksMock.mockReturnValue({
+        links: [
+          {
+            pluginId: 'grafana',
+            id: '1',
+            type: PluginExtensionTypes.link,
+            title: 'Add to dashboard',
+            category: 'Dashboards',
+            description: 'Add the current query as a panel to a dashboard',
+            onClick: jest.fn(),
+          },
+          {
+            pluginId: 'grafana-ml-app',
+            id: '2',
+            type: PluginExtensionTypes.link,
+            title: 'ML: Forecast',
+            description: 'Add the query as a ML forecast',
+            path: '/a/grafana-ml-ap/forecast',
+          },
+          {
+            pluginId: 'grafana-pyroscope-app',
+            id: '3',
+            type: PluginExtensionTypes.link,
+            title: 'Explore Profiles',
+            description: 'Explore Profiles',
+            path: '/a/grafana-pyroscope-app',
+          },
+          {
+            pluginId: 'grafana-lokiexplore-app',
+            id: '4',
+            type: PluginExtensionTypes.link,
+            title: 'Explore Logs',
+            description: 'Explore Logs',
+            path: '/a/grafana-lokiexplore-app',
+          },
+        ],
+        isLoading: false,
+      });
+    });
+
+    it('should render menu with extensions without queryless apps when "Add" is clicked', async () => {
+      renderWithExploreStore(setupToolbarExtensionPoint());
+
+      await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+      expect(screen.getByRole('group', { name: 'Dashboards' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Add to dashboard' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'ML: Forecast' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: 'Explore Profiles' })).not.toBeInTheDocument();
+    });
+
+    it('should render queryless apps links', async () => {
+      renderWithExploreStore(setupToolbarExtensionPoint({ showQuerylessApps: true }));
+
+      await userEvent.click(screen.getByRole('button', { name: /go queryless/i }));
+
+      expect(screen.queryByRole('group', { name: 'Dashboards' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Add to dashboard' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'ML: Forecast' })).not.toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Explore Profiles' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Explore Logs' })).toBeVisible();
+    });
+  });
+
+  describe('with single queryless apps link', () => {
+    beforeAll(() => {
+      usePluginLinksMock.mockReturnValue({
+        links: [
+          {
+            pluginId: 'grafana',
+            id: '1',
+            type: PluginExtensionTypes.link,
+            title: 'Add to dashboard',
+            category: 'Dashboards',
+            description: 'Add the current query as a panel to a dashboard',
+            onClick: jest.fn(),
+          },
+          {
+            pluginId: 'grafana-ml-app',
+            id: '2',
+            type: PluginExtensionTypes.link,
+            title: 'ML: Forecast',
+            description: 'Add the query as a ML forecast',
+            path: '/a/grafana-ml-ap/forecast',
+          },
+          {
+            pluginId: 'grafana-pyroscope-app',
+            id: '3',
+            type: PluginExtensionTypes.link,
+            title: 'Explore Profiles',
+            description: 'Explore Profiles',
+            path: '/a/grafana-pyroscope-app',
+          },
+        ],
+        isLoading: false,
+      });
+    });
+
+    it('should render single queryless app link', async () => {
+      renderWithExploreStore(setupToolbarExtensionPoint({ showQuerylessApps: true }));
+
+      await userEvent.click(screen.getByRole('button', { name: /go queryless/i }));
+
+      expect(screen.queryByRole('menuitem', { name: 'Explore Profiles' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Explore Logs' })).not.toBeInTheDocument();
     });
   });
 });

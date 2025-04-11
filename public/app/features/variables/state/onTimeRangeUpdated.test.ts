@@ -1,4 +1,4 @@
-import { dateTime, TimeRange } from '@grafana/data';
+import { dateTime, TimeRange, VariableRefresh } from '@grafana/data';
 import { config, DataSourceSrv } from '@grafana/runtime';
 import * as runtime from '@grafana/runtime';
 
@@ -7,7 +7,7 @@ import { silenceConsoleOutput } from '../../../../test/core/utils/silenceConsole
 import { appEvents } from '../../../core/core';
 import { notifyApp } from '../../../core/reducers/appNotification';
 import { DashboardState } from '../../../types';
-import { DashboardModel } from '../../dashboard/state';
+import { DashboardModel } from '../../dashboard/state/DashboardModel';
 import { createDashboardModelFixture } from '../../dashboard/state/__fixtures__/dashboardFixtures';
 import { TemplateSrv } from '../../templating/template_srv';
 import { variableAdapters } from '../adapters';
@@ -17,7 +17,6 @@ import { createIntervalVariableAdapter } from '../interval/adapter';
 import { createIntervalOptions } from '../interval/reducer';
 import { createQueryVariableAdapter } from '../query/adapter';
 import { constantBuilder, intervalBuilder, queryBuilder, datasourceBuilder } from '../shared/testing/builders';
-import { VariableRefresh } from '../types';
 import { toKeyedVariableIdentifier, toVariablePayload } from '../utils';
 
 import { onTimeRangeUpdated, OnTimeRangeUpdatedDependencies, setOptionAsCurrent } from './actions';

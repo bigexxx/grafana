@@ -1,15 +1,15 @@
-import React from 'react';
+import * as React from 'react';
 
 import { LinkModel, PanelData, PanelPlugin, renderMarkdown } from '@grafana/data';
-import { config, getTemplateSrv, locationService } from '@grafana/runtime';
+import { getTemplateSrv, locationService } from '@grafana/runtime';
 import { PanelPadding } from '@grafana/ui';
 import { DashboardInteractions } from 'app/features/dashboard-scene/utils/interactions';
 import { InspectTab } from 'app/features/inspector/types';
 import { getPanelLinksSupplier } from 'app/features/panel/panellinks/linkSuppliers';
-import { isAngularDatasourcePluginAndNotHidden } from 'app/features/plugins/angularDeprecation/utils';
 
 import { PanelHeaderTitleItems } from '../dashgrid/PanelHeader/PanelHeaderTitleItems';
-import { DashboardModel, PanelModel } from '../state';
+import { DashboardModel } from '../state/DashboardModel';
+import { PanelModel } from '../state/PanelModel';
 
 interface CommonProps {
   panel: PanelModel;
@@ -26,8 +26,6 @@ interface CommonProps {
 }
 
 export function getPanelChromeProps(props: CommonProps) {
-  let descriptionInteractionReported = false;
-
   function hasOverlayHeader() {
     // always show normal header if we have time override
     if (props.data.request && props.data.request.timeInfo) {
@@ -40,12 +38,6 @@ export function getPanelChromeProps(props: CommonProps) {
   const onShowPanelDescription = () => {
     const descriptionMarkdown = getTemplateSrv().replace(props.panel.description, props.panel.scopedVars);
     const interpolatedDescription = renderMarkdown(descriptionMarkdown);
-
-    if (!descriptionInteractionReported) {
-      // Description rendering function can be called multiple times due to re-renders but we want to report the interaction once.
-      DashboardInteractions.panelDescriptionShown();
-      descriptionInteractionReported = true;
-    }
 
     return interpolatedDescription;
   };
@@ -85,18 +77,10 @@ export function getPanelChromeProps(props: CommonProps) {
   const padding: PanelPadding = props.plugin.noPadding ? 'none' : 'md';
   const alertState = props.data.alertState?.state;
 
-  const isAngularDatasource = props.panel.datasource?.uid
-    ? isAngularDatasourcePluginAndNotHidden(props.panel.datasource?.uid)
-    : false;
-  const isAngularPanel = props.panel.isAngularPlugin() && !props.plugin.meta.angular?.hideDeprecation;
-  const showAngularNotice =
-    (config.featureToggles.angularDeprecationUI ?? false) && (isAngularDatasource || isAngularPanel);
-
   const showTitleItems =
     (props.panel.links && props.panel.links.length > 0 && onShowPanelLinks) ||
     (props.data.series.length > 0 && props.data.series.some((v) => (v.meta?.notices?.length ?? 0) > 0)) ||
     (props.data.request && props.data.request.timeInfo) ||
-    showAngularNotice ||
     alertState;
 
   const titleItems = showTitleItems && (
@@ -105,11 +89,6 @@ export function getPanelChromeProps(props: CommonProps) {
       data={props.data}
       panelId={props.panel.id}
       panelLinks={props.panel.links}
-      angularNotice={{
-        show: showAngularNotice,
-        isAngularDatasource,
-        isAngularPanel,
-      }}
       onShowPanelLinks={onShowPanelLinks}
     />
   );
@@ -120,10 +99,6 @@ export function getPanelChromeProps(props: CommonProps) {
     !(props.isViewing || props.isEditing) && Boolean(props.isDraggable ?? true) ? 'grid-drag-handle' : '';
 
   const title = props.panel.getDisplayTitle();
-
-  const onOpenMenu = () => {
-    DashboardInteractions.panelMenuShown();
-  };
 
   return {
     hasOverlayHeader,
@@ -137,6 +112,5 @@ export function getPanelChromeProps(props: CommonProps) {
     dragClass,
     title,
     titleItems,
-    onOpenMenu,
   };
 }

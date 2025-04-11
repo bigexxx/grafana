@@ -1,4 +1,3 @@
-import 'whatwg-fetch';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -22,6 +21,11 @@ export const mockAmdModule = `define([], function() {
     var pluginPath = "/public/plugins/";
   }
 });`;
+
+const mockTranslation = (value: string) =>
+  `System.register([],function(e){return{execute:function(){e("default",{"testKey":"${value}"})}}})`;
+
+const mockTranslationWithNoDefaultExport = `System.register([],function(e){return{execute:function(){e({"testKey":"unknown"})}}})`;
 
 const server = setupServer(
   http.get(
@@ -50,7 +54,35 @@ const server = setupServer(
           'Content-Type': 'text/javascript',
         },
       })
-  )
+  ),
+  http.get(
+    '/public/plugins/test-panel/locales/en-US/test-panel.json',
+    () =>
+      new HttpResponse(mockTranslation('testValue'), {
+        headers: {
+          'Content-Type': 'text/javascript',
+        },
+      })
+  ),
+  http.get(
+    '/public/plugins/test-panel/locales/pt-BR/test-panel.json',
+    () =>
+      new HttpResponse(mockTranslation('valorDeTeste'), {
+        headers: {
+          'Content-Type': 'text/javascript',
+        },
+      })
+  ),
+  http.get(
+    '/public/plugins/test-panel/locales/en-US/no-default-export.json',
+    () =>
+      new HttpResponse(mockTranslationWithNoDefaultExport, {
+        headers: {
+          'Content-Type': 'text/javascript',
+        },
+      })
+  ),
+  http.get('/public/plugins/test-panel/locales/en-US/unknown.json', () => HttpResponse.error())
 );
 
 export { server };

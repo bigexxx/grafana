@@ -1,6 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React from 'react';
 
 import createMockDatasource from '../../__mocks__/datasource';
 import createMockQuery from '../../__mocks__/query';
@@ -166,7 +165,7 @@ describe('ArgQueryEditor', () => {
     );
     expect(await waitFor(() => screen.findByText('foo'))).toBeInTheDocument();
 
-    const clear = screen.getByLabelText('select-clear-value');
+    const clear = screen.getByLabelText('Clear value');
     await userEvent.click(clear);
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ subscriptions: [] }));

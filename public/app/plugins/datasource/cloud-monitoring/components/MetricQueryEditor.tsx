@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
+import * as React from 'react';
 
 import { SelectableValue, TimeRange } from '@grafana/data';
-import { EditorRows, Stack } from '@grafana/experimental';
+import { EditorRows } from '@grafana/plugin-ui';
+import { Stack } from '@grafana/ui';
 
 import CloudMonitoringDatasource from '../datasource';
 import { AlignmentTypes, CloudMonitoringQuery, QueryType, TimeSeriesList, TimeSeriesQuery } from '../types/query';
@@ -50,8 +52,19 @@ function Editor({
 }: React.PropsWithChildren<Props>) {
   const onChangeTimeSeriesList = useCallback(
     (timeSeriesList: TimeSeriesList) => {
+      let filtersComplete = true;
+      if (timeSeriesList?.filters && timeSeriesList.filters.length > 0) {
+        for (const filter of timeSeriesList.filters) {
+          if (filter === '') {
+            filtersComplete = false;
+            break;
+          }
+        }
+      }
       onQueryChange({ ...query, timeSeriesList });
-      onRunQuery();
+      if (filtersComplete) {
+        onRunQuery();
+      }
     },
     [onQueryChange, onRunQuery, query]
   );

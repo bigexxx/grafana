@@ -1,18 +1,21 @@
-import { render, screen, act, waitFor } from '@testing-library/react';
-import React from 'react';
-import { Provider } from 'react-redux';
-import { Router } from 'react-router-dom';
+import { act, screen, waitFor } from '@testing-library/react';
+import { useParams } from 'react-router-dom-v5-compat';
 import { Props } from 'react-virtualized-auto-sizer';
-import { getGrafanaContextMock } from 'test/mocks/getGrafanaContextMock';
+import { render } from 'test/test-utils';
 
+import { selectors } from '@grafana/e2e-selectors';
 import { config, locationService } from '@grafana/runtime';
-import { GrafanaContext } from 'app/core/context/GrafanaContext';
 import {
   HOME_DASHBOARD_CACHE_KEY,
   getDashboardScenePageStateManager,
 } from 'app/features/dashboard-scene/pages/DashboardScenePageStateManager';
-import { configureStore } from 'app/store/configureStore';
+import {
+  setupLoadDashboardMockReject,
+  setupLoadDashboardRuntimeErrorMock,
+} from 'app/features/dashboard-scene/utils/test-utils';
 import { DashboardDTO, DashboardRoutes } from 'app/types';
+
+import { DashboardLoaderSrv, setDashboardLoaderSrv } from '../services/DashboardLoaderSrv';
 
 import DashboardPageProxy, { DashboardPageProxyProps } from './DashboardPageProxy';
 
@@ -33,6 +36,23 @@ const dashMock: DashboardDTO = {
   },
 };
 
+const homeMock = {
+  ...dashMock,
+  dashboard: {
+    ...dashMock.dashboard,
+    uid: '',
+    title: 'Home',
+  },
+};
+
+const homeMockEditable = {
+  ...homeMock,
+  meta: {
+    ...homeMock.meta,
+    canEdit: true,
+  },
+};
+
 const dashMockEditable = {
   ...dashMock,
   meta: {
@@ -49,6 +69,12 @@ jest.mock('@grafana/runtime', () => ({
     },
     get: jest.fn().mockResolvedValue({}),
   }),
+  useChromeHeaderHeight: jest.fn(),
+  getBackendSrv: () => {
+    return {
+      get: jest.fn().mockResolvedValue({ dashboard: {}, meta: { url: '' } }),
+    };
+  },
 }));
 
 jest.mock('react-virtualized-auto-sizer', () => {
@@ -61,31 +87,33 @@ jest.mock('react-virtualized-auto-sizer', () => {
     });
 });
 
-function setup(props: Partial<DashboardPageProxyProps>) {
-  const context = getGrafanaContextMock();
-  const store = configureStore({});
+setDashboardLoaderSrv({
+  loadDashboard: jest.fn().mockResolvedValue(dashMock),
+  // disabling type checks since this is a test util
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+} as unknown as DashboardLoaderSrv);
 
+jest.mock('react-router-dom-v5-compat', () => ({
+  ...jest.requireActual('react-router-dom-v5-compat'),
+  useParams: jest.fn().mockReturnValue({}),
+}));
+
+function setup(props: Partial<DashboardPageProxyProps> & { uid?: string }) {
+  (useParams as jest.Mock).mockReturnValue({ uid: props.uid });
   return render(
-    <GrafanaContext.Provider value={context}>
-      <Provider store={store}>
-        <Router history={locationService.getHistory()}>
-          <DashboardPageProxy
-            location={locationService.getLocation()}
-            history={locationService.getHistory()}
-            queryParams={{}}
-            route={{ routeName: DashboardRoutes.Home, component: () => null, path: '/' }}
-            match={{ params: {}, isExact: true, path: '/', url: '/' }}
-            {...props}
-          />
-        </Router>
-      </Provider>
-    </GrafanaContext.Provider>
+    <DashboardPageProxy
+      location={locationService.getLocation()}
+      queryParams={{}}
+      route={{ routeName: DashboardRoutes.Home, component: () => null, path: '/' }}
+      {...props}
+    />
   );
 }
 
 describe('DashboardPageProxy', () => {
   describe('when dashboardSceneForViewers feature toggle disabled', () => {
     beforeEach(() => {
+      jest.clearAllMocks();
       config.featureToggles.dashboardSceneForViewers = false;
     });
 
@@ -94,7 +122,6 @@ describe('DashboardPageProxy', () => {
       act(() => {
         setup({
           route: { routeName: DashboardRoutes.Home, component: () => null, path: '/' },
-          match: { params: {}, isExact: true, path: '/', url: '/' },
         });
       });
 
@@ -109,7 +136,7 @@ describe('DashboardPageProxy', () => {
       act(() => {
         setup({
           route: { routeName: DashboardRoutes.Normal, component: () => null, path: '/' },
-          match: { params: { uid: 'abc-def' }, isExact: true, path: '/', url: '/' },
+          uid: 'abc-def',
         });
       });
 
@@ -121,16 +148,17 @@ describe('DashboardPageProxy', () => {
 
   describe('when dashboardSceneForViewers feature toggle enabled', () => {
     beforeEach(() => {
+      jest.clearAllMocks();
       config.featureToggles.dashboardSceneForViewers = true;
     });
 
     describe('when user can edit a dashboard ', () => {
       it('should not render DashboardScenePage if route is Home', async () => {
-        getDashboardScenePageStateManager().setDashboardCache(HOME_DASHBOARD_CACHE_KEY, dashMockEditable);
+        getDashboardScenePageStateManager().setDashboardCache(HOME_DASHBOARD_CACHE_KEY, homeMockEditable);
         act(() => {
           setup({
             route: { routeName: DashboardRoutes.Home, component: () => null, path: '/' },
-            match: { params: {}, isExact: true, path: '/', url: '/' },
+            uid: '',
           });
         });
 
@@ -144,7 +172,7 @@ describe('DashboardPageProxy', () => {
         act(() => {
           setup({
             route: { routeName: DashboardRoutes.Normal, component: () => null, path: '/' },
-            match: { params: { uid: 'abc-def' }, isExact: true, path: '/', url: '/' },
+            uid: 'abc-def',
           });
         });
         await waitFor(() => {
@@ -155,11 +183,11 @@ describe('DashboardPageProxy', () => {
 
     describe('when user can only view a dashboard ', () => {
       it('should render DashboardScenePage if route is Home', async () => {
-        getDashboardScenePageStateManager().setDashboardCache(HOME_DASHBOARD_CACHE_KEY, dashMock);
+        getDashboardScenePageStateManager().setDashboardCache(HOME_DASHBOARD_CACHE_KEY, homeMock);
         act(() => {
           setup({
             route: { routeName: DashboardRoutes.Home, component: () => null, path: '/' },
-            match: { params: {}, isExact: true, path: '/', url: '/' },
+            uid: '',
           });
         });
 
@@ -169,17 +197,89 @@ describe('DashboardPageProxy', () => {
       });
 
       it('should render DashboardScenePage if route is Normal and has uid', async () => {
-        getDashboardScenePageStateManager().setDashboardCache('abc-def', dashMock);
+        getDashboardScenePageStateManager().setDashboardCache('uid', dashMock);
         act(() => {
           setup({
             route: { routeName: DashboardRoutes.Normal, component: () => null, path: '/' },
-            match: { params: { uid: 'abc-def' }, isExact: true, path: '/', url: '/' },
+            uid: 'uid',
           });
         });
         await waitFor(() => {
           expect(screen.queryAllByTestId('dashboard-scene-page')).toHaveLength(1);
         });
       });
+
+      it('should render not DashboardScenePage if dashboard UID does not match route UID', async () => {
+        getDashboardScenePageStateManager().setDashboardCache('uid', dashMock);
+        act(() => {
+          setup({
+            route: { routeName: DashboardRoutes.Normal, component: () => null, path: '/' },
+            uid: 'wrongUID',
+          });
+        });
+        await waitFor(() => {
+          expect(screen.queryAllByTestId('dashboard-scene-page')).toHaveLength(0);
+        });
+      });
+    });
+  });
+
+  describe('errors rendering', () => {
+    it('should render dashboard not found notice when dashboard... not found', async () => {
+      setupLoadDashboardMockReject({
+        status: 404,
+        statusText: 'Not Found',
+        data: {
+          message: 'Dashboard not found',
+        },
+        config: {
+          method: 'GET',
+          url: 'api/dashboards/uid/adfjq9edwm0hsdsa',
+          retry: 0,
+          headers: {
+            'X-Grafana-Org-Id': 1,
+          },
+          hideFromInspector: true,
+        },
+        isHandled: true,
+      });
+
+      setup({ route: { routeName: DashboardRoutes.Normal, component: () => null, path: '/' }, uid: 'abc' });
+
+      expect(await screen.findByTestId(selectors.components.EntityNotFound.container)).toBeInTheDocument();
+    });
+
+    it('should render error alert for backend errors', async () => {
+      setupLoadDashboardMockReject({
+        status: 500,
+        statusText: 'internal server error',
+        data: {
+          message: 'Internal server error',
+        },
+        config: {
+          method: 'GET',
+          url: 'api/dashboards/uid/adfjq9edwm0hsdsa',
+          retry: 0,
+          headers: {
+            'X-Grafana-Org-Id': 1,
+          },
+          hideFromInspector: true,
+        },
+        isHandled: true,
+      });
+
+      setup({ route: { routeName: DashboardRoutes.Normal, component: () => null, path: '/' }, uid: 'abc' });
+
+      expect(await screen.findByTestId('dashboard-page-error')).toBeInTheDocument();
+      expect(await screen.findByTestId('dashboard-page-error')).toHaveTextContent('Internal server error');
+    });
+    it('should render error alert for runtime errors', async () => {
+      setupLoadDashboardRuntimeErrorMock();
+
+      setup({ route: { routeName: DashboardRoutes.Normal, component: () => null, path: '/' }, uid: 'abc' });
+
+      expect(await screen.findByTestId('dashboard-page-error')).toBeInTheDocument();
+      expect(await screen.findByTestId('dashboard-page-error')).toHaveTextContent('Runtime error');
     });
   });
 });

@@ -1,4 +1,5 @@
-import React, { Component } from 'react';
+import { Component } from 'react';
+import * as React from 'react';
 import uPlot, { AlignedData } from 'uplot';
 
 import {
@@ -13,13 +14,9 @@ import {
   TimeRange,
   TimeZone,
 } from '@grafana/data';
-import { VizLegendOptions } from '@grafana/schema';
-import { Themeable2, PanelContextRoot, VizLayout } from '@grafana/ui';
-import { UPlotChart } from '@grafana/ui/src/components/uPlot/Plot';
-import { AxisProps } from '@grafana/ui/src/components/uPlot/config/UPlotAxisBuilder';
-import { Renderers, UPlotConfigBuilder } from '@grafana/ui/src/components/uPlot/config/UPlotConfigBuilder';
-import { ScaleProps } from '@grafana/ui/src/components/uPlot/config/UPlotScaleBuilder';
-import { pluginLog } from '@grafana/ui/src/components/uPlot/utils';
+import { DashboardCursorSync, VizLegendOptions } from '@grafana/schema';
+import { Themeable2, VizLayout } from '@grafana/ui';
+import { UPlotChart, AxisProps, Renderers, UPlotConfigBuilder, ScaleProps, pluginLog } from '@grafana/ui/internal';
 
 import { GraphNGLegendEvent, XYFieldMatchers } from './types';
 import { preparePlotFrame as defaultPreparePlotFrame } from './utils';
@@ -27,7 +24,7 @@ import { preparePlotFrame as defaultPreparePlotFrame } from './utils';
 /**
  * @internal -- not a public API
  */
-export type PropDiffFn<T extends any = any> = (prev: T, next: T) => boolean;
+export type PropDiffFn<T extends Record<string, unknown> = {}> = (prev: T, next: T) => boolean;
 
 export interface GraphNGProps extends Themeable2 {
   frames: DataFrame[];
@@ -49,6 +46,15 @@ export interface GraphNGProps extends Themeable2 {
   renderLegend: (config: UPlotConfigBuilder) => React.ReactElement | null;
   replaceVariables: InterpolateFunction;
   dataLinkPostProcessor?: DataLinkPostProcessor;
+  cursorSync?: DashboardCursorSync;
+
+  // Remove fields that are hidden from the visualization before rendering
+  // The fields will still be available for other things like data links
+  // this is a temporary hack that only works when:
+  // 1. renderLegend (above) does not render <PlotLegend>
+  // 2. does not have legend series toggle
+  // 3. passes through all fields required for link/action gen (including those with hideFrom.viz)
+  omitHideFromViz?: boolean;
 
   /**
    * needed for propsToDiff to re-init the plot & config
@@ -59,7 +65,11 @@ export interface GraphNGProps extends Themeable2 {
   options?: Record<string, any>;
 }
 
-function sameProps(prevProps: any, nextProps: any, propsToDiff: Array<string | PropDiffFn> = []) {
+function sameProps<T extends Record<string, unknown>>(
+  prevProps: T,
+  nextProps: T,
+  propsToDiff: Array<string | PropDiffFn> = []
+) {
   for (const propName of propsToDiff) {
     if (typeof propName === 'function') {
       if (!propName(prevProps, nextProps)) {
@@ -82,11 +92,15 @@ export interface GraphNGState {
   config?: UPlotConfigBuilder;
 }
 
+const defaultMatchers = {
+  x: fieldMatchers.get(FieldMatcherID.firstTimeField).get({}),
+  y: fieldMatchers.get(FieldMatcherID.byTypes).get(new Set([FieldType.number, FieldType.enum])),
+};
+
 /**
  * "Time as X" core component, expects ascending x
  */
 export class GraphNG extends Component<GraphNGProps, GraphNGState> {
-  static contextType = PanelContextRoot;
   private plotInstance: React.RefObject<uPlot>;
 
   constructor(props: GraphNGProps) {
@@ -102,21 +116,21 @@ export class GraphNG extends Component<GraphNGProps, GraphNGState> {
   prepState(props: GraphNGProps, withConfig = true) {
     let state: GraphNGState = null as any;
 
-    const { frames, fields, preparePlotFrame, replaceVariables, dataLinkPostProcessor } = props;
+    const { frames, fields = defaultMatchers, preparePlotFrame, replaceVariables, dataLinkPostProcessor } = props;
 
     const preparePlotFrameFn = preparePlotFrame ?? defaultPreparePlotFrame;
 
-    const matchY = fieldMatchers.get(FieldMatcherID.byTypes).get(new Set([FieldType.number, FieldType.enum]));
-
-    // if there are data links, we have to keep all fields so they're index-matched, then filter out dimFields.y
     const withLinks = frames.some((frame) => frame.fields.some((field) => (field.config.links?.length ?? 0) > 0));
 
-    const dimFields = fields ?? {
-      x: fieldMatchers.get(FieldMatcherID.firstTimeField).get({}),
-      y: withLinks ? () => true : matchY,
-    };
-
-    const alignedFrame = preparePlotFrameFn(frames, dimFields, props.timeRange);
+    const alignedFrame = preparePlotFrameFn(
+      frames,
+      {
+        ...fields,
+        // if there are data links, keep all fields during join so they're index-matched
+        y: withLinks ? () => true : fields.y,
+      },
+      props.timeRange
+    );
 
     pluginLog('GraphNG', false, 'data aligned', alignedFrame);
 
@@ -126,31 +140,51 @@ export class GraphNG extends Component<GraphNGProps, GraphNGState> {
       if (withLinks) {
         const timeZone = Array.isArray(this.props.timeZone) ? this.props.timeZone[0] : this.props.timeZone;
 
-        alignedFrame.fields.forEach((field) => {
-          field.getLinks = getLinksSupplier(
-            alignedFrame,
-            field,
-            {
-              ...field.state?.scopedVars,
-              __dataContext: {
-                value: {
-                  data: [alignedFrame],
-                  field: field,
-                  frame: alignedFrame,
-                  frameIndex: 0,
+        // for links gen we need to use original frames but with the aligned/joined data values
+        let linkFrames = frames.map((frame, frameIdx) => ({
+          ...frame,
+          fields: alignedFrame.fields.filter(
+            (field, fieldIdx) => fieldIdx === 0 || field.state?.origin?.frameIndex === frameIdx
+          ),
+          length: alignedFrame.length,
+        }));
+
+        linkFrames.forEach((linkFrame, frameIndex) => {
+          linkFrame.fields.forEach((field) => {
+            field.getLinks = getLinksSupplier(
+              linkFrame,
+              field,
+              {
+                ...field.state?.scopedVars,
+                __dataContext: {
+                  value: {
+                    data: linkFrames,
+                    field: field,
+                    frame: linkFrame,
+                    frameIndex,
+                  },
                 },
               },
-            },
-            replaceVariables,
-            timeZone,
-            dataLinkPostProcessor
-          );
+              replaceVariables,
+              timeZone,
+              dataLinkPostProcessor
+            );
+          });
         });
 
-        // filter join field and dimFields.y
+        // filter join field and fields.y
         alignedFrameFinal = {
           ...alignedFrame,
-          fields: alignedFrame.fields.filter((field, i) => i === 0 || matchY(field, alignedFrame, [alignedFrame])),
+          fields: alignedFrame.fields.filter((field, i) => i === 0 || fields.y(field, alignedFrame, [alignedFrame])),
+        };
+      }
+
+      if (props.omitHideFromViz) {
+        const nonHiddenFields = alignedFrameFinal.fields.filter((field) => field.config.custom?.hideFrom?.viz !== true);
+        alignedFrameFinal = {
+          ...alignedFrameFinal,
+          fields: nonHiddenFields,
+          length: nonHiddenFields.length,
         };
       }
 
@@ -173,17 +207,23 @@ export class GraphNG extends Component<GraphNGProps, GraphNGState> {
   }
 
   componentDidUpdate(prevProps: GraphNGProps) {
-    const { frames, structureRev, timeZone, propsToDiff } = this.props;
+    const { frames, structureRev, timeZone, cursorSync, propsToDiff } = this.props;
 
     const propsChanged = !sameProps(prevProps, this.props, propsToDiff);
 
-    if (frames !== prevProps.frames || propsChanged || timeZone !== prevProps.timeZone) {
+    if (
+      frames !== prevProps.frames ||
+      propsChanged ||
+      timeZone !== prevProps.timeZone ||
+      cursorSync !== prevProps.cursorSync
+    ) {
       let newState = this.prepState(this.props, false);
 
       if (newState) {
         const shouldReconfig =
           this.state.config === undefined ||
           timeZone !== prevProps.timeZone ||
+          cursorSync !== prevProps.cursorSync ||
           structureRev !== prevProps.structureRev ||
           !structureRev ||
           propsChanged;

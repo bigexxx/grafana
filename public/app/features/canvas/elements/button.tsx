@@ -1,8 +1,7 @@
 import { css } from '@emotion/css';
-import React from 'react';
+import { useState } from 'react';
 
-import { GrafanaTheme2 } from '@grafana/data';
-import { PluginState } from '@grafana/data/src';
+import { GrafanaTheme2, PluginState } from '@grafana/data';
 import { TextDimensionMode } from '@grafana/schema';
 import { Button, Spinner, useStyles2 } from '@grafana/ui';
 import { DimensionContext } from 'app/features/dimensions/context';
@@ -42,7 +41,7 @@ export const defaultStyleConfig: ButtonStyleConfig = {
 const ButtonDisplay = ({ data }: CanvasElementProps<ButtonConfig, ButtonData>) => {
   const styles = useStyles2(getStyles, data);
 
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const updateLoadingStateCallback = (loading: boolean) => {
     setIsLoading(loading);
@@ -126,6 +125,7 @@ export const buttonItem: CanvasElementItem<ButtonConfig, ButtonData> = {
       height: options?.placement?.height ?? 78,
       top: options?.placement?.top ?? 100,
       left: options?.placement?.left ?? 100,
+      rotation: options?.placement?.rotation ?? 0,
     },
   }),
 

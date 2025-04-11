@@ -1,15 +1,17 @@
 import { css } from '@emotion/css';
 import { addDays, subDays } from 'date-fns';
-import React, { useState } from 'react';
+import { uniqueId } from 'lodash';
+import { useState } from 'react';
 import { FormProvider, useForm } from 'react-hook-form';
 
 import { GrafanaTheme2 } from '@grafana/data';
-import { Button, Card, Modal, RadioButtonGroup, useStyles2, Stack } from '@grafana/ui';
+import { Button, Card, Modal, RadioButtonGroup, Stack, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 import { TestTemplateAlert } from 'app/plugins/datasource/alertmanager/types';
 
 import { KeyValueField } from '../../../api/templateApi';
 import AnnotationsStep from '../../rule-editor/AnnotationsStep';
-import LabelsField from '../../rule-editor/LabelsField';
+import LabelsField from '../../rule-editor/labels/LabelsField';
 
 interface Props {
   isOpen: boolean;
@@ -53,6 +55,8 @@ export const GenerateAlertDataModal = ({ isOpen, onDismiss, onAccept }: Props) =
         }, {}),
       startsAt: '2023-04-01T00:00:00Z',
       endsAt: status === 'firing' ? addDays(new Date(), 1).toISOString() : subDays(new Date(), 1).toISOString(),
+      status,
+      fingerprint: uniqueId('fingerprint_'),
     };
     setAlerts((alerts) => [...alerts, alert]);
     formMethods.reset();
@@ -84,7 +88,11 @@ export const GenerateAlertDataModal = ({ isOpen, onDismiss, onAccept }: Props) =
   ];
 
   return (
-    <Modal onDismiss={onDismiss} isOpen={isOpen} title={'Add custom alerts'}>
+    <Modal
+      onDismiss={onDismiss}
+      isOpen={isOpen}
+      title={t('alerting.generate-alert-data-modal.title-add-custom-alerts', 'Add custom alerts')}
+    >
       <FormProvider {...formMethods}>
         <form
           onSubmit={(e) => {
@@ -94,35 +102,38 @@ export const GenerateAlertDataModal = ({ isOpen, onDismiss, onAccept }: Props) =
             setStatus('firing');
           }}
         >
-          <>
-            <Card>
-              <Stack direction="column" gap={1}>
-                <div className={styles.section}>
-                  <AnnotationsStep />
-                </div>
-                <div className={styles.section}>
-                  <LabelsField />
-                </div>
-                <div className={styles.flexWrapper}>
-                  <RadioButtonGroup value={status} options={alertOptions} onChange={(value) => setStatus(value)} />
-                  <Button
-                    onClick={onAdd}
-                    className={styles.onAddButton}
-                    icon="plus-circle"
-                    type="button"
-                    variant="secondary"
-                    disabled={!labelsOrAnnotationsAdded()}
-                  >
-                    Add alert data
-                  </Button>
-                </div>
-              </Stack>
-            </Card>
-          </>
-          <div className={styles.onSubmitWrapper}></div>
+          <Card>
+            <Stack direction="column" gap={1}>
+              <div className={styles.section}>
+                <AnnotationsStep />
+              </div>
+              <div className={styles.section}>
+                <LabelsField />
+              </div>
+              <div className={styles.flexWrapper}>
+                <RadioButtonGroup value={status} options={alertOptions} onChange={(value) => setStatus(value)} />
+                <Button
+                  onClick={onAdd}
+                  className={styles.onAddButton}
+                  icon="plus-circle"
+                  type="button"
+                  variant="secondary"
+                  disabled={!labelsOrAnnotationsAdded()}
+                >
+                  <Trans i18nKey="alerting.generate-alert-data-modal.add-alert-data">Add alert data</Trans>
+                </Button>
+              </div>
+            </Stack>
+          </Card>
+          <div className={styles.onSubmitWrapper} />
           {alerts.length > 0 && (
             <Stack direction="column" gap={1}>
-              <h5> Review alert data to add to the payload:</h5>
+              <h5>
+                <Trans i18nKey="alerting.generate-alert-data-modal.review-alert-payload">
+                  {' '}
+                  Review alert data to add to the payload:
+                </Trans>
+              </h5>
               <pre className={styles.result} data-testid="payloadJSON">
                 {JSON.stringify(alerts, null, 2)}
               </pre>
@@ -131,7 +142,9 @@ export const GenerateAlertDataModal = ({ isOpen, onDismiss, onAccept }: Props) =
           <div className={styles.onSubmitWrapper}>
             <Modal.ButtonRow>
               <Button onClick={onSubmit} disabled={alerts.length === 0} className={styles.onSubmitButton}>
-                Add alert data to payload
+                <Trans i18nKey="alerting.generate-alert-data-modal.add-alert-data-to-payload">
+                  Add alert data to payload
+                </Trans>
               </Button>
             </Modal.ButtonRow>
           </div>
@@ -142,31 +155,31 @@ export const GenerateAlertDataModal = ({ isOpen, onDismiss, onAccept }: Props) =
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  section: css`
-    margin-bottom: ${theme.spacing(2)};
-  `,
-  onAddButton: css`
-    flex: none;
-    width: fit-content;
-    padding-right: ${theme.spacing(1)};
-    margin-left: auto;
-  `,
-  flexWrapper: css`
-    display: flex;
-    flex-direction: row,
-    justify-content: space-between;
-  `,
-  onSubmitWrapper: css`
-    display: flex;
-    flex-direction: row;
-    align-items: baseline;
-    justify-content: flex-end;
-  `,
-  onSubmitButton: css`
-    margin-left: ${theme.spacing(2)};
-  `,
-  result: css`
-    width: 570px;
-    height: 363px;
-  `,
+  section: css({
+    marginBottom: theme.spacing(2),
+  }),
+  onAddButton: css({
+    flex: 'none',
+    width: 'fit-content',
+    paddingRight: theme.spacing(1),
+    marginLeft: 'auto',
+  }),
+  flexWrapper: css({
+    display: 'flex',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  }),
+  onSubmitWrapper: css({
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'flex-end',
+  }),
+  onSubmitButton: css({
+    marginLeft: theme.spacing(2),
+  }),
+  result: css({
+    width: '570px',
+    height: '363px',
+  }),
 });

@@ -16,8 +16,9 @@ import {
   SceneObject,
   AdHocFiltersVariable,
   SceneVariableState,
+  SceneVariableSet,
 } from '@grafana/scenes';
-import { VariableType } from '@grafana/schema';
+import { VariableHide, VariableType } from '@grafana/schema';
 
 import { getIntervalsQueryFromNewIntervalModel } from '../../utils/utils';
 
@@ -36,7 +37,8 @@ interface EditableVariableConfig {
   editor: React.ComponentType<any>;
 }
 
-export type EditableVariableType = Exclude<VariableType, 'system'>;
+//exclude system variable type and snapshot variable type
+export type EditableVariableType = Exclude<VariableType, 'system' | 'snapshot'>;
 
 export function isEditableVariableType(type: VariableType): type is EditableVariableType {
   return type !== 'system';
@@ -127,13 +129,16 @@ export function getVariableScene(type: EditableVariableType, initialState: Commo
     case 'query':
       return new QueryVariable(initialState);
     case 'constant':
-      return new ConstantVariable(initialState);
+      return new ConstantVariable({ ...initialState, hide: VariableHide.hideVariable });
     case 'interval':
       return new IntervalVariable(initialState);
     case 'datasource':
       return new DataSourceVariable(initialState);
     case 'adhoc':
-      return new AdHocFiltersVariable(initialState);
+      return new AdHocFiltersVariable({
+        ...initialState,
+        layout: config.featureToggles.newFiltersUI ? 'combobox' : undefined,
+      });
     case 'groupby':
       return new GroupByVariable(initialState);
     case 'textbox':
@@ -198,7 +203,7 @@ export function getOptionDataSourceTypes() {
   return optionTypes;
 }
 
-function isSceneVariable(sceneObject: SceneObject): sceneObject is SceneVariable {
+export function isSceneVariable(sceneObject: SceneObject): sceneObject is SceneVariable {
   return 'type' in sceneObject.state && 'getValue' in sceneObject;
 }
 
@@ -221,3 +226,32 @@ export function isSceneVariableInstance(sceneObject: SceneObject): sceneObject i
 
 export const RESERVED_GLOBAL_VARIABLE_NAME_REGEX = /^(?!__).*$/;
 export const WORD_CHARACTERS_REGEX = /^\w+$/;
+
+export function validateVariableName(
+  variable: SceneVariable,
+  name: string
+): { isValid: boolean; errorMessage?: string } {
+  const set = variable.parent;
+  if (!(set instanceof SceneVariableSet)) {
+    throw new Error('Variable parent is not a SceneVariableSet');
+  }
+
+  if (!RESERVED_GLOBAL_VARIABLE_NAME_REGEX.test(name)) {
+    return {
+      isValid: false,
+      errorMessage: "Template names cannot begin with '__', that's reserved for Grafana's global variables",
+    };
+  }
+
+  if (!WORD_CHARACTERS_REGEX.test(name)) {
+    return { isValid: false, errorMessage: 'Only word characters are allowed in variable names' };
+  }
+
+  const varLookupByName = set.getByName(name);
+
+  if (varLookupByName && varLookupByName !== variable) {
+    return { isValid: false, errorMessage: 'Variable with the same name already exists' };
+  }
+
+  return { isValid: true };
+}

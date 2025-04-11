@@ -20,12 +20,13 @@ type LibraryElement struct {
 	OrgID int64 `xorm:"org_id"`
 	// Deprecated: use FolderUID instead
 	FolderID    int64  `xorm:"folder_id"`
+	FolderUID   string `xorm:"folder_uid"`
 	UID         string `xorm:"uid"`
 	Name        string
 	Kind        int64
 	Type        string
 	Description string
-	Model       json.RawMessage
+	Model       json.RawMessage `xorm:"TEXT"` // Column is defined as TEXT in `library_element`.
 	Version     int64
 
 	Created time.Time
@@ -41,6 +42,7 @@ type LibraryElementWithMeta struct {
 	OrgID int64 `xorm:"org_id"`
 	// Deprecated: use FolderUID instead
 	FolderID    int64  `xorm:"folder_id"`
+	FolderUID   string `xorm:"folder_uid"`
 	UID         string `xorm:"uid"`
 	Name        string
 	Kind        int64
@@ -53,7 +55,6 @@ type LibraryElementWithMeta struct {
 	Updated time.Time
 
 	FolderName          string
-	FolderUID           string `xorm:"folder_uid"`
 	ConnectedDashboards int64
 	CreatedBy           int64
 	UpdatedBy           int64
@@ -213,17 +214,19 @@ type GetLibraryElementCommand struct {
 	// Deprecated: use FolderUID instead
 	FolderID int64
 	UID      string
+	Name     string
 }
 
 // SearchLibraryElementsQuery is the query used for searching for Elements
 type SearchLibraryElementsQuery struct {
-	PerPage          int
-	Page             int
-	SearchString     string
-	SortDirection    string
-	Kind             int
-	TypeFilter       string
-	ExcludeUID       string
+	PerPage       int
+	Page          int
+	SearchString  string
+	SortDirection string
+	Kind          int
+	TypeFilter    string
+	ExcludeUID    string
+	// Deprecated: use FolderFilterUIDs instead
 	FolderFilter     string
 	FolderFilterUIDs string
 }

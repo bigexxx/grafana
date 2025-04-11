@@ -1,8 +1,8 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
 
 import { TimeOptions } from '../../types/time';
 
@@ -16,9 +16,15 @@ export function PromDurationDocs() {
       <hr />
       <div className={styles.list}>
         <div className={styles.header}>
-          <div>Symbol</div>
-          <div>Time unit</div>
-          <div>Example</div>
+          <div>
+            <Trans i18nKey="alerting.prom-duration-docs.symbol">Symbol</Trans>
+          </div>
+          <div>
+            <Trans i18nKey="alerting.prom-duration-docs.time-unit">Time unit</Trans>
+          </div>
+          <div>
+            <Trans i18nKey="alerting.prom-duration-docs.example">Example</Trans>
+          </div>
         </div>
         <PromDurationDocsTimeUnit unit={TimeOptions.seconds} name="seconds" example="20s" />
         <PromDurationDocsTimeUnit unit={TimeOptions.minutes} name="minutes" example="10m" />
@@ -26,7 +32,10 @@ export function PromDurationDocs() {
         <PromDurationDocsTimeUnit unit={TimeOptions.days} name="days" example="3d" />
         <PromDurationDocsTimeUnit unit={TimeOptions.weeks} name="weeks" example="2w" />
         <div className={styles.examples}>
-          <div>Multiple units combined</div>
+          <div>
+            <Trans i18nKey="alerting.prom-duration-docs.multiple-units-combined">Multiple units combined</Trans>
+          </div>
+          {/* eslint-disable-next-line @grafana/no-untranslated-strings */}
           <code>1m30s, 2h30m20s, 1w2d</code>
         </div>
       </div>
@@ -47,22 +56,22 @@ function PromDurationDocsTimeUnit({ unit, name, example }: { unit: TimeOptions; 
 }
 
 const getPromDurationStyles = (theme: GrafanaTheme2) => ({
-  unit: css`
-    font-weight: ${theme.typography.fontWeightBold};
-  `,
-  list: css`
-    display: grid;
-    grid-template-columns: max-content 1fr 2fr;
-    gap: ${theme.spacing(1, 3)};
-  `,
-  header: css`
-    display: contents;
-    font-weight: ${theme.typography.fontWeightBold};
-  `,
-  examples: css`
-    display: contents;
-    & > div {
-      grid-column: 1 / span 2;
-    }
-  `,
+  unit: css({
+    fontWeight: theme.typography.fontWeightBold,
+  }),
+  list: css({
+    display: 'grid',
+    gridTemplateColumns: 'max-content 1fr 2fr',
+    gap: theme.spacing(1, 3),
+  }),
+  header: css({
+    display: 'contents',
+    fontWeight: theme.typography.fontWeightBold,
+  }),
+  examples: css({
+    display: 'contents',
+    '& > div': {
+      gridColumn: '1 / span 2',
+    },
+  }),
 });

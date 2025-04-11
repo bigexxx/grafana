@@ -1,16 +1,7 @@
-import { DataSourceJsonData } from '@grafana/data/src';
+import { DataSourceJsonData } from '@grafana/data';
 import { NodeGraphOptions, TraceToLogsOptions } from '@grafana/o11y-ds-frontend';
 
 import { TempoQuery as TempoBase, TempoQueryType, TraceqlFilter } from './dataquery.gen';
-
-export interface SearchQueryParams {
-  minDuration?: string;
-  maxDuration?: string;
-  limit?: number;
-  tags?: string;
-  start?: number;
-  end?: number;
-}
 
 export interface TempoJsonData extends DataSourceJsonData {
   tracesToLogs?: TraceToLogsOptions;
@@ -25,10 +16,14 @@ export interface TempoJsonData extends DataSourceJsonData {
   spanBar?: {
     tag: string;
   };
+  tagLimit?: number;
   traceQuery?: {
     timeShiftEnabled?: boolean;
     spanStartTimeShift?: string;
     spanEndTimeShift?: string;
+  };
+  streamingEnabled?: {
+    search?: boolean;
   };
 }
 
@@ -111,33 +106,4 @@ export type SearchResponse = {
 export type Scope = {
   name: string;
   tags: string[];
-};
-
-// Maps to QueryRangeResponse of tempopb https://github.com/grafana/tempo/blob/cfda98fc5cb0777963f41e0949b9ad2d24b4b5b8/pkg/tempopb/tempo.proto#L360
-export type TraceqlMetricsResponse = {
-  series: MetricsSeries[];
-  metrics: SearchMetrics;
-};
-
-export type MetricsSeries = {
-  labels: MetricsSeriesLabel[];
-  samples: MetricsSeriesSample[];
-  promLabels: string;
-};
-
-export type MetricsSeriesLabel = {
-  key: string;
-  value: ProtoValue;
-};
-
-export type ProtoValue = {
-  stringValue?: string;
-  intValue?: string;
-  boolValue?: boolean;
-  doubleValue?: string;
-};
-
-export type MetricsSeriesSample = {
-  timestampMs: string;
-  value: number;
 };

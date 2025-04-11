@@ -1,13 +1,15 @@
 import { css } from '@emotion/css';
 import uFuzzy from '@leeoniya/ufuzzy';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as React from 'react';
 import { useMeasure } from 'react-use';
 
 import { DataFrame, GrafanaTheme2 } from '@grafana/data';
 import { ThemeContext } from '@grafana/ui';
 
 import FlameGraph from './FlameGraph/FlameGraph';
-import { FlameGraphDataContainer } from './FlameGraph/dataTransform';
+import { GetExtraContextMenuButtonsFunction } from './FlameGraph/FlameGraphContextMenu';
+import { CollapsedMap, FlameGraphDataContainer } from './FlameGraph/dataTransform';
 import FlameGraphHeader from './FlameGraphHeader';
 import FlameGraphTopTableContainer from './TopTable/FlameGraphTopTableContainer';
 import { MIN_WIDTH_TO_SHOW_BOTH_TOPTABLE_AND_FLAMEGRAPH } from './constants';
@@ -53,6 +55,11 @@ export type Props = {
   extraHeaderElements?: React.ReactNode;
 
   /**
+   * Extra buttons that will be shown in the context menu when user clicks on a Node.
+   */
+  getExtraContextMenuButtons?: GetExtraContextMenuButtonsFunction;
+
+  /**
    * If true the flamegraph will be rendered on top of the table.
    */
   vertical?: boolean;
@@ -66,6 +73,10 @@ export type Props = {
    * Disable behaviour where similar items in the same stack will be collapsed into single item.
    */
   disableCollapsing?: boolean;
+  /**
+   * Whether or not to keep any focused item when the profile data changes.
+   */
+  keepFocusOnDataChange?: boolean;
 };
 
 const FlameGraphContainer = ({
@@ -80,6 +91,8 @@ const FlameGraphContainer = ({
   vertical,
   showFlameGraphOnly,
   disableCollapsing,
+  keepFocusOnDataChange,
+  getExtraContextMenuButtons,
 }: Props) => {
   const [focusedItemData, setFocusedItemData] = useState<ClickedItemData>();
 
@@ -91,14 +104,17 @@ const FlameGraphContainer = ({
   const [textAlign, setTextAlign] = useState<TextAlign>('left');
   // This is a label of the item because in sandwich view we group all items by label and present a merged graph
   const [sandwichItem, setSandwichItem] = useState<string>();
+  const [collapsedMap, setCollapsedMap] = useState(new CollapsedMap());
 
-  const theme = getTheme();
-
+  const theme = useMemo(() => getTheme(), [getTheme]);
   const dataContainer = useMemo((): FlameGraphDataContainer | undefined => {
     if (!data) {
       return;
     }
-    return new FlameGraphDataContainer(data, { collapsing: !disableCollapsing }, theme);
+
+    const container = new FlameGraphDataContainer(data, { collapsing: !disableCollapsing }, theme);
+    setCollapsedMap(container.getCollapsedMap());
+    return container;
   }, [data, theme, disableCollapsing]);
   const [colorScheme, setColorScheme] = useColorScheme(dataContainer);
   const styles = getStyles(theme);
@@ -122,14 +138,44 @@ const FlameGraphContainer = ({
     setRangeMax(1);
   }, [setFocusedItemData, setRangeMax, setRangeMin]);
 
-  function resetSandwich() {
+  const resetSandwich = useCallback(() => {
     setSandwichItem(undefined);
-  }
+  }, [setSandwichItem]);
 
   useEffect(() => {
-    resetFocus();
-    resetSandwich();
-  }, [data, resetFocus]);
+    if (!keepFocusOnDataChange) {
+      resetFocus();
+      resetSandwich();
+      return;
+    }
+
+    if (dataContainer && focusedItemData) {
+      const item = dataContainer.getNodesWithLabel(focusedItemData.label)?.[0];
+
+      if (item) {
+        setFocusedItemData({ ...focusedItemData, item });
+
+        const levels = dataContainer.getLevels();
+        const totalViewTicks = levels.length ? levels[0][0].value : 0;
+        setRangeMin(item.start / totalViewTicks);
+        setRangeMax((item.start + item.value) / totalViewTicks);
+      } else {
+        setFocusedItemData({
+          ...focusedItemData,
+          item: {
+            start: 0,
+            value: 0,
+            itemIndexes: [],
+            children: [],
+            level: 0,
+          },
+        });
+
+        setRangeMin(0);
+        setRangeMax(1);
+      }
+    }
+  }, [dataContainer, keepFocusOnDataChange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onSymbolClick = useCallback(
     (symbol: string) => {
@@ -169,6 +215,11 @@ const FlameGraphContainer = ({
       colorScheme={colorScheme}
       showFlameGraphOnly={showFlameGraphOnly}
       collapsing={!disableCollapsing}
+      getExtraContextMenuButtons={getExtraContextMenuButtons}
+      selectedView={selectedView}
+      search={search}
+      collapsedMap={collapsedMap}
+      setCollapsedMap={setCollapsedMap}
     />
   );
 
@@ -182,6 +233,7 @@ const FlameGraphContainer = ({
       onSandwich={setSandwichItem}
       onSearch={setSearch}
       onTableSort={onTableSort}
+      colorScheme={colorScheme}
     />
   );
 
@@ -238,7 +290,9 @@ const FlameGraphContainer = ({
             stickyHeader={Boolean(stickyHeader)}
             extraHeaderElements={extraHeaderElements}
             vertical={vertical}
-            isDiffMode={Boolean(dataContainer.isDiffFlamegraph())}
+            isDiffMode={dataContainer.isDiffFlamegraph()}
+            setCollapsedMap={setCollapsedMap}
+            collapsedMap={collapsedMap}
           />
         )}
 

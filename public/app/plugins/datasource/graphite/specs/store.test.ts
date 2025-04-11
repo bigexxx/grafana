@@ -13,12 +13,6 @@ import {
 import { createStore } from '../state/store';
 import { GraphiteSegment } from '../types';
 
-jest.mock('app/angular/promiseToDigest', () => ({
-  promiseToDigest: () => {
-    return (p: Promise<unknown>) => p;
-  },
-}));
-
 jest.mock('app/store/store', () => ({
   dispatch: jest.fn(),
 }));
@@ -209,19 +203,25 @@ describe('Graphite actions', () => {
     const currentRange = { from: 0, to: 1 };
     ctx.state.range = currentRange;
     await getTagsSelectables(ctx.state, 0, 'any');
-    expect(ctx.state.datasource.getTagsAutoComplete).toBeCalledWith([], 'any', { range: currentRange, limit: 5000 });
+    expect(ctx.state.datasource.getTagsAutoComplete).toHaveBeenCalledWith([], 'any', {
+      range: currentRange,
+      limit: 5000,
+    });
   });
 
   it('current time range and limit is passed when getting list of tags for adding', async () => {
     const currentRange = { from: 0, to: 1 };
     ctx.state.range = currentRange;
     await getTagsAsSegmentsSelectables(ctx.state, 'any');
-    expect(ctx.state.datasource.getTagsAutoComplete).toBeCalledWith([], 'any', { range: currentRange, limit: 5000 });
+    expect(ctx.state.datasource.getTagsAutoComplete).toHaveBeenCalledWith([], 'any', {
+      range: currentRange,
+      limit: 5000,
+    });
   });
 
   it('limit is passed when getting list of tag values', async () => {
     await getTagValuesSelectables(ctx.state, { key: 'key', operator: '=', value: 'value' }, 1, 'test');
-    expect(ctx.state.datasource.getTagValuesAutoComplete).toBeCalledWith([], 'key', 'test', { limit: 5000 });
+    expect(ctx.state.datasource.getTagValuesAutoComplete).toHaveBeenCalledWith([], 'key', 'test', { limit: 5000 });
   });
 
   describe('when autocomplete for metric names is not available', () => {
@@ -237,7 +237,7 @@ describe('Graphite actions', () => {
     it('getAltSegmentsSelectables should handle autocomplete errors', async () => {
       await expect(async () => {
         await getAltSegmentsSelectables(ctx.state, 0, 'any');
-        expect(mockDispatch).toBeCalledWith(
+        expect(mockDispatch).toHaveBeenCalledWith(
           expect.objectContaining({
             type: 'appNotifications/notifyApp',
           })
@@ -267,7 +267,7 @@ describe('Graphite actions', () => {
     it('getTagsSelectables should handle autocomplete errors', async () => {
       await expect(async () => {
         await getTagsSelectables(ctx.state, 0, 'any');
-        expect(mockDispatch).toBeCalledWith(
+        expect(mockDispatch).toHaveBeenCalledWith(
           expect.objectContaining({
             type: 'appNotifications/notifyApp',
           })
@@ -286,7 +286,7 @@ describe('Graphite actions', () => {
     it('getTagsAsSegmentsSelectables should handle autocomplete errors', async () => {
       await expect(async () => {
         await getTagsAsSegmentsSelectables(ctx.state, 'any');
-        expect(mockDispatch).toBeCalledWith(
+        expect(mockDispatch).toHaveBeenCalledWith(
           expect.objectContaining({
             type: 'appNotifications/notifyApp',
           })

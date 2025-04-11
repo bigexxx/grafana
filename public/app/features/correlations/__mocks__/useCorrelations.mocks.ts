@@ -11,11 +11,14 @@ export function createFetchCorrelationsResponse<T>(overrides?: DeepPartial<Fetch
       data: undefined,
       status: 200,
       url: '',
-      config: { url: '' },
+      config: {
+        url: '',
+        abortSignal: undefined,
+      },
       type: 'basic',
       statusText: 'Ok',
       redirected: false,
-      headers: {} as unknown as Headers,
+      headers: new Headers(),
       ok: true,
     },
     overrides

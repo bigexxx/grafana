@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"time"
 
 	"github.com/grafana/grafana/pkg/api/routing"
@@ -27,7 +28,7 @@ type UsageStats struct {
 	externalMetrics     []usagestats.MetricsFunc
 	sendReportCallbacks []usagestats.SendReportCallbackFunc
 
-	readyToReport bool
+	readyToReport atomic.Bool
 }
 
 func ProvideService(cfg *setting.Cfg,
@@ -35,7 +36,6 @@ func ProvideService(cfg *setting.Cfg,
 	routeRegister routing.RouteRegister,
 	tracer tracing.Tracer,
 	accesscontrol ac.AccessControl,
-	accesscontrolService ac.Service,
 	bundleRegistry supportbundles.Service,
 ) (*UsageStats, error) {
 	s := &UsageStats{
@@ -45,10 +45,6 @@ func ProvideService(cfg *setting.Cfg,
 		log:           log.New("infra.usagestats"),
 		tracer:        tracer,
 		accesscontrol: accesscontrol,
-	}
-
-	if err := declareFixedRoles(accesscontrolService); err != nil {
-		return nil, err
 	}
 
 	s.registerAPIEndpoints()
@@ -84,7 +80,7 @@ func (uss *UsageStats) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-sendReportTicker.C:
-			if !uss.readyToReport {
+			if !uss.readyToReport.Load() {
 				nextSendInterval = time.Minute
 				sendReportTicker.Reset(nextSendInterval)
 				continue
@@ -119,7 +115,7 @@ func (uss *UsageStats) RegisterSendReportCallback(c usagestats.SendReportCallbac
 
 func (uss *UsageStats) SetReadyToReport(context.Context) {
 	uss.log.Info("Usage stats are ready to report")
-	uss.readyToReport = true
+	uss.readyToReport.Store(true)
 }
 
 func (uss *UsageStats) supportBundleCollector() supportbundles.Collector {

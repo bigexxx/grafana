@@ -155,13 +155,13 @@ func (s *Service) getPrivateKey(ctx context.Context, keyID string) (crypto.Signe
 		return nil, err
 	}
 
-	singer, err := s.decodePrivateKey(ctx, key.PrivateKey)
+	signer, err := s.decodePrivateKey(ctx, key.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
 
-	s.localCache.Set(keyID, singer, privateKeyTTL)
-	return singer, nil
+	s.localCache.Set(keyID, signer, privateKeyTTL)
+	return signer, nil
 }
 
 func (s *Service) addPrivateKey(ctx context.Context, keyID string, alg jose.SignatureAlgorithm, force bool) (crypto.Signer, error) {
@@ -177,12 +177,14 @@ func (s *Service) addPrivateKey(ctx context.Context, keyID string, alg jose.Sign
 		return nil, err
 	}
 
-	expiry := time.Now().Add(30 * 24 * time.Hour)
+	now := time.Now()
+	expiry := now.Add(30 * 24 * time.Hour)
 	key, err := s.store.Add(ctx, &signingkeys.SigningKey{
 		KeyID:      keyID,
-		PrivateKey: encoded,
+		PrivateKey: string(encoded),
 		ExpiresAt:  &expiry,
 		Alg:        alg,
+		AddedAt:    now,
 	}, force)
 
 	if err != nil && !errors.Is(err, signingkeys.ErrSigningKeyAlreadyExists) {
@@ -224,19 +226,22 @@ func (s *Service) encodePrivateKey(ctx context.Context, privateKey crypto.Signer
 		return nil, err
 	}
 
-	encoded := make([]byte, base64.StdEncoding.EncodedLen(len(encrypted)))
-	base64.StdEncoding.Encode(encoded, encrypted)
+	encoded := make([]byte, base64.RawStdEncoding.EncodedLen(len(encrypted)))
+	base64.RawStdEncoding.Encode(encoded, encrypted)
 	return encoded, nil
 }
 
-func (s *Service) decodePrivateKey(ctx context.Context, privateKey []byte) (crypto.Signer, error) {
+func (s *Service) decodePrivateKey(ctx context.Context, privateKey string) (crypto.Signer, error) {
 	// Bail out if empty string since it'll cause a segfault in Decrypt
 	if len(privateKey) == 0 {
 		return nil, errors.New("private key is empty")
 	}
 
-	payload := make([]byte, base64.StdEncoding.DecodedLen(len(privateKey)))
-	_, err := base64.StdEncoding.Decode(payload, privateKey)
+	// Backwards compatibility with old base64 encoding
+	// Can be removed in the future
+	privateKey = strings.TrimRight(privateKey, "=")
+
+	payload, err := base64.RawStdEncoding.DecodeString(privateKey)
 	if err != nil {
 		return nil, err
 	}

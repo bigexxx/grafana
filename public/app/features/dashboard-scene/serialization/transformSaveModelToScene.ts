@@ -1,5 +1,7 @@
-import { DataFrameDTO, DataFrameJSON, TypedVariableModel } from '@grafana/data';
-import { config } from '@grafana/runtime';
+import { uniqueId } from 'lodash';
+
+import { DataFrameDTO, DataFrameJSON } from '@grafana/data';
+import { config, logMeasurement, reportInteraction } from '@grafana/runtime';
 import {
   VizPanel,
   SceneTimePicker,
@@ -7,55 +9,46 @@ import {
   SceneGridRow,
   SceneTimeRange,
   SceneVariableSet,
-  VariableValueSelectors,
-  SceneVariable,
-  CustomVariable,
-  DataSourceVariable,
-  QueryVariable,
-  ConstantVariable,
-  IntervalVariable,
   SceneRefreshPicker,
-  SceneGridItem,
   SceneObject,
   VizPanelMenu,
   behaviors,
   VizPanelState,
   SceneGridItemLike,
-  SceneDataLayers,
   SceneDataLayerProvider,
-  SceneDataLayerControls,
-  TextBoxVariable,
   UserActionEvent,
-  GroupByVariable,
-  AdHocFiltersVariable,
-  SceneFlexLayout,
+  SceneInteractionProfileEvent,
+  SceneObjectState,
 } from '@grafana/scenes';
-import { DashboardModel, PanelModel } from 'app/features/dashboard/state';
-import { trackDashboardLoaded } from 'app/features/dashboard/utils/tracking';
-import { DashboardDTO } from 'app/types';
+import { isWeekStart } from '@grafana/ui';
+import { contextSrv } from 'app/core/core';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
+import { PanelModel } from 'app/features/dashboard/state/PanelModel';
+import { DashboardDTO, DashboardDataDTO } from 'app/types';
 
-import { AddLibraryPanelWidget } from '../scene/AddLibraryPanelWidget';
+import { addPanelsOnLoadBehavior } from '../addToDashboard/addPanelsOnLoadBehavior';
 import { AlertStatesDataLayer } from '../scene/AlertStatesDataLayer';
 import { DashboardAnnotationsDataLayer } from '../scene/DashboardAnnotationsDataLayer';
 import { DashboardControls } from '../scene/DashboardControls';
+import { DashboardDataLayerSet } from '../scene/DashboardDataLayerSet';
 import { registerDashboardMacro } from '../scene/DashboardMacro';
+import { DashboardReloadBehavior } from '../scene/DashboardReloadBehavior';
 import { DashboardScene } from '../scene/DashboardScene';
-import { LibraryVizPanel } from '../scene/LibraryVizPanel';
+import { LibraryPanelBehavior } from '../scene/LibraryPanelBehavior';
 import { VizPanelLinks, VizPanelLinksMenu } from '../scene/PanelLinks';
 import { panelLinksBehavior, panelMenuBehavior } from '../scene/PanelMenuBehavior';
 import { PanelNotices } from '../scene/PanelNotices';
-import { PanelRepeaterGridItem } from '../scene/PanelRepeaterGridItem';
 import { PanelTimeRange } from '../scene/PanelTimeRange';
-import { RowRepeaterBehavior } from '../scene/RowRepeaterBehavior';
-import { RowActions } from '../scene/row-actions/RowActions';
+import { DashboardGridItem, RepeatDirection } from '../scene/layout-default/DashboardGridItem';
+import { DefaultGridLayoutManager } from '../scene/layout-default/DefaultGridLayoutManager';
+import { RowRepeaterBehavior } from '../scene/layout-default/RowRepeaterBehavior';
+import { RowActions } from '../scene/layout-default/row-actions/RowActions';
 import { setDashboardPanelContext } from '../scene/setDashboardPanelContext';
 import { createPanelDataProvider } from '../utils/createPanelDataProvider';
+import { preserveDashboardSceneStateInLocalStorage } from '../utils/dashboardSessionState';
 import { DashboardInteractions } from '../utils/interactions';
-import {
-  getCurrentValueForOldIntervalModel,
-  getIntervalsFromQueryString,
-  getVizPanelKeyForPanelId,
-} from '../utils/utils';
+import { getVizPanelKeyForPanelId } from '../utils/utils';
+import { createVariablesForDashboard, createVariablesForSnapshot } from '../utils/variables';
 
 import { getAngularPanelMigrationHandler } from './angularMigration';
 import { GRAFANA_DATASOURCE_REF } from './const';
@@ -74,7 +67,7 @@ export function transformSaveModelToScene(rsp: DashboardDTO): DashboardScene {
   // Just to have migrations run
   const oldModel = new DashboardModel(rsp.dashboard, rsp.meta);
 
-  const scene = createDashboardSceneFromDashboardModel(oldModel);
+  const scene = createDashboardSceneFromDashboardModel(oldModel, rsp.dashboard);
   // TODO: refactor createDashboardSceneFromDashboardModel to work on Dashboard schema model
   scene.setInitialSaveModel(rsp.dashboard);
 
@@ -106,33 +99,17 @@ export function createSceneObjectsForPanels(oldPanels: PanelModel[]): SceneGridI
           // commit previous row panels
           panels.push(createRowFromPanelModel(currentRow, currentRowPanels));
 
-          currentRow = panel;
+          if (Boolean(panel.collapsed)) {
+            // collapsed rows contain their panels within the row model
+            panels.push(createRowFromPanelModel(panel, []));
+            currentRow = null;
+          } else {
+            // indicate new row to be processed
+            currentRow = panel;
+          }
+
           currentRowPanels = [];
         }
-      }
-    } else if (panel.type === 'add-library-panel') {
-      const gridItem = buildGridItemForLibraryPanelWidget(panel);
-
-      if (!gridItem) {
-        continue;
-      }
-
-      if (currentRow) {
-        currentRowPanels.push(gridItem);
-      } else {
-        panels.push(gridItem);
-      }
-    } else if (panel.libraryPanel?.uid && !('model' in panel.libraryPanel)) {
-      const gridItem = buildGridItemForLibPanel(panel);
-
-      if (!gridItem) {
-        continue;
-      }
-
-      if (currentRow) {
-        currentRowPanels.push(gridItem);
-      } else {
-        panels.push(gridItem);
       }
     } else {
       // when rendering a snapshot created with the legacy Dashboards convert data to new snapshot format to be compatible with Scenes
@@ -168,24 +145,6 @@ function createRowFromPanelModel(row: PanelModel, content: SceneGridItemLike[]):
           saveModel = new PanelModel(saveModel);
         }
 
-        if (saveModel.type === 'add-library-panel') {
-          const gridItem = buildGridItemForLibraryPanelWidget(saveModel);
-
-          if (!gridItem) {
-            throw new Error('Failed to build grid item for library panel widget');
-          }
-
-          return gridItem;
-        } else if (saveModel.libraryPanel?.uid && !('model' in saveModel.libraryPanel)) {
-          const gridItem = buildGridItemForLibPanel(saveModel);
-
-          if (!gridItem) {
-            throw new Error('Failed to build grid item for library panel');
-          }
-
-          return gridItem;
-        }
-
         return buildGridItemForPanel(saveModel);
       });
     }
@@ -196,13 +155,7 @@ function createRowFromPanelModel(row: PanelModel, content: SceneGridItemLike[]):
 
   if (row.repeat) {
     // For repeated rows the children are stored in the behavior
-    children = [];
-    behaviors = [
-      new RowRepeaterBehavior({
-        variableName: row.repeat,
-        sources: content,
-      }),
-    ];
+    behaviors = [new RowRepeaterBehavior({ variableName: row.repeat })];
   }
 
   return new SceneGridRow({
@@ -216,27 +169,19 @@ function createRowFromPanelModel(row: PanelModel, content: SceneGridItemLike[]):
   });
 }
 
-export function createDashboardSceneFromDashboardModel(oldModel: DashboardModel) {
-  let variables: SceneVariableSet | undefined = undefined;
-  let layers: SceneDataLayerProvider[] = [];
+export function createDashboardSceneFromDashboardModel(oldModel: DashboardModel, dto: DashboardDataDTO) {
+  let variables: SceneVariableSet | undefined;
+  let annotationLayers: SceneDataLayerProvider[] = [];
+  let alertStatesLayer: AlertStatesDataLayer | undefined;
+  const uid = oldModel.uid;
+  const serializerVersion = config.featureToggles.dashboardNewLayouts ? 'v2' : 'v1';
 
   if (oldModel.templating?.list?.length) {
-    const variableObjects = oldModel.templating.list
-      .map((v) => {
-        try {
-          return createSceneVariableFromVariableModel(v);
-        } catch (err) {
-          console.error(err);
-          return null;
-        }
-      })
-      // TODO: Remove filter
-      // Added temporarily to allow skipping non-compatible variables
-      .filter((v): v is SceneVariable => Boolean(v));
-
-    variables = new SceneVariableSet({
-      variables: variableObjects,
-    });
+    if (oldModel.meta.isSnapshot) {
+      variables = createVariablesForSnapshot(oldModel);
+    } else {
+      variables = createVariablesForDashboard(oldModel);
+    }
   } else {
     // Create empty variable set
     variables = new SceneVariableSet({
@@ -245,10 +190,10 @@ export function createDashboardSceneFromDashboardModel(oldModel: DashboardModel)
   }
 
   if (oldModel.annotations?.list?.length && !oldModel.isSnapshot()) {
-    layers = oldModel.annotations?.list.map((a) => {
+    annotationLayers = oldModel.annotations?.list.map((a) => {
       // Each annotation query is an individual data layer
       return new DashboardAnnotationsDataLayer({
-        key: `annotations-${a.name}`,
+        key: uniqueId('annotations-'),
         query: a,
         name: a.name,
         isEnabled: Boolean(a.enable),
@@ -265,219 +210,97 @@ export function createDashboardSceneFromDashboardModel(oldModel: DashboardModel)
   }
 
   if (shouldUseAlertStatesLayer) {
-    layers.push(
-      new AlertStatesDataLayer({
-        key: 'alert-states',
-        name: 'Alert States',
-      })
-    );
+    alertStatesLayer = new AlertStatesDataLayer({
+      key: 'alert-states',
+      name: 'Alert States',
+    });
   }
 
-  const dashboardScene = new DashboardScene({
-    title: oldModel.title,
-    tags: oldModel.tags || [],
-    links: oldModel.links || [],
-    uid: oldModel.uid,
-    id: oldModel.id,
-    description: oldModel.description,
-    editable: oldModel.editable,
-    isDirty: oldModel.meta.isNew,
-    isEditing: oldModel.meta.isNew,
-    meta: oldModel.meta,
-    version: oldModel.version,
-    body: new SceneGridLayout({
-      isLazy: true,
-      children: createSceneObjectsForPanels(oldModel.panels),
+  const scopeMeta =
+    config.featureToggles.scopeFilters && oldModel.scopeMeta
+      ? {
+          trait: oldModel.scopeMeta.trait,
+          groups: oldModel.scopeMeta.groups,
+        }
+      : undefined;
+
+  const behaviorList: SceneObjectState['$behaviors'] = [
+    new behaviors.CursorSync({
+      sync: oldModel.graphTooltip,
     }),
-    $timeRange: new SceneTimeRange({
-      from: oldModel.time.from,
-      to: oldModel.time.to,
-      fiscalYearStartMonth: oldModel.fiscalYearStartMonth,
-      timeZone: oldModel.timezone,
-      weekStart: oldModel.weekStart,
-      UNSAFE_nowDelay: oldModel.timepicker?.nowDelay,
+    new behaviors.SceneQueryController({
+      enableProfiling:
+        config.dashboardPerformanceMetrics.findIndex((uid) => uid === '*' || uid === oldModel.uid) !== -1,
+      onProfileComplete: getDashboardInteractionCallback(oldModel.uid, oldModel.title),
     }),
-    $variables: variables,
-    $behaviors: [
-      new behaviors.CursorSync({
-        sync: oldModel.graphTooltip,
+    registerDashboardMacro,
+    registerPanelInteractionsReporter,
+    new behaviors.LiveNowTimer({ enabled: oldModel.liveNow }),
+    preserveDashboardSceneStateInLocalStorage,
+    addPanelsOnLoadBehavior,
+    new DashboardReloadBehavior({
+      reloadOnParamsChange: config.featureToggles.reloadDashboardsOnParamsChange && oldModel.meta.reloadOnParamsChange,
+      uid,
+      version: oldModel.version,
+    }),
+  ];
+  const dashboardScene = new DashboardScene(
+    {
+      uid,
+      description: oldModel.description,
+      editable: oldModel.editable,
+      preload: dto.preload ?? false,
+      id: oldModel.id,
+      isDirty: false,
+      links: oldModel.links || [],
+      meta: oldModel.meta,
+      tags: oldModel.tags || [],
+      title: oldModel.title,
+      version: oldModel.version,
+      scopeMeta,
+      body: new DefaultGridLayoutManager({
+        grid: new SceneGridLayout({
+          isLazy: !(dto.preload || contextSrv.user.authenticatedBy === 'render'),
+          children: createSceneObjectsForPanels(oldModel.panels),
+        }),
       }),
-      new behaviors.SceneQueryController(),
-      registerDashboardMacro,
-      registerDashboardSceneTracking(oldModel),
-      registerPanelInteractionsReporter,
-      trackIfIsEmpty,
-    ],
-    $data:
-      layers.length > 0
-        ? new SceneDataLayers({
-            layers,
-          })
-        : undefined,
-    controls: new DashboardControls({
-      variableControls: [new VariableValueSelectors({}), new SceneDataLayerControls()],
-      timePicker: new SceneTimePicker({}),
-      refreshPicker: new SceneRefreshPicker({
-        refresh: oldModel.refresh,
-        intervals: oldModel.timepicker.refresh_intervals,
-        withText: true,
+      $timeRange: new SceneTimeRange({
+        from: oldModel.time.from,
+        to: oldModel.time.to,
+        fiscalYearStartMonth: oldModel.fiscalYearStartMonth,
+        timeZone: oldModel.timezone,
+        weekStart: isWeekStart(oldModel.weekStart) ? oldModel.weekStart : undefined,
+        UNSAFE_nowDelay: oldModel.timepicker?.nowDelay,
       }),
-      hideTimeControls: oldModel.timepicker.hidden,
-    }),
-  });
+      $variables: variables,
+      $behaviors: behaviorList,
+      $data: new DashboardDataLayerSet({ annotationLayers, alertStatesLayer }),
+      controls: new DashboardControls({
+        timePicker: new SceneTimePicker({
+          quickRanges: oldModel.timepicker.quick_ranges,
+        }),
+        refreshPicker: new SceneRefreshPicker({
+          refresh: oldModel.refresh,
+          intervals: oldModel.timepicker.refresh_intervals,
+          withText: true,
+        }),
+        hideTimeControls: oldModel.timepicker.hidden,
+      }),
+    },
+    serializerVersion
+  );
 
   return dashboardScene;
 }
 
-export function createSceneVariableFromVariableModel(variable: TypedVariableModel): SceneVariable {
-  const commonProperties = {
-    name: variable.name,
-    label: variable.label,
-    description: variable.description,
-  };
-  if (variable.type === 'adhoc') {
-    return new AdHocFiltersVariable({
-      ...commonProperties,
-      description: variable.description,
-      skipUrlSync: variable.skipUrlSync,
-      hide: variable.hide,
-      datasource: variable.datasource,
-      applyMode: 'auto',
-      filters: variable.filters ?? [],
-      baseFilters: variable.baseFilters ?? [],
-    });
-  }
-  if (variable.type === 'custom') {
-    return new CustomVariable({
-      ...commonProperties,
-      value: variable.current?.value ?? '',
-      text: variable.current?.text ?? '',
+export function buildGridItemForPanel(panel: PanelModel): DashboardGridItem {
+  const repeatOptions: Partial<{ variableName: string; repeatDirection: RepeatDirection }> = panel.repeat
+    ? {
+        variableName: panel.repeat,
+        repeatDirection: panel.repeatDirection === 'v' ? 'v' : 'h',
+      }
+    : {};
 
-      query: variable.query,
-      isMulti: variable.multi,
-      allValue: variable.allValue || undefined,
-      includeAll: variable.includeAll,
-      defaultToAll: Boolean(variable.includeAll),
-      skipUrlSync: variable.skipUrlSync,
-      hide: variable.hide,
-    });
-  } else if (variable.type === 'query') {
-    return new QueryVariable({
-      ...commonProperties,
-      value: variable.current?.value ?? '',
-      text: variable.current?.text ?? '',
-
-      query: variable.query,
-      datasource: variable.datasource,
-      sort: variable.sort,
-      refresh: variable.refresh,
-      regex: variable.regex,
-      allValue: variable.allValue || undefined,
-      includeAll: variable.includeAll,
-      defaultToAll: Boolean(variable.includeAll),
-      isMulti: variable.multi,
-      skipUrlSync: variable.skipUrlSync,
-      hide: variable.hide,
-      definition: variable.definition,
-    });
-  } else if (variable.type === 'datasource') {
-    return new DataSourceVariable({
-      ...commonProperties,
-      value: variable.current?.value ?? '',
-      text: variable.current?.text ?? '',
-      regex: variable.regex,
-      pluginId: variable.query,
-      allValue: variable.allValue || undefined,
-      includeAll: variable.includeAll,
-      defaultToAll: Boolean(variable.includeAll),
-      skipUrlSync: variable.skipUrlSync,
-      isMulti: variable.multi,
-      hide: variable.hide,
-    });
-  } else if (variable.type === 'interval') {
-    const intervals = getIntervalsFromQueryString(variable.query);
-    const currentInterval = getCurrentValueForOldIntervalModel(variable, intervals);
-    return new IntervalVariable({
-      ...commonProperties,
-      value: currentInterval,
-      intervals: intervals,
-      autoEnabled: variable.auto,
-      autoStepCount: variable.auto_count,
-      autoMinInterval: variable.auto_min,
-      refresh: variable.refresh,
-      skipUrlSync: variable.skipUrlSync,
-      hide: variable.hide,
-    });
-  } else if (variable.type === 'constant') {
-    return new ConstantVariable({
-      ...commonProperties,
-      value: variable.query,
-      skipUrlSync: variable.skipUrlSync,
-      hide: variable.hide,
-    });
-  } else if (variable.type === 'textbox') {
-    return new TextBoxVariable({
-      ...commonProperties,
-      value: variable?.current?.value?.[0] ?? variable.query,
-      skipUrlSync: variable.skipUrlSync,
-      hide: variable.hide,
-    });
-  } else if (config.featureToggles.groupByVariable && variable.type === 'groupby') {
-    return new GroupByVariable({
-      ...commonProperties,
-      datasource: variable.datasource,
-      value: variable.current?.value || [],
-      text: variable.current?.text || [],
-      skipUrlSync: variable.skipUrlSync,
-      hide: variable.hide,
-      // @ts-expect-error
-      defaultOptions: variable.options,
-    });
-  } else {
-    throw new Error(`Scenes: Unsupported variable type ${variable.type}`);
-  }
-}
-
-export function buildGridItemForLibraryPanelWidget(panel: PanelModel) {
-  if (panel.type !== 'add-library-panel') {
-    return null;
-  }
-
-  const body = new AddLibraryPanelWidget({
-    key: getVizPanelKeyForPanelId(panel.id),
-  });
-
-  return new SceneGridItem({
-    body,
-    y: panel.gridPos.y,
-    x: panel.gridPos.x,
-    width: panel.gridPos.w,
-    height: panel.gridPos.h,
-  });
-}
-
-export function buildGridItemForLibPanel(panel: PanelModel) {
-  if (!panel.libraryPanel) {
-    return null;
-  }
-
-  const body = new LibraryVizPanel({
-    title: panel.title,
-    uid: panel.libraryPanel.uid,
-    name: panel.libraryPanel.name,
-    panelKey: getVizPanelKeyForPanelId(panel.id),
-  });
-
-  return new SceneGridItem({
-    body,
-    y: panel.gridPos.y,
-    x: panel.gridPos.x,
-    width: panel.gridPos.w,
-    height: panel.gridPos.h,
-  });
-}
-
-export function buildGridItemForPanel(panel: PanelModel): SceneGridItemLike {
   const titleItems: SceneObject[] = [];
 
   titleItems.push(
@@ -489,26 +312,40 @@ export function buildGridItemForPanel(panel: PanelModel): SceneGridItemLike {
 
   titleItems.push(new PanelNotices());
 
+  const timeOverrideShown = (panel.timeFrom || panel.timeShift) && !panel.hideTimeOverride;
+
   const vizPanelState: VizPanelState = {
     key: getVizPanelKeyForPanelId(panel.id),
-    title: panel.title,
+    title: panel.title?.substring(0, 5000),
     description: panel.description,
-    pluginId: panel.type,
+    pluginId: panel.type ?? 'timeseries',
     options: panel.options ?? {},
     fieldConfig: panel.fieldConfig,
     pluginVersion: panel.pluginVersion,
     displayMode: panel.transparent ? 'transparent' : undefined,
     // To be replaced with it's own option persited option instead derived
-    hoverHeader: !panel.title && !panel.timeFrom && !panel.timeShift,
+    hoverHeader: !panel.title && !timeOverrideShown,
+    hoverHeaderOffset: 0,
     $data: createPanelDataProvider(panel),
-    menu: new VizPanelMenu({
-      $behaviors: [panelMenuBehavior],
-    }),
     titleItems,
-
+    $behaviors: [],
     extendPanelContext: setDashboardPanelContext,
     _UNSAFE_customMigrationHandler: getAngularPanelMigrationHandler(panel),
   };
+
+  if (panel.libraryPanel) {
+    vizPanelState.$behaviors!.push(
+      new LibraryPanelBehavior({ uid: panel.libraryPanel.uid, name: panel.libraryPanel.name })
+    );
+    vizPanelState.pluginId = LibraryPanelBehavior.LOADING_VIZ_PANEL_PLUGIN_ID;
+    vizPanelState.$data = undefined;
+  }
+
+  if (!config.publicDashboardAccessToken) {
+    vizPanelState.menu = new VizPanelMenu({
+      $behaviors: [panelMenuBehavior],
+    });
+  }
 
   if (panel.timeFrom || panel.timeShift) {
     vizPanelState.$timeRange = new PanelTimeRange({
@@ -518,96 +355,34 @@ export function buildGridItemForPanel(panel: PanelModel): SceneGridItemLike {
     });
   }
 
-  if (panel.repeat) {
-    const repeatDirection = panel.repeatDirection === 'h' ? 'h' : 'v';
-
-    return new PanelRepeaterGridItem({
-      key: `grid-item-${panel.id}`,
-      x: panel.gridPos.x,
-      y: panel.gridPos.y,
-      width: repeatDirection === 'h' ? 24 : panel.gridPos.w,
-      height: panel.gridPos.h,
-      itemHeight: panel.gridPos.h,
-      source: new VizPanel(vizPanelState),
-      variableName: panel.repeat,
-      repeatedPanels: [],
-      repeatDirection: repeatDirection,
-      maxPerRow: panel.maxPerRow,
-    });
-  }
-
   const body = new VizPanel(vizPanelState);
 
-  return new SceneGridItem({
+  return new DashboardGridItem({
     key: `grid-item-${panel.id}`,
     x: panel.gridPos.x,
     y: panel.gridPos.y,
-    width: panel.gridPos.w,
+    width: repeatOptions.repeatDirection === 'h' ? 24 : panel.gridPos.w,
     height: panel.gridPos.h,
+    itemHeight: panel.gridPos.h,
     body,
+    maxPerRow: panel.maxPerRow,
+    ...repeatOptions,
   });
 }
 
-const getLimitedDescriptionReporter = () => {
-  const reportedPanels: string[] = [];
-
-  return (key: string) => {
-    if (reportedPanels.includes(key)) {
-      return;
-    }
-    reportedPanels.push(key);
-    DashboardInteractions.panelDescriptionShown();
-  };
-};
-
-function registerDashboardSceneTracking(model: DashboardModel) {
-  return () => {
-    const unsetDashboardInteractionsScenesContext = DashboardInteractions.setScenesContext();
-
-    trackDashboardLoaded(model, model.version);
-
-    return () => {
-      unsetDashboardInteractionsScenesContext();
-    };
-  };
-}
-
-function registerPanelInteractionsReporter(scene: DashboardScene) {
-  const descriptionReporter = getLimitedDescriptionReporter();
-
+export function registerPanelInteractionsReporter(scene: DashboardScene) {
   // Subscriptions set with subscribeToEvent are automatically unsubscribed when the scene deactivated
   scene.subscribeToEvent(UserActionEvent, (e) => {
     const { interaction } = e.payload;
     switch (interaction) {
-      case 'panel-description-shown':
-        descriptionReporter(e.payload.origin.state.key || '');
-        break;
       case 'panel-status-message-clicked':
         DashboardInteractions.panelStatusMessageClicked();
         break;
       case 'panel-cancel-query-clicked':
         DashboardInteractions.panelCancelQueryClicked();
         break;
-      case 'panel-menu-shown':
-        DashboardInteractions.panelMenuShown();
-        break;
     }
   });
-}
-
-export function trackIfIsEmpty(parent: DashboardScene) {
-  updateIsEmpty(parent);
-
-  parent.state.body.subscribeToState(() => {
-    updateIsEmpty(parent);
-  });
-}
-
-function updateIsEmpty(parent: DashboardScene) {
-  const { body } = parent.state;
-  if (body instanceof SceneFlexLayout || body instanceof SceneGridLayout) {
-    parent.setState({ isEmpty: body.state.children.length === 0 });
-  }
 }
 
 const convertSnapshotData = (snapshotData: DataFrameDTO[]): DataFrameJSON[] => {
@@ -644,3 +419,40 @@ export const convertOldSnapshotToScenesSnapshot = (panel: PanelModel) => {
     panel.snapshotData = [];
   }
 };
+
+function getDashboardInteractionCallback(uid: string, title: string) {
+  return (e: SceneInteractionProfileEvent) => {
+    let interactionType = '';
+
+    if (e.origin === 'SceneTimeRange') {
+      interactionType = 'time-range-change';
+    } else if (e.origin === 'SceneRefreshPicker') {
+      interactionType = 'refresh';
+    } else if (e.origin === 'DashboardScene') {
+      interactionType = 'view';
+    } else if (e.origin.indexOf('Variable') > -1) {
+      interactionType = 'variable-change';
+    }
+    reportInteraction('dashboard-render', {
+      interactionType,
+      duration: e.duration,
+      networkDuration: e.networkDuration,
+      totalJSHeapSize: e.totalJSHeapSize,
+      usedJSHeapSize: e.usedJSHeapSize,
+      jsHeapSizeLimit: e.jsHeapSizeLimit,
+    });
+
+    logMeasurement(
+      `dashboard.${interactionType}`,
+      {
+        duration: e.duration,
+        networkDuration: e.networkDuration,
+        totalJSHeapSize: e.totalJSHeapSize,
+        usedJSHeapSize: e.usedJSHeapSize,
+        jsHeapSizeLimit: e.jsHeapSizeLimit,
+        timeSinceBoot: performance.measure('time_since_boot', 'frontend_boot_js_done_time_seconds').duration,
+      },
+      { dashboard: uid, title: title }
+    );
+  };
+}

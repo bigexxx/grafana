@@ -1,24 +1,25 @@
 import { css, cx } from '@emotion/css';
 import { noop } from 'lodash';
-import React, { CSSProperties, useCallback, useMemo, useState } from 'react';
+import { CSSProperties, useCallback, useMemo, useState } from 'react';
 import { useDebounce } from 'react-use';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { FixedSizeList } from 'react-window';
 
-import { GrafanaTheme2 } from '@grafana/data/src';
+import { GrafanaTheme2 } from '@grafana/data';
 import {
   Alert,
   Button,
-  clearButtonStyles,
   FilterInput,
   Icon,
   LoadingPlaceholder,
   Modal,
   Tooltip,
+  clearButtonStyles,
   useStyles2,
 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 
-import { DashboardModel } from '../../../../dashboard/state';
+import { DashboardModel } from '../../../../dashboard/state/DashboardModel';
 import { dashboardApi } from '../../api/dashboardApi';
 
 import { useDashboardQuery } from './useDashboardQuery';
@@ -124,7 +125,7 @@ export const DashboardPicker = ({ dashboardUid, panelId, isOpen, onChange, onDis
       >
         <div className={cx(styles.dashboardTitle, styles.rowButtonTitle)}>{dashboard.title}</div>
         <div className={styles.dashboardFolder}>
-          <Icon name="folder" /> {dashboard.folderTitle ?? 'General'}
+          <Icon name="folder" /> {dashboard.folderTitle ?? 'Dashboards'}
         </div>
       </button>
     );
@@ -167,7 +168,7 @@ export const DashboardPicker = ({ dashboardUid, panelId, isOpen, onChange, onDis
 
   return (
     <Modal
-      title="Select dashboard and panel"
+      title={t('alerting.dashboard-picker.title-select-dashboard-and-panel', 'Select dashboard and panel')}
       closeOnEscape
       isOpen={isOpen}
       onDismiss={onDismiss}
@@ -176,10 +177,16 @@ export const DashboardPicker = ({ dashboardUid, panelId, isOpen, onChange, onDis
     >
       {/* This alert shows if the selected dashboard is not found in the first page of dashboards */}
       {!selectedDashboardIsInPageResult && dashboardUid && dashboardModel && (
-        <Alert title="Current selection" severity="info" topSpacing={0} bottomSpacing={1} className={styles.modalAlert}>
+        <Alert
+          title={t('alerting.dashboard-picker.title-current-selection', 'Current selection')}
+          severity="info"
+          topSpacing={0}
+          bottomSpacing={1}
+          className={styles.modalAlert}
+        >
           <div>
             Dashboard: {dashboardModel.title} ({dashboardModel.uid}) in folder{' '}
-            {dashboardModel.meta?.folderTitle ?? 'General'}
+            {dashboardModel.meta?.folderTitle ?? 'Dashboards'}
           </div>
           {currentPanel && (
             <div>
@@ -192,15 +199,23 @@ export const DashboardPicker = ({ dashboardUid, panelId, isOpen, onChange, onDis
         <FilterInput
           value={dashboardFilter}
           onChange={setDashboardFilter}
-          title="Search dashboard"
-          placeholder="Search dashboard"
+          title={t('alerting.dashboard-picker.title-search-dashboard', 'Search dashboard')}
+          placeholder={t('alerting.dashboard-picker.placeholder-search-dashboard', 'Search dashboard')}
           autoFocus
         />
-        <FilterInput value={panelFilter} onChange={setPanelFilter} title="Search panel" placeholder="Search panel" />
+        <FilterInput
+          value={panelFilter}
+          onChange={setPanelFilter}
+          title={t('alerting.dashboard-picker.title-search-panel', 'Search panel')}
+          placeholder={t('alerting.dashboard-picker.placeholder-search-panel', 'Search panel')}
+        />
 
         <div className={styles.column}>
           {isDashSearchFetching && (
-            <LoadingPlaceholder text="Loading dashboards..." className={styles.loadingPlaceholder} />
+            <LoadingPlaceholder
+              text={t('alerting.dashboard-picker.text-loading-dashboards', 'Loading dashboards...')}
+              className={styles.loadingPlaceholder}
+            />
           )}
 
           {!isDashSearchFetching && (
@@ -223,11 +238,18 @@ export const DashboardPicker = ({ dashboardUid, panelId, isOpen, onChange, onDis
         <div className={styles.column}>
           {!selectedDashboardUid && !isDashboardFetching && (
             <div className={styles.selectDashboardPlaceholder}>
-              <div>Select a dashboard to get a list of available panels</div>
+              <div>
+                <Trans i18nKey="alerting.dashboard-picker.select-dashboard-available-panels">
+                  Select a dashboard to get a list of available panels
+                </Trans>
+              </div>
             </div>
           )}
           {isDashboardFetching && (
-            <LoadingPlaceholder text="Loading dashboard..." className={styles.loadingPlaceholder} />
+            <LoadingPlaceholder
+              text={t('alerting.dashboard-picker.text-loading-dashboard', 'Loading dashboard...')}
+              className={styles.loadingPlaceholder}
+            />
           )}
 
           {selectedDashboardUid && !isDashboardFetching && (
@@ -243,7 +265,7 @@ export const DashboardPicker = ({ dashboardUid, panelId, isOpen, onChange, onDis
       </div>
       <Modal.ButtonRow>
         <Button type="button" variant="secondary" onClick={onDismiss} fill="text">
-          Cancel
+          <Trans i18nKey="alerting.common.cancel">Cancel</Trans>
         </Button>
         <Button
           type="button"
@@ -255,7 +277,7 @@ export const DashboardPicker = ({ dashboardUid, panelId, isOpen, onChange, onDis
             }
           }}
         >
-          Confirm
+          <Trans i18nKey="alerting.dashboard-picker.confirm">Confirm</Trans>
         </Button>
       </Modal.ButtonRow>
     </Modal>
@@ -288,89 +310,88 @@ const getPickerStyles = (theme: GrafanaTheme2) => {
   const clearButton = clearButtonStyles(theme);
 
   return {
-    container: css`
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: min-content auto;
-      gap: ${theme.spacing(2)};
-      flex: 1;
-    `,
-    column: css`
-      flex: 1 1 auto;
-    `,
-    dashboardTitle: css`
-      height: 22px;
-      font-weight: ${theme.typography.fontWeightBold};
-    `,
-    dashboardFolder: css`
-      height: 20px;
-      font-size: ${theme.typography.bodySmall.fontSize};
-      color: ${theme.colors.text.secondary};
-      display: flex;
-      flex-direction: row;
-      justify-content: flex-start;
-      column-gap: ${theme.spacing(1)};
-      align-items: center;
-    `,
-    rowButton: css`
-      ${clearButton};
-      padding: ${theme.spacing(0.5)};
-      overflow: hidden;
-      text-overflow: ellipsis;
-      text-align: left;
-      white-space: nowrap;
-      cursor: pointer;
-      border: 2px solid transparent;
+    container: css({
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gridTemplateRows: 'min-content auto',
+      gap: theme.spacing(2),
+      flex: 1,
+    }),
+    column: css({
+      flex: '1 1 auto',
+    }),
+    dashboardTitle: css({
+      height: '22px',
+      fontWeight: theme.typography.fontWeightBold,
+    }),
+    dashboardFolder: css({
+      height: '20px',
+      fontSize: theme.typography.bodySmall.fontSize,
+      color: theme.colors.text.secondary,
+      display: 'flex',
+      flexDirection: 'row',
+      justifyContent: 'flex-start',
+      columnGap: theme.spacing(1),
+      alignItems: 'center',
+    }),
+    rowButton: css(clearButton, {
+      padding: theme.spacing(0.5),
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      textAlign: 'left',
+      whiteSpace: 'nowrap',
+      cursor: 'pointer',
+      border: '2px solid transparent',
 
-      &:disabled {
-        cursor: not-allowed;
-        color: ${theme.colors.text.disabled};
-      }
-    `,
-    rowButtonTitle: css`
-      text-overflow: ellipsis;
-      overflow: hidden;
-    `,
-    rowSelected: css`
-      border-color: ${theme.colors.primary.border};
-    `,
-    rowOdd: css`
-      background-color: ${theme.colors.background.secondary};
-    `,
-    panelButton: css`
-      display: flex;
-      gap: ${theme.spacing(1)};
-      justify-content: space-between;
-      align-items: center;
-    `,
-    loadingPlaceholder: css`
-      height: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    `,
-    selectDashboardPlaceholder: css`
-      width: 100%;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      text-align: center;
-      font-weight: ${theme.typography.fontWeightBold};
-    `,
-    modal: css`
-      height: 100%;
-    `,
-    modalContent: css`
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    `,
-    modalAlert: css`
-      flex-grow: 0;
-    `,
-    warnIcon: css`
-      fill: ${theme.colors.warning.main};
-    `,
+      '&:disabled': {
+        cursor: 'not-allowed',
+        color: theme.colors.text.disabled,
+      },
+    }),
+    rowButtonTitle: css({
+      textOverflow: 'ellipsis',
+      overflow: 'hidden',
+    }),
+    rowSelected: css({
+      borderColor: theme.colors.primary.border,
+    }),
+    rowOdd: css({
+      backgroundColor: theme.colors.background.secondary,
+    }),
+    panelButton: css({
+      display: 'flex',
+      gap: theme.spacing(1),
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    }),
+    loadingPlaceholder: css({
+      height: '100%',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+    }),
+    selectDashboardPlaceholder: css({
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      textAlign: 'center',
+      fontWeight: theme.typography.fontWeightBold,
+    }),
+    modal: css({
+      height: '100%',
+    }),
+    modalContent: css({
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+    }),
+    modalAlert: css({
+      flexGrow: 0,
+    }),
+    warnIcon: css({
+      fill: theme.colors.warning.main,
+    }),
   };
 };

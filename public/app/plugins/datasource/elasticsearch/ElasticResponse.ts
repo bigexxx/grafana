@@ -8,7 +8,7 @@ import {
   MutableDataFrame,
   PreferredVisualisationType,
 } from '@grafana/data';
-import { convertFieldType } from '@grafana/data/src/transformations/transformers/convertFieldType';
+import { convertFieldType } from '@grafana/data/internal';
 import TableModel from 'app/core/TableModel';
 
 import { isMetricAggregationWithField } from './components/QueryEditor/MetricAggregationsEditor/aggregations';
@@ -186,7 +186,7 @@ export class ElasticResponse {
     }
 
     // helper func to add values to value array
-    const addMetricValue = (values: any[], metricName: string, value: any) => {
+    const addMetricValue = (values: unknown[], metricName: string, value: unknown) => {
       table.addColumn({ text: metricName });
       values.push(value);
     };

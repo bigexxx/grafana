@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import React from 'react';
+import { PureComponent } from 'react';
+
+import { Trans } from 'app/core/internationalization';
 
 import { TNil } from '../../../types';
 
@@ -27,7 +29,7 @@ export type DraggableManagerDemoState = {
   regionDragging: [number, number] | TNil;
 };
 
-export default class DraggableManagerDemo extends React.PureComponent<{}, DraggableManagerDemoState> {
+export default class DraggableManagerDemo extends PureComponent<{}, DraggableManagerDemoState> {
   state: DraggableManagerDemoState;
 
   constructor(props: {}) {
@@ -47,9 +49,13 @@ export default class DraggableManagerDemo extends React.PureComponent<{}, Dragga
     const { dividerPosition, regionCursor, regionDragging } = this.state;
     return (
       <div className="DraggableManagerDemo">
-        <h1>DraggableManager demo</h1>
+        <h1>
+          <Trans i18nKey="explore.draggable-manager-demo.draggable-manager-demo">DraggableManager demo</Trans>
+        </h1>
         <section className="DraggableManagerDemo--scenario">
-          <h2>Dragging a Divider</h2>
+          <h2>
+            <Trans i18nKey="explore.draggable-manager-demo.dragging-a-divider">Dragging a divider</Trans>
+          </h2>
           <p>Click and drag the gray divider in the colored area, below.</p>
           <p>Value: {dividerPosition.toFixed(3)}</p>
           <div className="DraggableManagerDemo--realm">
@@ -57,8 +63,14 @@ export default class DraggableManagerDemo extends React.PureComponent<{}, Dragga
           </div>
         </section>
         <section className="DraggableManagerDemo--scenario">
-          <h2>Dragging a Sub-Region</h2>
-          <p>Click and drag horizontally somewhere in the colored area, below.</p>
+          <h2>
+            <Trans i18nKey="explore.draggable-manager-demo.dragging-a-sub-region">Dragging a sub-region</Trans>
+          </h2>
+          <p>
+            <Trans i18nKey="explore.draggable-manager-demo.click-horizontally-somewhere-colored-below">
+              Click and drag horizontally somewhere in the colored area, below.
+            </Trans>
+          </p>
           <p>Value: {regionDragging && regionDragging.map((n) => n.toFixed(3)).join(', ')}</p>
           <div className="DraggableManagerDemo--realm">
             <RegionDemo regionCursor={regionCursor} regionDragging={regionDragging} updateState={this._updateState} />

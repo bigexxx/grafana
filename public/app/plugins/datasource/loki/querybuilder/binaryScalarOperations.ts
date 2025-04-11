@@ -2,7 +2,7 @@ import {
   QueryBuilderOperation,
   QueryBuilderOperationDefinition,
   QueryBuilderOperationParamDef,
-} from '@grafana/experimental';
+} from '@grafana/plugin-ui';
 
 import { defaultAddOperationHandler } from './operationUtils';
 import { LokiOperationId, LokiVisualQueryOperationCategory } from './types';
@@ -80,14 +80,14 @@ export const binaryScalarDefs = [
 // both the operator and the operand in a single input
 export const binaryScalarOperations: QueryBuilderOperationDefinition[] = binaryScalarDefs.map((opDef) => {
   const params: QueryBuilderOperationParamDef[] = [{ name: 'Value', type: 'number' }];
-  const defaultParams: any[] = [2];
+  let defaultParams: [number] | [number, boolean] = [2];
   if (opDef.comparison) {
     params.push({
       name: 'Bool',
       type: 'boolean',
       description: 'If checked comparison will return 0 or 1 for the value rather than filtering.',
     });
-    defaultParams.push(false);
+    defaultParams = [2, false];
   }
 
   return {
@@ -95,6 +95,7 @@ export const binaryScalarOperations: QueryBuilderOperationDefinition[] = binaryS
     name: opDef.name,
     params,
     defaultParams,
+    toggleable: true,
     alternativesKey: 'binary scalar operations',
     category: LokiVisualQueryOperationCategory.BinaryOps,
     renderer: getSimpleBinaryRenderer(opDef.sign),

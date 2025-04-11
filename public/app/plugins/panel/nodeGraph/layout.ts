@@ -1,16 +1,18 @@
+import { fromPairs } from 'lodash';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUnmount } from 'react-use';
 import useMountedState from 'react-use/lib/useMountedState';
 
 import { Field } from '@grafana/data';
-import { config as grafanaConfig } from '@grafana/runtime';
 
 import { createWorker, createMsaglWorker } from './createLayoutWorker';
+import { LayoutAlgorithm } from './panelcfg.gen';
 import { EdgeDatum, EdgeDatumLayout, NodeDatum } from './types';
 import { useNodeLimit } from './useNodeLimit';
 import { graphBounds } from './utils';
 
 export interface Config {
+  layoutAlgorithm: LayoutAlgorithm;
   linkDistance: number;
   linkStrength: number;
   forceX: number;
@@ -29,6 +31,7 @@ export interface Config {
 // if you programmatically enable the config editor (for development only) see ViewControls. These could be moved to
 // panel configuration at some point (apart from gridLayout as that can be switched be user right now.).
 export const defaultConfig: Config = {
+  layoutAlgorithm: LayoutAlgorithm.Layered,
   linkDistance: 150,
   linkStrength: 0.5,
   forceX: 2000,
@@ -37,6 +40,11 @@ export const defaultConfig: Config = {
   tick: 300,
   gridLayout: false,
 };
+
+export interface LayoutCache {
+  [LayoutAlgorithm.Force]?: { nodes: NodeDatum[]; edges: EdgeDatumLayout[] };
+  [LayoutAlgorithm.Layered]?: { nodes: NodeDatum[]; edges: EdgeDatumLayout[] };
+}
 
 /**
  * This will return copy of the nods and edges with x,y positions filled in. Also the layout changes source/target props
@@ -48,12 +56,18 @@ export function useLayout(
   config: Config = defaultConfig,
   nodeCountLimit: number,
   width: number,
-  rootNodeId?: string
+  rootNodeId?: string,
+  hasFixedPositions?: boolean,
+  layoutCache?: LayoutCache
 ) {
   const [nodesGraph, setNodesGraph] = useState<NodeDatum[]>([]);
   const [edgesGraph, setEdgesGraph] = useState<EdgeDatumLayout[]>([]);
 
   const [loading, setLoading] = useState(false);
+
+  // Store current data signature to detect changes
+  const dataSignatureRef = useRef<string>('');
+  const currentSignature = createDataSignature(rawNodes, rawEdges);
 
   const isMounted = useMountedState();
   const layoutWorkerCancelRef = useRef<(() => void) | undefined>();
@@ -84,23 +98,70 @@ export function useLayout(
       return;
     }
 
-    // Layered layout is better but also more expensive, so we switch to default force based layout for bigger graphs.
-    const layoutType =
-      grafanaConfig.featureToggles.nodeGraphDotLayout && rawNodes.length <= 500 ? 'layered' : 'default';
+    if (hasFixedPositions) {
+      setNodesGraph(rawNodes);
+      // The layout function turns source and target fields from string to NodeDatum, so we do that here as well.
+      const nodesMap = fromPairs(rawNodes.map((node) => [node.id, node]));
+      setEdgesGraph(
+        rawEdges.map(
+          (e): EdgeDatumLayout => ({
+            ...e,
+            source: nodesMap[e.source],
+            target: nodesMap[e.target],
+          })
+        )
+      );
+      setLoading(false);
+      return;
+    }
+
+    // Layered layout is better but also more expensive.
+    let layoutType: 'force' | 'layered' = 'force';
+    let algorithmType = LayoutAlgorithm.Force;
+
+    if (config.layoutAlgorithm === LayoutAlgorithm.Layered) {
+      layoutType = 'layered';
+      algorithmType = LayoutAlgorithm.Layered;
+    }
+
+    // Check if data has changed since last render
+    const hasDataChanged = dataSignatureRef.current !== currentSignature;
+
+    // Clear cache if data has changed
+    if (hasDataChanged) {
+      dataSignatureRef.current = currentSignature;
+
+      if (layoutCache) {
+        delete layoutCache[LayoutAlgorithm.Force];
+        delete layoutCache[LayoutAlgorithm.Layered];
+      }
+    }
+
+    // Check if we have a cached layout for this algorithm
+    if (layoutCache && layoutCache[algorithmType]) {
+      setNodesGraph(layoutCache[algorithmType]?.nodes ?? []);
+      setEdgesGraph(layoutCache[algorithmType]?.edges ?? []);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
-    // This is async but as I wanted to still run the sync grid layout, and you cannot return promise from effect so
-    // having callback seems ok here.
+
     const cancel = layout(rawNodes, rawEdges, layoutType, ({ nodes, edges }) => {
       if (isMounted()) {
         setNodesGraph(nodes);
-        setEdgesGraph(edges as EdgeDatumLayout[]);
+        setEdgesGraph(edges);
         setLoading(false);
+
+        // Cache the calculated layout
+        if (layoutCache) {
+          layoutCache[algorithmType] = { nodes, edges };
+        }
       }
     });
     layoutWorkerCancelRef.current = cancel;
     return cancel;
-  }, [rawNodes, rawEdges, isMounted]);
+  }, [hasFixedPositions, rawNodes, rawEdges, isMounted, config.layoutAlgorithm, layoutCache, currentSignature]);
 
   // Compute grid separately as it is sync and do not need to be inside effect. Also it is dependant on width while
   // default layout does not care and we don't want to recalculate that on panel resize.
@@ -153,19 +214,22 @@ export function useLayout(
 function layout(
   nodes: NodeDatum[],
   edges: EdgeDatum[],
-  engine: 'default' | 'layered',
-  done: (data: { nodes: NodeDatum[]; edges: EdgeDatum[] }) => void
+  engine: 'force' | 'layered',
+  done: (data: { nodes: NodeDatum[]; edges: EdgeDatumLayout[] }) => void
 ) {
-  const worker = engine === 'default' ? createWorker() : createMsaglWorker();
+  const worker = engine === 'force' ? createWorker() : createMsaglWorker();
 
   worker.onmessage = (event: MessageEvent<{ nodes: NodeDatum[]; edges: EdgeDatumLayout[] }>) => {
-    for (let i = 0; i < nodes.length; i++) {
-      // These stats needs to be Field class but the data is stringified over the worker boundary
-      event.data.nodes[i] = {
-        ...nodes[i],
-        ...event.data.nodes[i],
+    const nodesMap = fromPairs(nodes.map((node) => [node.id, node]));
+
+    // Add the x,y coordinates from the layout algorithm to the original nodes.
+    event.data.nodes = event.data.nodes.map((node) => {
+      return {
+        ...nodesMap[node.id],
+        ...node,
       };
-    }
+    });
+
     done(event.data);
   };
 
@@ -216,4 +280,40 @@ function gridLayout(
     node.x = column * spacingHorizontal - midPoint;
     node.y = -60 + row * spacingVertical;
   }
+}
+
+function createDataSignature(nodes: NodeDatum[], edges: EdgeDatum[]): string {
+  const signature = [`n:${nodes.length}`, `e:${edges.length}`];
+
+  if (nodes.length > 0) {
+    const firstNode = nodes[0].id ?? '';
+    signature.push(`f:${firstNode}`);
+
+    // Middle node (if there are at least 3 nodes)
+    if (nodes.length >= 3) {
+      const middleIndex = Math.floor(nodes.length / 2);
+      const middleNode = nodes[middleIndex].id ?? '';
+      signature.push(`m:${middleNode}`);
+    }
+
+    const lastNode = nodes[nodes.length - 1].id ?? '';
+    signature.push(`l:${lastNode}`);
+
+    // Add basic connectivity information
+    let connectedNodesCount = 0;
+    let maxConnections = 0;
+
+    for (const node of nodes) {
+      const connections = node.incoming || 0;
+      if (connections > 0) {
+        connectedNodesCount++;
+      }
+      maxConnections = Math.max(maxConnections, connections);
+    }
+
+    signature.push(`cn:${connectedNodesCount}`);
+    signature.push(`mc:${maxConnections}`);
+  }
+
+  return signature.join('_');
 }

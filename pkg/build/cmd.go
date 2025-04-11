@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -28,6 +30,12 @@ func logError(message string, err error) int {
 	log.Println(message, err)
 
 	return 1
+}
+
+func RunCmdCLI(c *cli.Context) error {
+	os.Exit(RunCmd())
+
+	return nil
 }
 
 // RunCmd runs the build command and returns the exit code
@@ -177,6 +185,11 @@ func doBuild(binaryName, pkg string, opts BuildOpts) error {
 
 	args := []string{"build", "-ldflags", lf}
 
+	if opts.isDev {
+		// disable optimizations, so debugger will work
+		args = append(args, "-gcflags", "all=-N -l")
+	}
+
 	if opts.goos == GoOSWindows {
 		// Work around a linking error on Windows: "export ordinal too large"
 		args = append(args, "-buildmode=exe")
@@ -235,7 +248,16 @@ func ldflags(opts BuildOpts) (string, error) {
 		buildBranch = v
 	}
 	var b bytes.Buffer
-	b.WriteString("-w")
+	if !opts.isDev {
+		// Only ask the linker to strip DWARF information if we're not in
+		// dev, to avoid seeing stuff like this when using delve:
+		//
+		//   ~ $ dlv attach $(pgrep grafana)
+		//   (dlv) l main.main
+		//   Command failed: location "main.main" not found
+		//
+		b.WriteString("-w")
+	}
 	b.WriteString(fmt.Sprintf(" -X main.version=%s", opts.version))
 	b.WriteString(fmt.Sprintf(" -X main.commit=%s", commitSha))
 	if enterpriseCommitSha != "" {

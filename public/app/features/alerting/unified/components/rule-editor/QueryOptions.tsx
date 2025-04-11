@@ -1,9 +1,9 @@
 import { css } from '@emotion/css';
-import React, { useState } from 'react';
+import { useState } from 'react';
 
-import { dateTime, getDefaultRelativeTimeRange, GrafanaTheme2, RelativeTimeRange } from '@grafana/data';
-import { relativeToTimeRange } from '@grafana/data/src/datetime/rangeutil';
-import { clearButtonStyles, Icon, InlineField, RelativeTimeRangePicker, Toggletip, useStyles2 } from '@grafana/ui';
+import { GrafanaTheme2, RelativeTimeRange, dateTime, getDefaultRelativeTimeRange, rangeUtil } from '@grafana/data';
+import { Icon, InlineField, RelativeTimeRangePicker, Toggletip, clearButtonStyles, useStyles2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 import { AlertQuery } from 'app/types/unified-alerting-dto';
 
 import { AlertQueryOptions, MaxDataPointsOption, MinIntervalOption } from './QueryWrapper';
@@ -27,7 +27,7 @@ export const QueryOptions = ({
 
   const [showOptions, setShowOptions] = useState(false);
 
-  const timeRange = query.relativeTimeRange ? relativeToTimeRange(query.relativeTimeRange) : undefined;
+  const timeRange = query.relativeTimeRange ? rangeUtil.relativeToTimeRange(query.relativeTimeRange) : undefined;
 
   return (
     <>
@@ -35,7 +35,7 @@ export const QueryOptions = ({
         content={
           <div className={styles.queryOptions}>
             {onChangeTimeRange && (
-              <InlineField label="Time Range">
+              <InlineField label={t('alerting.query-options.label-time-range', 'Time Range')}>
                 <RelativeTimeRangePicker
                   timeRange={query.relativeTimeRange ?? getDefaultRelativeTimeRange()}
                   onChange={(range) => onChangeTimeRange(range, index)}
@@ -67,25 +67,24 @@ const getStyles = (theme: GrafanaTheme2) => {
   const clearButton = clearButtonStyles(theme);
 
   return {
-    queryOptions: css`
-      > div {
-        justify-content: space-between;
-      }
-    `,
+    queryOptions: css({
+      '> div': {
+        justifyContent: 'space-between',
+      },
+    }),
 
-    staticValues: css`
-      color: ${theme.colors.text.secondary};
-      margin-right: ${theme.spacing(1)};
-    `,
+    staticValues: css({
+      color: theme.colors.text.secondary,
+      marginRight: theme.spacing(1),
+    }),
 
-    actionLink: css`
-      ${clearButton};
-      color: ${theme.colors.text.link};
-      cursor: pointer;
+    actionLink: css(clearButton, {
+      color: theme.colors.text.link,
+      cursor: 'pointer',
 
-      &:hover {
-        text-decoration: underline;
-      }
-    `,
+      '&:hover': {
+        textDecoration: 'underline',
+      },
+    }),
   };
 };

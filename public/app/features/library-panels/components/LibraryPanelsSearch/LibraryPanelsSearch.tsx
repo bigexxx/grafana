@@ -1,9 +1,10 @@
 import { css, cx } from '@emotion/css';
-import React, { useCallback, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { useDebounce } from 'react-use';
 
 import { GrafanaTheme2, PanelPluginMeta, SelectableValue } from '@grafana/data';
 import { useStyles2, VerticalGroup, FilterInput } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 import { FolderInfo } from 'app/types';
 
 import { FolderFilter } from '../../../../core/components/FolderFilter/FolderFilter';
@@ -66,7 +67,10 @@ export const LibraryPanelsSearch = ({
             <FilterInput
               value={searchQuery}
               onChange={setSearchQuery}
-              placeholder="Search by name or description"
+              placeholder={t(
+                'library-panels.library-panels-search.placeholder-search-by-name-or-description',
+                'Search by name or description'
+              )}
               width={0}
               escapeRegex={false}
             />
@@ -141,7 +145,7 @@ interface SearchControlsProps {
   variant?: LibraryPanelsSearchVariant;
 }
 
-const SearchControls = React.memo(
+const SearchControls = memo(
   ({
     variant = LibraryPanelsSearchVariant.Spacious,
     showSort,

@@ -1,9 +1,10 @@
 import { css } from '@emotion/css';
 import { saveAs } from 'file-saver';
-import React, { useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import AutoSizer from 'react-virtualized-auto-sizer';
 
 import { Button, ClipboardButton, Stack, CodeEditor, Box } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
 
 import { DashboardScene } from '../scene/DashboardScene';
 
@@ -49,9 +50,9 @@ export function SaveProvisionedDashboardForm({ dashboard, drawer, changeInfo }: 
           <br /> <br />
           <strong>File path: </strong> {dashboard.state.meta.provisionedExternalId}
         </div>
-        <Stack direction="column" gap={0}>
-          <SaveDashboardFormCommonOptions drawer={drawer} changeInfo={changeInfo} />
-        </Stack>
+
+        <SaveDashboardFormCommonOptions drawer={drawer} changeInfo={changeInfo} />
+
         <div className={styles.json}>
           <AutoSizer disableWidth>
             {({ height }) => (
@@ -70,13 +71,17 @@ export function SaveProvisionedDashboardForm({ dashboard, drawer, changeInfo }: 
         <Box paddingTop={2}>
           <Stack gap={2}>
             <Button variant="secondary" onClick={drawer.onClose} fill="outline">
-              Cancel
+              <Trans i18nKey="dashboard-scene.save-provisioned-dashboard-form.cancel">Cancel</Trans>
             </Button>
             <ClipboardButton icon="copy" getText={() => dashboardJSON}>
-              Copy JSON to clipboard
+              <Trans i18nKey="dashboard-scene.save-provisioned-dashboard-form.copy-json-to-clipboard">
+                Copy JSON to clipboard
+              </Trans>
             </ClipboardButton>
             <Button type="submit" onClick={saveToFile}>
-              Save JSON to file
+              <Trans i18nKey="dashboard-scene.save-provisioned-dashboard-form.save-json-to-file">
+                Save JSON to file
+              </Trans>
             </Button>
           </Stack>
         </Box>

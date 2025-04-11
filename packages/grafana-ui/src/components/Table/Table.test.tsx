@@ -1,13 +1,12 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React from 'react';
 
 import { applyFieldOverrides, createTheme, DataFrame, FieldType, toDataFrame } from '@grafana/data';
 
 import { Icon } from '../Icon/Icon';
 
-import { Table } from './Table';
-import { CustomHeaderRendererProps, Props } from './types';
+import { Table } from './TableRT/Table';
+import { CustomHeaderRendererProps, TableRTProps } from './types';
 
 // mock transition styles to ensure consistent behaviour in unit tests
 jest.mock('@floating-ui/react', () => ({
@@ -102,11 +101,11 @@ function applyOverrides(dataFrame: DataFrame) {
   return dataFrames[0];
 }
 
-function getTestContext(propOverrides: Partial<Props> = {}) {
+function getTestContext(propOverrides: Partial<TableRTProps> = {}) {
   const onSortByChange = jest.fn();
   const onCellFilterAdded = jest.fn();
   const onColumnResize = jest.fn();
-  const props: Props = {
+  const props: TableRTProps = {
     ariaLabel: 'aria-label',
     data: getDataFrame(fullDataFrame),
     height: 600,
@@ -416,7 +415,7 @@ describe('Table', () => {
       const onSortByChange = jest.fn();
       const onCellFilterAdded = jest.fn();
       const onColumnResize = jest.fn();
-      const props: Props = {
+      const props: TableRTProps = {
         ariaLabel: 'aria-label',
         data: getDataFrame(fullDataFrame),
         height: 600,
@@ -558,7 +557,7 @@ describe('Table', () => {
       const onSortByChange = jest.fn();
       const onCellFilterAdded = jest.fn();
       const onColumnResize = jest.fn();
-      const props: Props = {
+      const props: TableRTProps = {
         ariaLabel: 'aria-label',
         data: getDataFrame(fullDataFrame),
         height: 600,
@@ -597,7 +596,7 @@ describe('Table', () => {
 
   describe('when mounted with nested data', () => {
     beforeEach(() => {
-      const nestedFrame = (idx: number) =>
+      const createNestedFrame = (idx: number) =>
         applyOverrides(
           toDataFrame({
             name: `nested_frame${idx}`,
@@ -626,7 +625,10 @@ describe('Table', () => {
             {
               name: 'nested',
               type: FieldType.nestedFrames,
-              values: [[nestedFrame(0), nestedFrame(1)]],
+              values: [
+                [createNestedFrame(0), createNestedFrame(1)],
+                [createNestedFrame(2), createNestedFrame(3)],
+              ],
               config: {},
             },
           ],

@@ -1,5 +1,4 @@
 import { css } from '@emotion/css';
-import React from 'react';
 
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
 import { getAppEvents } from '@grafana/runtime';
@@ -16,30 +15,30 @@ import { ShowConfirmModalEvent } from '../../../types/events';
 export interface RichHistorySettingsProps {
   retentionPeriod: number;
   starredTabAsFirstTab: boolean;
-  activeDatasourceOnly: boolean;
+  activeDatasourcesOnly: boolean;
   onChangeRetentionPeriod: (option: SelectableValue<number>) => void;
   toggleStarredTabAsFirstTab: () => void;
-  toggleactiveDatasourceOnly: () => void;
+  toggleActiveDatasourcesOnly: () => void;
   deleteRichHistory: () => void;
 }
 
 const getStyles = (theme: GrafanaTheme2) => {
   return {
-    container: css`
-      font-size: ${theme.typography.bodySmall.fontSize};
-    `,
-    spaceBetween: css`
-      margin-bottom: ${theme.spacing(3)};
-    `,
-    input: css`
-      max-width: 200px;
-    `,
-    bold: css`
-      font-weight: ${theme.typography.fontWeightBold};
-    `,
-    bottomMargin: css`
-      margin-bottom: ${theme.spacing(1)};
-    `,
+    container: css({
+      fontSize: theme.typography.bodySmall.fontSize,
+    }),
+    spaceBetween: css({
+      marginBottom: theme.spacing(3),
+    }),
+    input: css({
+      maxWidth: '200px',
+    }),
+    bold: css({
+      fontWeight: theme.typography.fontWeightBold,
+    }),
+    bottomMargin: css({
+      marginBottom: theme.spacing(1),
+    }),
   };
 };
 
@@ -54,10 +53,10 @@ export function RichHistorySettingsTab(props: RichHistorySettingsProps) {
   const {
     retentionPeriod,
     starredTabAsFirstTab,
-    activeDatasourceOnly,
+    activeDatasourcesOnly,
     onChangeRetentionPeriod,
     toggleStarredTabAsFirstTab,
-    toggleactiveDatasourceOnly,
+    toggleActiveDatasourcesOnly,
     deleteRichHistory,
   } = props;
   const styles = useStyles2(getStyles);
@@ -136,8 +135,8 @@ export function RichHistorySettingsTab(props: RichHistorySettingsProps) {
         >
           <InlineSwitch
             id="explore-query-history-settings-data-source-behavior"
-            value={activeDatasourceOnly}
-            onChange={toggleactiveDatasourceOnly}
+            value={activeDatasourcesOnly}
+            onChange={toggleActiveDatasourcesOnly}
           />
         </InlineField>
       )}

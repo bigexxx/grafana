@@ -1,9 +1,10 @@
 import { css } from '@emotion/css';
-import React, { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { config } from '@grafana/runtime';
 import { Modal, useStyles2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 import { RulerGrafanaRuleDTO } from 'app/types/unified-alerting-dto';
 
 const AnnotationsStateHistory = lazy(() => import('../components/rules/state-history/StateHistory'));
@@ -54,14 +55,14 @@ function useStateHistoryModal() {
         onDismiss={dismissModal}
         closeOnBackdropClick={true}
         closeOnEscape={true}
-        title="State history"
+        title={t('alerting.use-state-history-modal.state-history-modal.title-state-history', 'State history')}
         className={styles.modal}
         contentClassName={styles.modalContent}
       >
         <Suspense fallback={'Loading...'}>
           {implementation === StateHistoryImplementation.Loki && <LokiStateHistory ruleUID={rule.grafana_alert.uid} />}
           {implementation === StateHistoryImplementation.Annotations && (
-            <AnnotationsStateHistory alertId={rule.grafana_alert.id ?? ''} />
+            <AnnotationsStateHistory ruleUID={rule.grafana_alert.uid ?? ''} />
           )}
         </Suspense>
       </Modal>
@@ -76,16 +77,16 @@ function useStateHistoryModal() {
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  modal: css`
-    width: 80%;
-    height: 80%;
-    min-width: 800px;
-  `,
-  modalContent: css`
-    height: 100%;
-    width: 100%;
-    padding: ${theme.spacing(2)};
-  `,
+  modal: css({
+    width: '80%',
+    height: '80%',
+    minWidth: '800px',
+  }),
+  modalContent: css({
+    height: '100%',
+    width: '100%',
+    padding: theme.spacing(2),
+  }),
 });
 
 export { useStateHistoryModal };

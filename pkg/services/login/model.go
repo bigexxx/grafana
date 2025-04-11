@@ -23,10 +23,12 @@ type UserAuth struct {
 	OAuthIdToken      string
 	OAuthTokenType    string
 	OAuthExpiry       time.Time
+	ExternalUID       string `xorm:"external_uid"`
 }
 
 type ExternalUserInfo struct {
 	OAuthToken     *oauth2.Token
+	SAMLSession    *SAMLSession
 	AuthModule     string
 	AuthId         string
 	UserId         int64
@@ -38,6 +40,11 @@ type ExternalUserInfo struct {
 	IsGrafanaAdmin *bool // This is a pointer to know if we should sync this or not (nil = ignore sync)
 	IsDisabled     bool
 	SkipTeamSync   bool
+}
+
+type SAMLSession struct {
+	NameID       string
+	SessionIndex string
 }
 
 func (e *ExternalUserInfo) String() string {
@@ -66,17 +73,19 @@ type RequestURIKey struct{}
 // COMMANDS
 
 type SetAuthInfoCommand struct {
-	AuthModule string
-	AuthId     string
-	UserId     int64
-	OAuthToken *oauth2.Token
+	AuthModule  string
+	AuthId      string
+	UserId      int64
+	OAuthToken  *oauth2.Token
+	ExternalUID string
 }
 
 type UpdateAuthInfoCommand struct {
-	AuthModule string
-	AuthId     string
-	UserId     int64
-	OAuthToken *oauth2.Token
+	AuthModule  string
+	AuthId      string
+	UserId      int64
+	OAuthToken  *oauth2.Token
+	ExternalUID string
 }
 
 type DeleteAuthInfoCommand struct {
@@ -104,9 +113,8 @@ type GetUserByAuthInfoQuery struct {
 
 type UserLookupParams struct {
 	// Describes lookup order as well
-	UserID *int64  // if set, will try to find the user by id
-	Email  *string // if set, will try to find the user by email
-	Login  *string // if set, will try to find the user by login
+	Email *string // if set, will try to find the user by email
+	Login *string // if set, will try to find the user by login
 }
 
 type GetAuthInfoQuery struct {

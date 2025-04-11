@@ -1,26 +1,45 @@
-import { config } from '@grafana/runtime';
-import { PromQuery } from 'app/plugins/datasource/prometheus/types';
-import { GrafanaAlertStateDecision, GrafanaRuleDefinition, RulerAlertingRuleDTO } from 'app/types/unified-alerting-dto';
+import { PromQuery } from '@grafana/prometheus';
+import {
+  AlertDataQuery,
+  AlertQuery,
+  GrafanaAlertStateDecision,
+  GrafanaRuleDefinition,
+  RulerAlertingRuleDTO,
+} from 'app/types/unified-alerting-dto';
 
+import { mockDataSource } from '../mocks';
+import { getDefaultFormValues } from '../rule-editor/formDefaults';
+import { setupDataSources } from '../testSetup/datasources';
 import { AlertManagerManualRouting, RuleFormType, RuleFormValues } from '../types/rule-form';
 
-import { GRAFANA_RULES_SOURCE_NAME } from './datasource';
+import { DataSourceType, GRAFANA_RULES_SOURCE_NAME } from './datasource';
 import {
-  MANUAL_ROUTING_KEY,
   alertingRulerRuleToRuleForm,
+  cleanAnnotations,
+  cleanLabels,
   formValuesToRulerGrafanaRuleDTO,
   formValuesToRulerRuleDTO,
   getContactPointsFromDTO,
-  getDefaultFormValues,
-  getDefautManualRouting,
+  getInstantFromDataQuery,
   getNotificationSettingsForDTO,
 } from './rule-form';
 
 describe('formValuesToRulerGrafanaRuleDTO', () => {
-  it('should correctly convert rule form values', () => {
+  it('should correctly convert rule form values for grafana alerting rule', () => {
     const formValues: RuleFormValues = {
       ...getDefaultFormValues(),
       condition: 'A',
+      type: RuleFormType.grafana,
+    };
+
+    expect(formValuesToRulerGrafanaRuleDTO(formValues)).toMatchSnapshot();
+  });
+
+  it('should correctly convert rule form values for grafana recording rule', () => {
+    const formValues: RuleFormValues = {
+      ...getDefaultFormValues(),
+      condition: 'A',
+      type: RuleFormType.grafanaRecording,
     };
 
     expect(formValuesToRulerGrafanaRuleDTO(formValues)).toMatchSnapshot();
@@ -31,6 +50,7 @@ describe('formValuesToRulerGrafanaRuleDTO', () => {
 
     const values: RuleFormValues = {
       ...defaultValues,
+      type: RuleFormType.grafana,
       queries: [
         {
           refId: 'A',
@@ -95,8 +115,10 @@ describe('getContactPointsFromDTO', () => {
   it('should return undefined if notification_settings is not defined', () => {
     const ga: GrafanaRuleDefinition = {
       uid: '123',
+      version: 1,
       title: 'myalert',
       namespace_uid: '123',
+      rule_group: 'my-group',
       condition: 'A',
       no_data_state: GrafanaAlertStateDecision.Alerting,
       exec_err_state: GrafanaAlertStateDecision.Alerting,
@@ -118,8 +140,10 @@ describe('getContactPointsFromDTO', () => {
   it('should return routingSettings with correct props if notification_settings is defined', () => {
     const ga: GrafanaRuleDefinition = {
       uid: '123',
+      version: 1,
       title: 'myalert',
       namespace_uid: '123',
+      rule_group: 'my-group',
       condition: 'A',
       no_data_state: GrafanaAlertStateDecision.Alerting,
       exec_err_state: GrafanaAlertStateDecision.Alerting,
@@ -211,32 +235,99 @@ describe('getNotificationSettingsForDTO', () => {
   });
 });
 
-describe('getDefautManualRouting', () => {
-  afterEach(() => {
-    window.localStorage.clear();
+describe('cleanAnnotations', () => {
+  it('should remove falsy KVs', () => {
+    const output = cleanAnnotations([{ key: '', value: '' }]);
+    expect(output).toStrictEqual([]);
   });
 
-  it('returns false if the feature toggle is not enabled', () => {
-    config.featureToggles.alertingSimplifiedRouting = false;
-    expect(getDefautManualRouting()).toBe(false);
+  it('should trim keys and values', () => {
+    const output = cleanAnnotations([{ key: ' spaces ', value: ' spaces too  ' }]);
+    expect(output).toStrictEqual([{ key: 'spaces', value: 'spaces too' }]);
+  });
+});
+
+describe('cleanLabels', () => {
+  it('should remove falsy KVs', () => {
+    const output = cleanLabels([{ key: '', value: '' }]);
+    expect(output).toStrictEqual([]);
   });
 
-  it('returns true if the feature toggle is enabled and localStorage is not set', () => {
-    config.featureToggles.alertingSimplifiedRouting = true;
-    expect(getDefautManualRouting()).toBe(true);
+  it('should trim keys and values', () => {
+    const output = cleanLabels([{ key: ' spaces ', value: ' spaces too  ' }]);
+    expect(output).toStrictEqual([{ key: 'spaces', value: 'spaces too' }]);
   });
 
-  it('returns false if the feature toggle is enabled and localStorage is set to "false"', () => {
-    config.featureToggles.alertingSimplifiedRouting = true;
-    localStorage.setItem(MANUAL_ROUTING_KEY, 'false');
-    expect(getDefautManualRouting()).toBe(false);
+  it('should leave empty values', () => {
+    const output = cleanLabels([{ key: 'key', value: '' }]);
+    expect(output).toStrictEqual([{ key: 'key', value: '' }]);
+  });
+});
+
+describe('getInstantFromDataQuery', () => {
+  const query: AlertQuery<AlertDataQuery> = {
+    refId: 'Q',
+    datasourceUid: 'abc123',
+    queryType: '',
+    relativeTimeRange: {
+      from: 600,
+      to: 0,
+    },
+    model: {
+      refId: 'Q',
+    },
+  };
+
+  it('should return undefined if datasource UID is undefined', () => {
+    setupDataSources(mockDataSource({ type: DataSourceType.Prometheus, name: 'Mimir-cloud', uid: 'mimir-1' }));
+    const result = getInstantFromDataQuery({ ...query });
+    expect(result).toBeUndefined();
   });
 
-  it('returns true if the feature toggle is enabled and localStorage is set to any value other than "false"', () => {
-    config.featureToggles.alertingSimplifiedRouting = true;
-    localStorage.setItem(MANUAL_ROUTING_KEY, 'true');
-    expect(getDefautManualRouting()).toBe(true);
-    localStorage.removeItem(MANUAL_ROUTING_KEY);
-    expect(getDefautManualRouting()).toBe(true);
+  it('should return undefined if datasource type is not Prometheus or Loki', () => {
+    setupDataSources(mockDataSource({ type: DataSourceType.Alertmanager, name: 'aa', uid: 'aa-1' }));
+    const result = getInstantFromDataQuery({ ...query, datasourceUid: 'aa' });
+    expect(result).toBeUndefined();
+  });
+
+  it('should return true if datasource is Prometheus and instant is not defined', () => {
+    setupDataSources(mockDataSource({ type: DataSourceType.Prometheus, name: 'aa', uid: 'aa-1' }));
+    const result = getInstantFromDataQuery({ ...query, datasourceUid: 'aa' });
+
+    expect(result).toBe(true);
+  });
+
+  it('should return the value of instant if datasource is Prometheus and instant is defined', () => {
+    setupDataSources(mockDataSource({ type: DataSourceType.Prometheus, name: 'aa', uid: 'aa-1' }));
+    const result = getInstantFromDataQuery({ ...query, datasourceUid: 'aa', model: { refId: 'f', instant: false } });
+    expect(result).toBe(false);
+  });
+
+  it('should return true if datasource is Loki and queryType is not defined', () => {
+    setupDataSources(mockDataSource({ type: DataSourceType.Loki, name: 'aa', uid: 'aa-1' }));
+    const result = getInstantFromDataQuery({ ...query, datasourceUid: 'aa' });
+    expect(result).toBe(true);
+  });
+
+  it('should return true if datasource is Loki and queryType is instant', () => {
+    setupDataSources(mockDataSource({ type: DataSourceType.Loki, name: 'aa', uid: 'aa-1' }));
+    const result = getInstantFromDataQuery({
+      ...query,
+      datasourceUid: 'aa',
+      model: { refId: 'f', queryType: 'instant' },
+    });
+
+    expect(result).toBe(true);
+  });
+
+  it('should return false if datasource is Loki and queryType is not instant', () => {
+    setupDataSources(mockDataSource({ type: DataSourceType.Loki, name: 'aa', uid: 'aa-1' }));
+    const result = getInstantFromDataQuery({
+      ...query,
+      datasourceUid: 'aa',
+      model: { refId: 'f', queryType: 'range' },
+    });
+
+    expect(result).toBe(false);
   });
 });

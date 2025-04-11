@@ -1,10 +1,12 @@
-import { Story, Meta } from '@storybook/react';
-import React, { FC, useEffect, useState } from 'react';
+import { StoryFn, Meta } from '@storybook/react';
+import { FC, useEffect, useState } from 'react';
 
 import { DisplayValue, GrafanaTheme2 } from '@grafana/data';
 import { LegendDisplayMode, LegendPlacement } from '@grafana/schema';
-import { useTheme2, VizLegend } from '@grafana/ui';
 
+import { useTheme2 } from '../../themes';
+
+import { VizLegend } from './VizLegend';
 import { VizLegendItem } from './types';
 
 const meta: Meta = {
@@ -73,7 +75,7 @@ const LegendStoryDemo: FC<LegendStoryDemoProps> = ({ displayMode, seriesCount, n
   );
 };
 
-export const WithNoValues: Story = ({ containerWidth, seriesCount }) => {
+export const WithNoValues: StoryFn = ({ containerWidth, seriesCount }) => {
   return (
     <div style={{ width: containerWidth }}>
       <LegendStoryDemo
@@ -98,7 +100,7 @@ export const WithNoValues: Story = ({ containerWidth, seriesCount }) => {
   );
 };
 
-export const WithValues: Story = ({ containerWidth, seriesCount }) => {
+export const WithValues: StoryFn = ({ containerWidth, seriesCount }) => {
   const stats: DisplayValue[] = [
     {
       title: 'Min',

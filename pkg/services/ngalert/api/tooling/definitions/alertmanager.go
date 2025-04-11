@@ -7,17 +7,22 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/grafana/alerting/definition"
 	amv2 "github.com/prometheus/alertmanager/api/v2/models"
 	"github.com/prometheus/alertmanager/config"
 	"github.com/prometheus/common/model"
 	"gopkg.in/yaml.v3"
+
+	"github.com/grafana/alerting/definition"
+	alertingmodels "github.com/grafana/alerting/models"
 )
 
 // swagger:route POST /alertmanager/grafana/config/api/v1/alerts alertmanager RoutePostGrafanaAlertingConfig
 //
 // sets an Alerting config
 //
+// This API is designated to internal use only and can be removed or changed at any time without prior notice.
+//
+// Deprecated: true
 //     Responses:
 //       201: Ack
 //       400: ValidationError
@@ -34,6 +39,10 @@ import (
 // swagger:route GET /alertmanager/grafana/config/api/v1/alerts alertmanager RouteGetGrafanaAlertingConfig
 //
 // gets an Alerting config
+//
+// This API is designated to internal use only and can be removed or changed at any time without prior notice.
+//
+// Deprecated: true
 //
 //     Responses:
 //       200: GettableUserConfig
@@ -52,6 +61,9 @@ import (
 //
 // gets Alerting configurations that were successfully applied in the past
 //
+// This API is designated to internal use only and can be removed or changed at any time without prior notice.
+//
+// Deprecated: true
 //     Responses:
 //       200: GettableHistoricUserConfigs
 
@@ -59,6 +71,9 @@ import (
 //
 // revert Alerting configuration to the historical configuration specified by the given id
 //
+// This API is designated to internal use only and can be removed or changed at any time without prior notice.
+//
+// Deprecated: true
 //     Responses:
 //       202: Ack
 //       400: ValidationError
@@ -68,6 +83,9 @@ import (
 //
 // deletes the Alerting config for a tenant
 //
+// This API is designated to internal use only and can be removed or changed at any time without prior notice.
+//
+// Deprecated: true
 //     Responses:
 //       200: Ack
 //       400: ValidationError
@@ -180,7 +198,7 @@ import (
 // get silences
 //
 //     Responses:
-//       200: gettableSilences
+//       200: gettableGrafanaSilences
 //       400: ValidationError
 
 // swagger:route GET /alertmanager/{DatasourceUID}/api/v2/silences alertmanager RouteGetSilences
@@ -214,7 +232,7 @@ import (
 // get silence
 //
 //     Responses:
-//       200: gettableSilence
+//       200: gettableGrafanaSilence
 //       400: ValidationError
 
 // swagger:route GET /alertmanager/{DatasourceUID}/api/v2/silence/{SilenceId} alertmanager RouteGetSilence
@@ -350,6 +368,10 @@ type TestTemplatesResult struct {
 
 	// Interpolated value of the template.
 	Text string `json:"text"`
+
+	// Scope that was successfully used to interpolate the template. If the root scope "." fails, more specific
+	// scopes will be tried, such as ".Alerts', or ".Alert".
+	Scope TemplateScope `json:"scope"`
 }
 
 type TestTemplatesErrorResult struct {
@@ -371,6 +393,15 @@ const (
 	ExecutionError  TemplateErrorKind = "execution_error"
 )
 
+// swagger:enum TemplateScope
+type TemplateScope string
+
+const (
+	RootScope   TemplateScope = "."
+	AlertsScope TemplateScope = ".Alerts"
+	AlertScope  TemplateScope = ".Alert"
+)
+
 // swagger:parameters RouteCreateSilence RouteCreateGrafanaSilence
 type CreateSilenceParams struct {
 	// in:body
@@ -387,6 +418,14 @@ type GetDeleteSilenceParams struct {
 type GetSilencesParams struct {
 	// in:query
 	Filter []string `json:"filter"`
+	// Return rule metadata with silence.
+	// in:query
+	// required:false
+	RuleMetadata bool `json:"ruleMetadata"`
+	// Return access control metadata with silence.
+	// in:query
+	// required:false
+	AccessControl bool `json:"accesscontrol"`
 }
 
 // swagger:model
@@ -462,7 +501,6 @@ func NewGettableStatus(cfg *PostableApiAlertingConfig) *GettableStatus {
 	}
 }
 
-// swagger:model postableSilence
 type PostableSilence = amv2.PostableSilence
 
 // swagger:model postSilencesOKBody
@@ -474,32 +512,76 @@ type PostSilencesOKBody struct { // vendored from "github.com/prometheus/alertma
 // swagger:model gettableSilences
 type GettableSilences = amv2.GettableSilences
 
-// swagger:model gettableSilence
 type GettableSilence = amv2.GettableSilence
+
+// swagger:model gettableGrafanaSilence
+type GettableGrafanaSilence struct {
+	*GettableSilence `json:",inline"`
+	Metadata         *SilenceMetadata `json:"metadata,omitempty"`
+	// example: {"read": true, "write": false, "create": false}
+	Permissions map[SilencePermission]bool `json:"accessControl,omitempty"`
+}
+
+type SilenceMetadata struct {
+	RuleUID   string `json:"rule_uid,omitempty"`
+	RuleTitle string `json:"rule_title,omitempty"`
+	FolderUID string `json:"folder_uid,omitempty"`
+}
+
+type SilencePermission string
+
+const (
+	SilencePermissionRead   SilencePermission = "read"
+	SilencePermissionCreate SilencePermission = "create"
+	SilencePermissionWrite  SilencePermission = "write"
+)
+
+// Correctly embed the GettableSilence into the GettableGrafanaSilence struct. This is needed because GettableSilence
+// has a custom UnmarshalJSON method.
+func (s GettableGrafanaSilence) MarshalJSON() ([]byte, error) {
+	gettable, err := json.Marshal(s.GettableSilence)
+	if err != nil {
+		return nil, err
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(gettable, &data); err != nil {
+		return nil, err
+	}
+
+	if s.Metadata != nil {
+		data["metadata"] = s.Metadata
+	}
+
+	if s.Permissions != nil {
+		data["accessControl"] = s.Permissions
+	}
+
+	return json.Marshal(data)
+}
+
+// swagger:model gettableGrafanaSilences
+type GettableGrafanaSilences []*GettableGrafanaSilence
 
 // swagger:model gettableAlerts
 type GettableAlerts = amv2.GettableAlerts
 
-// swagger:model gettableAlert
 type GettableAlert = amv2.GettableAlert
 
 // swagger:model alertGroups
 type AlertGroups = amv2.AlertGroups
 
-// swagger:model alertGroup
 type AlertGroup = amv2.AlertGroup
 
-// swagger:model receiver
-type Receiver = amv2.Receiver
+type Receiver = alertingmodels.Receiver
 
 // swagger:response receiversResponse
 type ReceiversResponse struct {
 	// in:body
-	Body []amv2.Receiver
+	Body []alertingmodels.Receiver
 }
 
-// swagger:model integration
-type Integration = amv2.Integration
+type Integration = alertingmodels.Integration
 
 // swagger:parameters RouteGetAMAlerts RouteGetAMAlertGroups RouteGetGrafanaAMAlerts RouteGetGrafanaAMAlertGroups
 type AlertsParams struct {
@@ -621,7 +703,7 @@ func (c *PostableUserConfig) GetGrafanaReceiverMap() map[string]*PostableGrafana
 	for _, r := range c.AlertmanagerConfig.Receivers {
 		switch r.Type() {
 		case GrafanaReceiverType:
-			for _, gr := range r.PostableGrafanaReceivers.GrafanaManagedReceivers {
+			for _, gr := range r.GrafanaManagedReceivers {
 				UIDs[gr.UID] = gr
 			}
 		default:
@@ -725,7 +807,7 @@ func (c *GettableUserConfig) GetGrafanaReceiverMap() map[string]*GettableGrafana
 	for _, r := range c.AlertmanagerConfig.Receivers {
 		switch r.Type() {
 		case GrafanaReceiverType:
-			for _, gr := range r.GettableGrafanaReceivers.GrafanaManagedReceivers {
+			for _, gr := range r.GrafanaManagedReceivers {
 				UIDs[gr.UID] = gr
 			}
 		default:
@@ -789,6 +871,26 @@ func (c *GettableApiAlertingConfig) UnmarshalJSON(b []byte) error {
 	return c.validate()
 }
 
+func (c *GettableApiAlertingConfig) UnmarshalYAML(value *yaml.Node) error {
+	type plain GettableApiAlertingConfig
+	if err := value.Decode((*plain)(c)); err != nil {
+		return err
+	}
+
+	// Since Config implements yaml.Unmarshaler, we must handle _all_ other fields independently.
+	// Otherwise, the yaml decoder will detect this and only use the embedded type.
+	// Additionally, we'll use pointers to slices in order to reference the intended target.
+	type overrides struct {
+		Receivers *[]*GettableApiReceiver `yaml:"receivers,omitempty"`
+	}
+
+	if err := value.Decode(&overrides{Receivers: &c.Receivers}); err != nil {
+		return err
+	}
+
+	return c.validate()
+}
+
 // validate ensures that the two routing trees use the correct receiver types.
 func (c *GettableApiAlertingConfig) validate() error {
 	receivers := make(map[string]struct{}, len(c.Receivers))
@@ -841,7 +943,7 @@ func (r *GettableApiReceiver) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	hasGrafanaReceivers := len(r.GettableGrafanaReceivers.GrafanaManagedReceivers) > 0
+	hasGrafanaReceivers := len(r.GrafanaManagedReceivers) > 0
 
 	if hasGrafanaReceivers {
 		if len(r.EmailConfigs) > 0 {
@@ -874,14 +976,14 @@ func (r *GettableApiReceiver) UnmarshalJSON(b []byte) error {
 }
 
 func (r *GettableApiReceiver) Type() ReceiverType {
-	if len(r.GettableGrafanaReceivers.GrafanaManagedReceivers) > 0 {
+	if len(r.GrafanaManagedReceivers) > 0 {
 		return GrafanaReceiverType
 	}
 	return AlertmanagerReceiverType
 }
 
 func (r *GettableApiReceiver) GetName() string {
-	return r.Receiver.Name
+	return r.Name
 }
 
 type GettableGrafanaReceivers struct {

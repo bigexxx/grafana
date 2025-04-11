@@ -1,5 +1,3 @@
-import React from 'react';
-
 import { PluginState } from '@grafana/data';
 import { Badge, BadgeProps } from '@grafana/ui';
 
@@ -19,7 +17,8 @@ export const PluginStateInfo = (props: Props) => {
     <Badge
       className={props.className}
       color={display.color}
-      title={display.tooltip}
+      title={typeof display.tooltip === 'string' ? display.tooltip : undefined}
+      tooltip={typeof display.tooltip !== 'string' ? display.tooltip : undefined}
       text={display.text}
       icon={display.icon}
     />

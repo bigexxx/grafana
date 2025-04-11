@@ -1,5 +1,4 @@
 import { get as lodashGet } from 'lodash';
-import React from 'react';
 
 import {
   EventBus,
@@ -8,17 +7,13 @@ import {
   PanelPlugin,
   StandardEditorContext,
   VariableSuggestionsScope,
-} from '@grafana/data';
-import { PanelOptionsSupplier } from '@grafana/data/src/panel/PanelPlugin';
-import {
-  NestedValueAccess,
   PanelOptionsEditorBuilder,
-  isNestedPanelOptions,
-} from '@grafana/data/src/utils/OptionsUIBuilders';
+} from '@grafana/data';
+import { NestedValueAccess, isNestedPanelOptions, PanelOptionsSupplier } from '@grafana/data/internal';
 import { VizPanel } from '@grafana/scenes';
 import { Input } from '@grafana/ui';
 import { LibraryVizPanelInfo } from 'app/features/dashboard-scene/panel-edit/LibraryVizPanelInfo';
-import { LibraryVizPanel } from 'app/features/dashboard-scene/scene/LibraryVizPanel';
+import { LibraryPanelBehavior } from 'app/features/dashboard-scene/scene/LibraryPanelBehavior';
 import { getDataLinksVariableSuggestions } from 'app/features/panel/panellinks/link_srv';
 
 import { OptionsPaneCategoryDescriptor } from './OptionsPaneCategoryDescriptor';
@@ -53,6 +48,7 @@ export function getStandardEditorContext({
     eventBus,
     getSuggestions: (scope?: VariableSuggestionsScope) => getDataLinksVariableSuggestions(dataSeries, scope),
     instanceState,
+    annotations: data?.annotations,
   };
 
   return context;
@@ -103,11 +99,14 @@ export function getVisualizationOptions(props: OptionPaneRenderProps): OptionsPa
    */
   for (const fieldOption of plugin.fieldConfigRegistry.list()) {
     if (fieldOption.isCustom) {
-      if (fieldOption.showIf && !fieldOption.showIf(currentFieldConfig.defaults.custom, data?.series)) {
+      if (
+        fieldOption.showIf &&
+        !fieldOption.showIf(currentFieldConfig.defaults.custom, data?.series, data?.annotations)
+      ) {
         continue;
       }
     } else {
-      if (fieldOption.showIf && !fieldOption.showIf(currentFieldConfig.defaults, data?.series)) {
+      if (fieldOption.showIf && !fieldOption.showIf(currentFieldConfig.defaults, data?.series, data?.annotations)) {
         continue;
       }
     }
@@ -136,7 +135,7 @@ export function getVisualizationOptions(props: OptionPaneRenderProps): OptionsPa
         description: fieldOption.description,
         overrides: getOptionOverrides(fieldOption, currentFieldConfig, data?.series),
         render: function renderEditor() {
-          const onChange = (v: any) => {
+          const onChange = (v: unknown) => {
             onFieldConfigsChange(
               updateDefaultFieldConfigValue(currentFieldConfig, fieldOption.path, v, fieldOption.isCustom)
             );
@@ -151,7 +150,7 @@ export function getVisualizationOptions(props: OptionPaneRenderProps): OptionsPa
   return Object.values(categoryIndex);
 }
 
-export function getLibraryVizPanelOptionsCategory(libraryPanel: LibraryVizPanel): OptionsPaneCategoryDescriptor {
+export function getLibraryVizPanelOptionsCategory(libraryPanel: LibraryPanelBehavior): OptionsPaneCategoryDescriptor {
   const descriptor = new OptionsPaneCategoryDescriptor({
     title: 'Library panel options',
     id: 'Library panel options',
@@ -241,8 +240,8 @@ export function getVisualizationOptions2(props: OptionPaneRenderProps2): Options
     const hideOption =
       fieldOption.showIf &&
       (fieldOption.isCustom
-        ? !fieldOption.showIf(currentFieldConfig.defaults.custom, data?.series)
-        : !fieldOption.showIf(currentFieldConfig.defaults, data?.series));
+        ? !fieldOption.showIf(currentFieldConfig.defaults.custom, data?.series, data?.annotations)
+        : !fieldOption.showIf(currentFieldConfig.defaults, data?.series, data?.annotations));
     if (fieldOption.hideFromDefaults || hideOption) {
       continue;
     }
@@ -299,7 +298,7 @@ export function fillOptionsPaneItems(
   supplier(builder, context);
 
   for (const pluginOption of builder.getItems()) {
-    if (pluginOption.showIf && !pluginOption.showIf(context.options, context.data)) {
+    if (pluginOption.showIf && !pluginOption.showIf(context.options, context.data, context.annotations)) {
       continue;
     }
 

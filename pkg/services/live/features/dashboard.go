@@ -8,13 +8,11 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 
+	"github.com/grafana/grafana/pkg/apimachinery/identity"
 	"github.com/grafana/grafana/pkg/infra/db"
-	"github.com/grafana/grafana/pkg/services/auth/identity"
+	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/dashboards"
-	"github.com/grafana/grafana/pkg/services/guardian"
 	"github.com/grafana/grafana/pkg/services/live/model"
-	"github.com/grafana/grafana/pkg/services/org"
-	"github.com/grafana/grafana/pkg/services/user"
 )
 
 type actionType string
@@ -28,11 +26,31 @@ const (
 	GitopsChannel = "grafana/dashboard/gitops"
 )
 
+type userDisplayDTO struct {
+	ID        int64  `json:"id,omitempty"`
+	UID       string `json:"uid,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Login     string `json:"login,omitempty"`
+	AvatarURL string `json:"avatarUrl"`
+}
+
+// Static function to parse a requester into a userDisplayDTO
+func newUserDisplayDTOFromRequester(requester identity.Requester) *userDisplayDTO {
+	// nolint:staticcheck
+	userID, _ := requester.GetInternalID()
+	return &userDisplayDTO{
+		ID:    userID,
+		UID:   requester.GetRawIdentifier(),
+		Login: requester.GetLogin(),
+		Name:  requester.GetName(),
+	}
+}
+
 // DashboardEvent events related to dashboards
 type dashboardEvent struct {
 	UID       string                `json:"uid"`
 	Action    actionType            `json:"action"` // saved, editing, deleted
-	User      *user.UserDisplayDTO  `json:"user,omitempty"`
+	User      *userDisplayDTO       `json:"user,omitempty"`
 	SessionID string                `json:"sessionId,omitempty"`
 	Message   string                `json:"message,omitempty"`
 	Dashboard *dashboards.Dashboard `json:"dashboard,omitempty"`
@@ -45,6 +63,7 @@ type DashboardHandler struct {
 	ClientCount      model.ChannelClientCount
 	Store            db.DB
 	DashboardService dashboards.DashboardService
+	AccessControl    accesscontrol.AccessControl
 }
 
 // GetHandlerForPath called on init
@@ -55,32 +74,20 @@ func (h *DashboardHandler) GetHandlerForPath(_ string) (model.ChannelHandler, er
 // OnSubscribe for now allows anyone to subscribe to any dashboard
 func (h *DashboardHandler) OnSubscribe(ctx context.Context, user identity.Requester, e model.SubscribeEvent) (model.SubscribeReply, backend.SubscribeStreamStatus, error) {
 	parts := strings.Split(e.Path, "/")
-	if parts[0] == "gitops" {
-		// gitops gets all changes for everything, so lets make sure it is an admin user
-		if !user.HasRole(org.RoleAdmin) {
-			return model.SubscribeReply{}, backend.SubscribeStreamStatusPermissionDenied, nil
-		}
-		return model.SubscribeReply{
-			Presence: true,
-		}, backend.SubscribeStreamStatusOK, nil
-	}
 
 	// make sure can view this dashboard
 	if len(parts) == 2 && parts[0] == "uid" {
 		query := dashboards.GetDashboardQuery{UID: parts[1], OrgID: user.GetOrgID()}
-		queryResult, err := h.DashboardService.GetDashboard(ctx, &query)
+		_, err := h.DashboardService.GetDashboard(ctx, &query)
 		if err != nil {
 			logger.Error("Error getting dashboard", "query", query, "error", err)
 			return model.SubscribeReply{}, backend.SubscribeStreamStatusNotFound, nil
 		}
 
-		dash := queryResult
-		guard, err := guardian.NewByDashboard(ctx, dash, user.GetOrgID(), user)
-		if err != nil {
+		evaluator := accesscontrol.EvalPermission(dashboards.ActionDashboardsRead, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(parts[1]))
+		canView, err := h.AccessControl.Evaluate(ctx, user, evaluator)
+		if err != nil || !canView {
 			return model.SubscribeReply{}, backend.SubscribeStreamStatusPermissionDenied, err
-		}
-		if canView, err := guard.CanView(); err != nil || !canView {
-			return model.SubscribeReply{}, backend.SubscribeStreamStatusPermissionDenied, nil
 		}
 
 		return model.SubscribeReply{
@@ -97,15 +104,6 @@ func (h *DashboardHandler) OnSubscribe(ctx context.Context, user identity.Reques
 // OnPublish is called when someone begins to edit a dashboard
 func (h *DashboardHandler) OnPublish(ctx context.Context, requester identity.Requester, e model.PublishEvent) (model.PublishReply, backend.PublishStreamStatus, error) {
 	parts := strings.Split(e.Path, "/")
-	if parts[0] == "gitops" {
-		// gitops gets all changes for everything, so lets make sure it is an admin user
-		if !requester.HasRole(org.RoleAdmin) {
-			return model.PublishReply{}, backend.PublishStreamStatusPermissionDenied, nil
-		}
-
-		// Eventually this could broadcast a message back to the dashboard saying a pull request exists
-		return model.PublishReply{}, backend.PublishStreamStatusNotFound, fmt.Errorf("not implemented yet")
-	}
 
 	// make sure can view this dashboard
 	if len(parts) == 2 && parts[0] == "uid" {
@@ -119,19 +117,14 @@ func (h *DashboardHandler) OnPublish(ctx context.Context, requester identity.Req
 			return model.PublishReply{}, backend.PublishStreamStatusNotFound, fmt.Errorf("ignore???")
 		}
 		query := dashboards.GetDashboardQuery{UID: parts[1], OrgID: requester.GetOrgID()}
-		queryResult, err := h.DashboardService.GetDashboard(ctx, &query)
+		_, err = h.DashboardService.GetDashboard(ctx, &query)
 		if err != nil {
 			logger.Error("Unknown dashboard", "query", query)
 			return model.PublishReply{}, backend.PublishStreamStatusNotFound, nil
 		}
 
-		guard, err := guardian.NewByDashboard(ctx, queryResult, requester.GetOrgID(), requester)
-		if err != nil {
-			logger.Error("Failed to create guardian", "err", err)
-			return model.PublishReply{}, backend.PublishStreamStatusNotFound, fmt.Errorf("internal error")
-		}
-
-		canEdit, err := guard.CanEdit()
+		evaluator := accesscontrol.EvalPermission(dashboards.ActionDashboardsWrite, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(parts[1]))
+		canEdit, err := h.AccessControl.Evaluate(ctx, requester, evaluator)
 		if err != nil {
 			return model.PublishReply{}, backend.PublishStreamStatusNotFound, fmt.Errorf("internal error")
 		}
@@ -142,10 +135,7 @@ func (h *DashboardHandler) OnPublish(ctx context.Context, requester identity.Req
 		}
 
 		// Tell everyone who is editing
-		event.User, err = user.NewUserDisplayDTOFromRequester(requester)
-		if err != nil {
-			return model.PublishReply{}, backend.PublishStreamStatusNotFound, err
-		}
+		event.User = newUserDisplayDTOFromRequester(requester)
 
 		msg, err := json.Marshal(event)
 		if err != nil {
@@ -177,7 +167,7 @@ func (h *DashboardHandler) publish(orgID int64, event dashboardEvent) error {
 }
 
 // DashboardSaved will broadcast to all connected dashboards
-func (h *DashboardHandler) DashboardSaved(orgID int64, user *user.UserDisplayDTO, message string, dashboard *dashboards.Dashboard, err error) error {
+func (h *DashboardHandler) DashboardSaved(orgID int64, requester identity.Requester, message string, dashboard *dashboards.Dashboard, err error) error {
 	if err != nil && !h.HasGitOpsObserver(orgID) {
 		return nil // only broadcast if it was OK
 	}
@@ -185,7 +175,7 @@ func (h *DashboardHandler) DashboardSaved(orgID int64, user *user.UserDisplayDTO
 	msg := dashboardEvent{
 		UID:       dashboard.UID,
 		Action:    ActionSaved,
-		User:      user,
+		User:      newUserDisplayDTOFromRequester(requester),
 		Message:   message,
 		Dashboard: dashboard,
 	}
@@ -198,11 +188,11 @@ func (h *DashboardHandler) DashboardSaved(orgID int64, user *user.UserDisplayDTO
 }
 
 // DashboardDeleted will broadcast to all connected dashboards
-func (h *DashboardHandler) DashboardDeleted(orgID int64, user *user.UserDisplayDTO, uid string) error {
+func (h *DashboardHandler) DashboardDeleted(orgID int64, requester identity.Requester, uid string) error {
 	return h.publish(orgID, dashboardEvent{
 		UID:    uid,
 		Action: ActionDeleted,
-		User:   user,
+		User:   newUserDisplayDTOFromRequester(requester),
 	})
 }
 

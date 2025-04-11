@@ -11,12 +11,12 @@ import {
   DataTopic,
 } from '@grafana/data';
 import { config } from '@grafana/runtime';
-import { SceneGridItem, VizPanel } from '@grafana/scenes';
+import { VizPanel } from '@grafana/scenes';
 import { GrafanaQueryType } from 'app/plugins/datasource/grafana/types';
 
-import { LibraryVizPanel } from '../../scene/LibraryVizPanel';
+import { DashboardGridItem } from '../../scene/layout-default/DashboardGridItem';
 import { gridItemToPanel, vizPanelToPanel } from '../../serialization/transformSceneToSaveModel';
-import { getQueryRunnerFor } from '../../utils/utils';
+import { getQueryRunnerFor, isLibraryPanel } from '../../utils/utils';
 
 import { Randomize, randomizeData } from './randomizer';
 
@@ -46,7 +46,7 @@ export function getGithubMarkdown(panel: VizPanel, snapshot: string): string {
     panelType: panel.state.pluginId,
     datasource: '??',
   };
-  const grafanaVersion = `${config.buildInfo.version} (${config.buildInfo.commit})`;
+  const grafanaVersion = config.buildInfo.versionString;
 
   let md = `| Key | Value |
 |--|--|
@@ -61,15 +61,16 @@ export function getGithubMarkdown(panel: VizPanel, snapshot: string): string {
 }
 
 export async function getDebugDashboard(panel: VizPanel, rand: Randomize, timeRange: TimeRange) {
-  let saveModel;
+  let saveModel: ReturnType<typeof gridItemToPanel> = { type: '' };
+  const gridItem = panel.parent as DashboardGridItem;
 
-  if (panel.parent instanceof LibraryVizPanel && panel.parent.parent instanceof SceneGridItem) {
+  if (isLibraryPanel(panel)) {
     saveModel = {
-      ...gridItemToPanel(panel.parent.parent),
+      ...gridItemToPanel(gridItem),
       ...vizPanelToPanel(panel),
     };
   } else {
-    saveModel = gridItemToPanel(panel.parent as SceneGridItem);
+    saveModel = gridItemToPanel(gridItem);
   }
 
   const dashboard = cloneDeep(embeddedDataTemplate);
@@ -89,7 +90,7 @@ export async function getDebugDashboard(panel: VizPanel, rand: Randomize, timeRa
 
   const dsref = queryRunner?.state.datasource;
   const frames = randomizeData(getPanelDataFrames(data), rand);
-  const grafanaVersion = `${config.buildInfo.version} (${config.buildInfo.commit})`;
+  const grafanaVersion = config.buildInfo.versionString;
   const queries = queryRunner.state.queries ?? [];
   const annotationsCount = data.annotations ? data.annotations.reduce((acc, c) => c.length + acc, 0) : 0;
   const html = `<table width="100%">

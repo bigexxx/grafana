@@ -94,33 +94,38 @@ func parseDirection(jsonPointerValue *string) (Direction, error) {
 			return DirectionBackward, nil
 		case "forward":
 			return DirectionForward, nil
+		case "scan":
+			return DirectionBackward, nil
 		default:
 			return DirectionBackward, fmt.Errorf("invalid queryDirection: %s", jsonValue)
 		}
 	}
 }
 
-func parseSupportingQueryType(jsonPointerValue *string) (SupportingQueryType, error) {
+func parseSupportingQueryType(jsonPointerValue *string) SupportingQueryType {
 	if jsonPointerValue == nil {
-		return SupportingQueryNone, nil
-	} else {
-		jsonValue := *jsonPointerValue
-		switch jsonValue {
-		case "logsVolume":
-			return SupportingQueryLogsVolume, nil
-		case "logsSample":
-			return SupportingQueryLogsSample, nil
-		case "dataSample":
-			return SupportingQueryDataSample, nil
-		case "infiniteScroll":
-			return SupportingQueryInfiniteScroll, nil
-		default:
-			return SupportingQueryNone, fmt.Errorf("invalid supportingQueryType: %s", jsonValue)
-		}
+		return SupportingQueryNone
+	}
+
+	jsonValue := *jsonPointerValue
+	switch jsonValue {
+	case "logsVolume":
+		return SupportingQueryLogsVolume
+	case "logsSample":
+		return SupportingQueryLogsSample
+	case "dataSample":
+		return SupportingQueryDataSample
+	case "infiniteScroll":
+		return SupportingQueryInfiniteScroll
+	case "":
+		return SupportingQueryNone
+	default:
+		// `SupportingQueryType` is just a `string` in the schema, so we can just parse this as a string
+		return SupportingQueryType(jsonValue)
 	}
 }
 
-func parseQuery(queryContext *backend.QueryDataRequest) ([]*lokiQuery, error) {
+func parseQuery(queryContext *backend.QueryDataRequest, logqlScopesEnabled bool) ([]*lokiQuery, error) {
 	qs := []*lokiQuery{}
 	for _, query := range queryContext.Queries {
 		model, err := parseQueryModel(query.JSON)
@@ -166,10 +171,14 @@ func parseQuery(queryContext *backend.QueryDataRequest) ([]*lokiQuery, error) {
 			legendFormat = *model.LegendFormat
 		}
 
-		supportingQueryType, err := parseSupportingQueryType(model.SupportingQueryType)
-		if err != nil {
-			return nil, err
+		if logqlScopesEnabled {
+			rewrittenExpr, err := ApplyScopes(expr, model.Scopes)
+			if err == nil {
+				expr = rewrittenExpr
+			}
 		}
+
+		supportingQueryType := parseSupportingQueryType(model.SupportingQueryType)
 
 		qs = append(qs, &lokiQuery{
 			Expr:                expr,
@@ -182,6 +191,7 @@ func parseQuery(queryContext *backend.QueryDataRequest) ([]*lokiQuery, error) {
 			End:                 end,
 			RefID:               query.RefID,
 			SupportingQueryType: supportingQueryType,
+			Scopes:              model.Scopes,
 		})
 	}
 

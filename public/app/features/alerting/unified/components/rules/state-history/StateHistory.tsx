@@ -1,9 +1,11 @@
 import { css } from '@emotion/css';
 import { groupBy } from 'lodash';
-import React, { FormEvent, useCallback, useState } from 'react';
+import { FormEvent, useCallback, useState } from 'react';
+import * as React from 'react';
 
-import { AlertState, dateTimeFormat, GrafanaTheme2 } from '@grafana/data';
-import { Alert, Field, Icon, Input, Label, LoadingPlaceholder, Tooltip, useStyles2, Stack } from '@grafana/ui';
+import { AlertState, GrafanaTheme2, dateTimeFormat } from '@grafana/data';
+import { Alert, Field, Icon, Input, Label, LoadingPlaceholder, Stack, Tooltip, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 import { StateHistoryItem, StateHistoryItemData } from 'app/types/unified-alerting';
 import { GrafanaAlertStateWithReason, PromAlertingRuleState } from 'app/types/unified-alerting-dto';
 
@@ -26,25 +28,34 @@ type StateHistoryMap = Record<string, StateHistoryRowItem[]>;
 type StateHistoryRow = DynamicTableItemProps<StateHistoryRowItem>;
 
 interface Props {
-  alertId: string;
+  ruleUID: string;
 }
 
-const StateHistory = ({ alertId }: Props) => {
+const StateHistory = ({ ruleUID }: Props) => {
   const [textFilter, setTextFilter] = useState<string>('');
   const handleTextFilter = useCallback((event: FormEvent<HTMLInputElement>) => {
     setTextFilter(event.currentTarget.value);
   }, []);
 
-  const { loading, error, result = [] } = useManagedAlertStateHistory(alertId);
+  const { loading, error, result = [] } = useManagedAlertStateHistory(ruleUID);
 
   const styles = useStyles2(getStyles);
 
   if (loading && !error) {
-    return <LoadingPlaceholder text={'Loading history...'} />;
+    return <LoadingPlaceholder text={t('alerting.state-history.text-loading-history', 'Loading history...')} />;
   }
 
   if (error && !loading) {
-    return <Alert title={'Failed to fetch alert state history'}>{error.message}</Alert>;
+    return (
+      <Alert
+        title={t(
+          'alerting.state-history.title-failed-to-fetch-alert-state-history',
+          'Failed to fetch alert state history'
+        )}
+      >
+        {error.message}
+      </Alert>
+    );
   }
 
   const columns: Array<DynamicTableColumnProps<StateHistoryRowItem>> = [
@@ -82,8 +93,10 @@ const StateHistory = ({ alertId }: Props) => {
         <Field
           label={
             <Label>
-              <Stack gap={0.5}>
-                <span>Filter group</span>
+              <Stack gap={0.5} alignItems="center">
+                <span>
+                  <Trans i18nKey="alerting.state-history.filter-group">Filter group</Trans>
+                </span>
                 <Tooltip
                   content={
                     <div>
@@ -98,7 +111,11 @@ const StateHistory = ({ alertId }: Props) => {
             </Label>
           }
         >
-          <Input prefix={<Icon name={'search'} />} onChange={handleTextFilter} placeholder="Search" />
+          <Input
+            prefix={<Icon name={'search'} />}
+            onChange={handleTextFilter}
+            placeholder={t('alerting.state-history.placeholder-search', 'Search')}
+          />
         </Field>
       </nav>
       {tables}
@@ -184,22 +201,22 @@ const LabelsWrapper = ({ children }: React.PropsWithChildren<{}>) => {
   return <div className={wrapper}>{children}</div>;
 };
 
-const TimestampStyle = css`
-  display: flex;
-  align-items: flex-end;
-  flex-direction: column;
-`;
+const TimestampStyle = css({
+  display: 'flex',
+  alignItems: 'flex-end',
+  flexDirection: 'column',
+});
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  wrapper: css`
-    & > * {
-      margin-right: ${theme.spacing(1)};
-    }
-  `,
-  tableGroupKey: css`
-    margin-top: ${theme.spacing(2)};
-    margin-bottom: ${theme.spacing(2)};
-  `,
+  wrapper: css({
+    '& > *': {
+      marginRight: theme.spacing(1),
+    },
+  }),
+  tableGroupKey: css({
+    marginTop: theme.spacing(2),
+    marginBottom: theme.spacing(2),
+  }),
   goupKeyText: css({
     overflowX: 'auto',
     textOverflow: 'ellipsis',

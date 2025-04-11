@@ -1,11 +1,12 @@
 import { css } from '@emotion/css';
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { selectors as e2eSelectors } from '@grafana/e2e-selectors/src';
 import { RadioButtonGroup, useStyles2, FilterInput } from '@grafana/ui';
 import { Page } from 'app/core/components/Page/Page';
+import { t } from 'app/core/internationalization';
 
 import { StoreState } from '../../types';
 
@@ -59,7 +60,10 @@ const UserListAnonymousDevicesPageUnConnected = ({
       <div className={styles.actionBar} data-testid={selectors.container}>
         <div className={styles.row}>
           <FilterInput
-            placeholder="Search devices by ip adress."
+            placeholder={t(
+              'admin.user-list-anonymous-devices-page-un-connected.placeholder-search-devices-by-ip-address',
+              'Search devices by IP address.'
+            )}
             autoFocus={true}
             value={query}
             onChange={changeAnonQuery}

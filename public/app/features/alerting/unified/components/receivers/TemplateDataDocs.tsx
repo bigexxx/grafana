@@ -1,10 +1,11 @@
 import { css } from '@emotion/css';
-import React from 'react';
+import * as React from 'react';
 
 import { GrafanaTheme2 } from '@grafana/data';
-import { useStyles2, Stack } from '@grafana/ui';
+import { Stack, useStyles2 } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
 
-import { HoverCard } from '../HoverCard';
+import { PopupCard } from '../HoverCard';
 
 import {
   AlertTemplateData,
@@ -31,17 +32,21 @@ export function TemplateDataDocs() {
   return (
     <Stack gap={2}>
       <TemplateDataTable
-        caption={<h4 className={styles.header}>Template Data</h4>}
+        caption={
+          <h4 className={styles.header}>
+            Notification template data <span>Available in the context of a notification.</span>{' '}
+          </h4>
+        }
         dataItems={GlobalTemplateData}
         typeRenderer={(type) =>
           type === '[]Alert' ? (
-            <HoverCard content={AlertTemplateDataTable}>
+            <PopupCard content={AlertTemplateDataTable}>
               <div className={styles.interactiveType}>{type}</div>
-            </HoverCard>
+            </PopupCard>
           ) : type === 'KeyValue' ? (
-            <HoverCard content={<KeyValueTemplateDataTable />}>
+            <PopupCard content={<KeyValueTemplateDataTable />}>
               <div className={styles.interactiveType}>{type}</div>
-            </HoverCard>
+            </PopupCard>
           ) : (
             type
           )
@@ -51,23 +56,23 @@ export function TemplateDataDocs() {
   );
 }
 
-const getTemplateDataDocsStyles = (theme: GrafanaTheme2) => ({
-  header: css`
-    color: ${theme.colors.text.primary};
+export const getTemplateDataDocsStyles = (theme: GrafanaTheme2) => ({
+  header: css({
+    color: theme.colors.text.primary,
 
-    span {
-      color: ${theme.colors.text.secondary};
-      font-size: ${theme.typography.bodySmall.fontSize};
-    }
-  `,
-  interactiveType: css`
-    color: ${theme.colors.text.link};
-  `,
+    span: {
+      color: theme.colors.text.secondary,
+      fontSize: theme.typography.bodySmall.fontSize,
+    },
+  }),
+  interactiveType: css({
+    color: theme.colors.text.link,
+  }),
 });
 
 interface TemplateDataTableProps {
   dataItems: TemplateDataItem[];
-  caption: JSX.Element | string;
+  caption?: JSX.Element | string;
   typeRenderer?: (type: TemplateDataItem['type']) => React.ReactNode;
 }
 
@@ -76,12 +81,18 @@ export function TemplateDataTable({ dataItems, caption, typeRenderer }: Template
 
   return (
     <table className={styles.table}>
-      <caption>{caption}</caption>
+      {caption && <caption>{caption}</caption>}
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Notes</th>
+          <th>
+            <Trans i18nKey="alerting.template-data-table.name">Name</Trans>
+          </th>
+          <th>
+            <Trans i18nKey="alerting.template-data-table.type">Type</Trans>
+          </th>
+          <th>
+            <Trans i18nKey="alerting.template-data-table.notes">Notes</Trans>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -107,13 +118,23 @@ function KeyValueTemplateDataTable() {
         <code>{KeyValueCodeSnippet}</code>
       </pre>
       <table className={tableStyles.table}>
-        <caption>Key-value methods</caption>
+        <caption>
+          <Trans i18nKey="alerting.key-value-template-data-table.keyvalue-methods">Key-value methods</Trans>
+        </caption>
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Arguments</th>
-            <th>Returns</th>
-            <th>Notes</th>
+            <th>
+              <Trans i18nKey="alerting.key-value-template-data-table.name">Name</Trans>
+            </th>
+            <th>
+              <Trans i18nKey="alerting.key-value-template-data-table.arguments">Arguments</Trans>
+            </th>
+            <th>
+              <Trans i18nKey="alerting.key-value-template-data-table.returns">Returns</Trans>
+            </th>
+            <th>
+              <Trans i18nKey="alerting.key-value-template-data-table.notes">Notes</Trans>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -131,34 +152,33 @@ function KeyValueTemplateDataTable() {
   );
 }
 
-const getTemplateDataTableStyles = (theme: GrafanaTheme2) => ({
-  table: css`
-    border-collapse: collapse;
-    width: 100%;
+export const getTemplateDataTableStyles = (theme: GrafanaTheme2) => ({
+  table: css({
+    borderCollapse: 'collapse',
+    width: '100%',
 
-    caption {
-      caption-side: top;
-    }
+    caption: {
+      captionSide: 'top',
+    },
 
-    td,
-    th {
-      padding: ${theme.spacing(1, 1)};
-    }
+    'td, th': {
+      padding: theme.spacing(1, 1),
+    },
 
-    thead {
-      font-weight: ${theme.typography.fontWeightBold};
-    }
+    thead: {
+      fontWeight: theme.typography.fontWeightBold,
+    },
 
-    tbody tr:nth-child(2n + 1) {
-      background-color: ${theme.colors.background.secondary};
-    }
+    'tbody tr:nth-child(2n + 1)': {
+      backgroundColor: theme.colors.background.secondary,
+    },
 
-    tbody td:nth-child(1) {
-      font-weight: ${theme.typography.fontWeightBold};
-    }
+    'tbody td:nth-child(1)': {
+      fontWeight: theme.typography.fontWeightBold,
+    },
 
-    tbody td:nth-child(2) {
-      font-style: italic;
-    }
-  `,
+    'tbody td:nth-child(2)': {
+      fontStyle: 'italic',
+    },
+  }),
 });

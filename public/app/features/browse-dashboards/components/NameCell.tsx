@@ -1,15 +1,15 @@
 import { css } from '@emotion/css';
-import React from 'react';
 import Skeleton from 'react-loading-skeleton';
 
 import { GrafanaTheme2 } from '@grafana/data';
 import { reportInteraction } from '@grafana/runtime';
 import { Icon, IconButton, Link, Spinner, useStyles2, Text } from '@grafana/ui';
-import { getSvgSize } from '@grafana/ui/src/components/Icon/utils';
-import { t } from 'app/core/internationalization';
+import { getSvgSize } from '@grafana/ui/internal';
+import { t, Trans } from 'app/core/internationalization';
 import { getIconForItem } from 'app/features/search/service/utils';
 
 import { Indent } from '../../../core/components/Indent/Indent';
+import { FolderRepo } from '../../../core/components/NestedFolderPicker/FolderRepo';
 import { useChildrenByParentUIDState } from '../state';
 import { DashboardsTreeCellProps } from '../types';
 
@@ -43,7 +43,7 @@ export function NameCell({ row: { original: data }, onFolderClick, treeID }: Nam
         {item.uiKind === 'empty-folder' ? (
           <em className={styles.emptyText}>
             <Text variant="body" color="secondary" truncate>
-              No items
+              <Trans i18nKey="browse-dashboards.name-cell.no-items">No items</Trans>
             </Text>
           </em>
         ) : (
@@ -103,6 +103,8 @@ export function NameCell({ row: { original: data }, onFolderClick, treeID }: Nam
             item.title
           )}
         </Text>
+
+        <FolderRepo folder={item} />
       </div>
     </>
   );

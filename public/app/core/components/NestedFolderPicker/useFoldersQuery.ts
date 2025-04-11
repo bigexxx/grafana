@@ -1,6 +1,5 @@
 import { createSelector } from '@reduxjs/toolkit';
-import { QueryDefinition, BaseQueryFn } from '@reduxjs/toolkit/dist/query';
-import { QueryActionCreatorResult } from '@reduxjs/toolkit/dist/query/core/buildInitiate';
+import { QueryDefinition, BaseQueryFn, QueryActionCreatorResult } from '@reduxjs/toolkit/query';
 import { RequestOptions } from 'http';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -9,7 +8,7 @@ import { PAGE_SIZE } from 'app/features/browse-dashboards/api/services';
 import { getPaginationPlaceholders } from 'app/features/browse-dashboards/state/utils';
 import { DashboardViewItemWithUIItems, DashboardsTreeItem } from 'app/features/browse-dashboards/types';
 import { RootState } from 'app/store/configureStore';
-import { FolderListItemDTO } from 'app/types';
+import { FolderListItemDTO, PermissionLevelString } from 'app/types';
 import { useDispatch, useSelector } from 'app/types/store';
 
 type ListFoldersQuery = ReturnType<ReturnType<typeof browseDashboardsAPI.endpoints.listFolders.select>>;
@@ -23,16 +22,7 @@ type ListFoldersRequest = QueryActionCreatorResult<
   >
 >;
 
-const listFoldersSelector = createSelector(
-  (state: RootState) => state,
-  (
-    state: RootState,
-    parentUid: ListFolderQueryArgs['parentUid'],
-    page: ListFolderQueryArgs['page'],
-    limit: ListFolderQueryArgs['limit']
-  ) => browseDashboardsAPI.endpoints.listFolders.select({ parentUid, page, limit }),
-  (state, selectFolderList) => selectFolderList(state)
-);
+const PENDING_STATUS = 'pending';
 
 const listAllFoldersSelector = createSelector(
   [(state: RootState) => state, (state: RootState, requests: ListFoldersRequest[]) => requests],
@@ -48,8 +38,14 @@ const listAllFoldersSelector = createSelector(
         continue;
       }
 
-      const page = listFoldersSelector(state, req.arg.parentUid, req.arg.page, req.arg.limit);
-      if (page.status === 'pending') {
+      const page = browseDashboardsAPI.endpoints.listFolders.select({
+        parentUid: req.arg.parentUid,
+        page: req.arg.page,
+        limit: req.arg.limit,
+        permission: req.arg.permission,
+      })(state);
+
+      if (page.status === PENDING_STATUS) {
         isLoading = true;
       }
 
@@ -74,24 +70,29 @@ const listAllFoldersSelector = createSelector(
 );
 
 /**
- * Returns the whether the set of pages are 'fully loaded', and the last page number
+ * Returns whether the set of pages are 'fully loaded', the last page number, and if the last page is currently loading
  */
-function getPagesLoadStatus(pages: ListFoldersQuery[]): [boolean, number | undefined] {
+function getPagesLoadStatus(pages: ListFoldersQuery[]): [boolean, number | undefined, boolean] {
   const lastPage = pages.at(-1);
   const lastPageNumber = lastPage?.originalArgs?.page;
+  const lastPageLoading = lastPage?.status === PENDING_STATUS;
 
   if (!lastPage?.data) {
     // If there's no pages yet, or the last page is still loading
-    return [false, lastPageNumber];
+    return [false, lastPageNumber, lastPageLoading];
   } else {
-    return [lastPage.data.length < lastPage.originalArgs.limit, lastPageNumber];
+    return [lastPage.data.length < lastPage.originalArgs.limit, lastPageNumber, lastPageLoading];
   }
 }
 
 /**
  * Returns a loaded folder hierarchy as a flat list and a function to load more pages.
  */
-export function useFoldersQuery(isBrowsing: boolean, openFolders: Record<string, boolean>) {
+export function useFoldersQuery(
+  isBrowsing: boolean,
+  openFolders: Record<string, boolean>,
+  permission?: PermissionLevelString
+) {
   const dispatch = useDispatch();
 
   // Keep a list of all requests so we can
@@ -108,18 +109,20 @@ export function useFoldersQuery(isBrowsing: boolean, openFolders: Record<string,
   const requestNextPage = useCallback(
     (parentUid: string | undefined) => {
       const pages = parentUid ? state.pagesByParent[parentUid] : state.rootPages;
-      const [fullyLoaded, pageNumber] = getPagesLoadStatus(pages ?? []);
-      if (fullyLoaded) {
+      const [fullyLoaded, pageNumber, lastPageLoading] = getPagesLoadStatus(pages ?? []);
+
+      // If fully loaded or the last page is still loading, don't request a new page
+      if (fullyLoaded || lastPageLoading) {
         return;
       }
 
-      const args = { parentUid, page: (pageNumber ?? 0) + 1, limit: PAGE_SIZE };
+      const args = { parentUid, page: (pageNumber ?? 0) + 1, limit: PAGE_SIZE, permission };
       const promise = dispatch(browseDashboardsAPI.endpoints.listFolders.initiate(args));
 
       // It's important that we create a new array so we can correctly memoize with it
       requestsRef.current = requestsRef.current.concat([promise]);
     },
-    [state, dispatch]
+    [state, dispatch, permission]
   );
 
   // Unsubscribe from all requests when the component is unmounted
@@ -148,7 +151,6 @@ export function useFoldersQuery(isBrowsing: boolean, openFolders: Record<string,
 
         return pageItems.flatMap((item) => {
           const folderIsOpen = openFolders[item.uid];
-
           const flatItem: DashboardsTreeItem<DashboardViewItemWithUIItems> = {
             isOpen: Boolean(folderIsOpen),
             level: level,
@@ -156,6 +158,7 @@ export function useFoldersQuery(isBrowsing: boolean, openFolders: Record<string,
               kind: 'folder' as const,
               title: item.title,
               uid: item.uid,
+              managedBy: item.managedBy,
             },
           };
 

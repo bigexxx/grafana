@@ -1,10 +1,12 @@
 package azmoncredentials
 
 import (
+	"errors"
 	"fmt"
 
-	"github.com/grafana/grafana-azure-sdk-go/azcredentials"
-	"github.com/grafana/grafana-azure-sdk-go/azsettings"
+	"github.com/grafana/grafana-azure-sdk-go/v2/azcredentials"
+	"github.com/grafana/grafana-azure-sdk-go/v2/azsettings"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data/utils/maputil"
 )
 
@@ -62,6 +64,27 @@ func getFromLegacy(data map[string]interface{}, secureData map[string]string) (a
 		credentials := &azcredentials.AzureWorkloadIdentityCredentials{}
 		return credentials, nil
 
+	case azcredentials.AzureAuthCurrentUserIdentity:
+		legacyCloud, err := maputil.GetStringOptional(data, "cloudName")
+		if err != nil {
+			return nil, err
+		}
+		cloud, err := resolveLegacyCloudName(legacyCloud)
+		if err != nil {
+			return nil, err
+		}
+		clientSecret := secureData["clientSecret"]
+
+		credentials := &azcredentials.AadCurrentUserCredentials{
+			ServiceCredentials: &azcredentials.AzureClientSecretCredentials{
+				AzureCloud:   cloud,
+				TenantId:     tenantId,
+				ClientId:     clientId,
+				ClientSecret: clientSecret,
+			},
+		}
+
+		return credentials, nil
 	case azcredentials.AzureAuthClientSecret:
 		legacyCloud, err := maputil.GetStringOptional(data, "cloudName")
 		if err != nil {
@@ -74,7 +97,7 @@ func getFromLegacy(data map[string]interface{}, secureData map[string]string) (a
 		clientSecret := secureData["clientSecret"]
 
 		if secureData["clientSecret"] == "" {
-			return nil, fmt.Errorf("unable to instantiate credentials, clientSecret must be set")
+			return nil, backend.DownstreamError(errors.New("unable to instantiate credentials, clientSecret must be set"))
 		}
 
 		credentials := &azcredentials.AzureClientSecretCredentials{

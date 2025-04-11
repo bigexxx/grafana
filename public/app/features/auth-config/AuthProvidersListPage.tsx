@@ -1,14 +1,15 @@
-import React, { JSX, useEffect, useState } from 'react';
+import { JSX, useEffect, useState } from 'react';
 import { connect, ConnectedProps } from 'react-redux';
 
-import { GrafanaEdition } from '@grafana/data/src/types/config';
+import { GrafanaEdition } from '@grafana/data/internal';
 import { reportInteraction } from '@grafana/runtime';
 import { Grid, TextLink, ToolbarButton } from '@grafana/ui';
 import { Page } from 'app/core/components/Page/Page';
 import { config } from 'app/core/config';
+import { Trans } from 'app/core/internationalization';
 import { StoreState } from 'app/types';
 
-import { AuthDrawer } from './AuthDrawer';
+import AuthDrawer from './AuthDrawer';
 import ConfigureAuthCTA from './components/ConfigureAuthCTA';
 import { ProviderCard } from './components/ProviderCard';
 import { loadSettings } from './state/actions';
@@ -52,6 +53,22 @@ export const AuthConfigPageUnconnected = ({
     reportInteraction('authentication_ui_provider_clicked', { provider: providerType, enabled });
   };
 
+  // filter out saml from sso providers because it is already included in availableProviders
+  providers = providers.filter((p) => p.provider !== 'saml');
+
+  providers = providers.map((p) => {
+    if (p.provider === 'ldap') {
+      return {
+        ...p,
+        settings: {
+          ...p.settings,
+          type: 'LDAP',
+        },
+      };
+    }
+    return p;
+  });
+
   const providerList = availableProviders.length
     ? [
         ...availableProviders.map((p) => ({
@@ -65,7 +82,7 @@ export const AuthConfigPageUnconnected = ({
     <Page
       navId="authentication"
       subTitle={
-        <>
+        <Trans i18nKey="auth-config-auth-config-page-unconnected.subtitle">
           Manage your auth settings and configure single sign-on. Find out more in our{' '}
           <TextLink
             external={true}
@@ -74,12 +91,12 @@ export const AuthConfigPageUnconnected = ({
             documentation
           </TextLink>
           .
-        </>
+        </Trans>
       }
       actions={
         config.buildInfo.edition !== GrafanaEdition.OpenSource && (
           <ToolbarButton icon="cog" variant="canvas" onClick={() => setShowDrawer(true)}>
-            Auth settings
+            <Trans i18nKey="auth-config.auth-config-page-unconnected.auth-settings">Auth settings</Trans>
           </ToolbarButton>
         )
       }

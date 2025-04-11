@@ -1,77 +1,79 @@
-import { css } from '@emotion/css';
-import React, { useEffect } from 'react';
-import { Route, Switch } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Routes, Route } from 'react-router-dom-v5-compat';
 
-import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
-import { locationService } from '@grafana/runtime';
-import { getUrlSyncManager, SceneComponentProps, SceneObjectBase, SceneObjectState } from '@grafana/scenes';
-import { useStyles2 } from '@grafana/ui';
+import { PageLayoutType } from '@grafana/data';
+import { config, locationService } from '@grafana/runtime';
+import {
+  SceneComponentProps,
+  SceneObjectBase,
+  SceneObjectState,
+  SceneScopesBridge,
+  UrlSyncContextProvider,
+} from '@grafana/scenes';
 import { Page } from 'app/core/components/Page/Page';
 
 import { DataTrail } from './DataTrail';
 import { DataTrailsHome } from './DataTrailsHome';
 import { getTrailStore } from './TrailStore/TrailStore';
+import { HOME_ROUTE, RefreshMetricsEvent, TRAILS_ROUTE } from './shared';
 import { getMetricName, getUrlForTrail, newMetricsTrail } from './utils';
 
 export interface DataTrailsAppState extends SceneObjectState {
   trail: DataTrail;
   home: DataTrailsHome;
+  scopesBridge?: SceneScopesBridge | undefined;
 }
 
 export class DataTrailsApp extends SceneObjectBase<DataTrailsAppState> {
+  protected _renderBeforeActivation = true;
+
   public constructor(state: DataTrailsAppState) {
     super(state);
   }
 
   goToUrlForTrail(trail: DataTrail) {
-    this.setState({ trail });
     locationService.push(getUrlForTrail(trail));
+    this.setState({ trail });
   }
 
   static Component = ({ model }: SceneComponentProps<DataTrailsApp>) => {
-    const { trail, home } = model.useState();
-    const styles = useStyles2(getStyles);
+    const { trail, home, scopesBridge } = model.useState();
 
     return (
-      <Switch>
-        <Route
-          exact={true}
-          path="/explore/metrics"
-          render={() => (
-            <Page navId="explore/metrics" layout={PageLayoutType.Custom}>
-              <div className={styles.customPage}>
+      <>
+        {scopesBridge && <SceneScopesBridge.Component model={scopesBridge} />}
+        <Routes>
+          {/* The routes are relative to the HOME_ROUTE */}
+          <Route
+            path={'/'}
+            element={
+              <Page
+                navId="explore/metrics"
+                layout={PageLayoutType.Standard}
+                // Returning null to prevent default behavior which renders a header
+                renderTitle={() => null}
+                subTitle=""
+              >
                 <home.Component model={home} />
-              </div>
-            </Page>
-          )}
-        />
-        <Route
-          exact={true}
-          path="/explore/metrics/trail"
-          render={() => (
-            <Page
-              navId="explore/metrics"
-              pageNav={{ text: getMetricName(trail.state.metric) }}
-              layout={PageLayoutType.Custom}
-            >
-              <div className={styles.customPage}>
-                <DataTrailView trail={trail} />
-              </div>
-            </Page>
-          )}
-        />
-      </Switch>
+              </Page>
+            }
+          />
+          <Route path={TRAILS_ROUTE.replace(HOME_ROUTE, '')} element={<DataTrailView trail={trail} />} />
+        </Routes>
+      </>
     );
   };
 }
 
 function DataTrailView({ trail }: { trail: DataTrail }) {
-  const [isInitialized, setIsInitialized] = React.useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const { metric } = trail.useState();
 
   useEffect(() => {
     if (!isInitialized) {
-      getUrlSyncManager().initSync(trail);
-      getTrailStore().setRecentTrail(trail);
+      if (trail.state.metric !== undefined) {
+        getTrailStore().setRecentTrail(trail);
+      }
       setIsInitialized(true);
     }
   }, [trail, isInitialized]);
@@ -80,30 +82,45 @@ function DataTrailView({ trail }: { trail: DataTrail }) {
     return null;
   }
 
-  return <trail.Component model={trail} />;
+  return (
+    <UrlSyncContextProvider scene={trail}>
+      <Page navId="explore/metrics" pageNav={{ text: getMetricName(metric) }} layout={PageLayoutType.Custom}>
+        <trail.Component model={trail} />
+      </Page>
+    </UrlSyncContextProvider>
+  );
 }
 
 let dataTrailsApp: DataTrailsApp;
 
 export function getDataTrailsApp() {
   if (!dataTrailsApp) {
+    const scopesBridge =
+      config.featureToggles.scopeFilters && config.featureToggles.enableScopesInMetricsExplore
+        ? new SceneScopesBridge({})
+        : undefined;
+
     dataTrailsApp = new DataTrailsApp({
       trail: newMetricsTrail(),
       home: new DataTrailsHome({}),
+      scopesBridge,
+      $behaviors: [
+        () => {
+          scopesBridge?.setEnabled(true);
+
+          const sub = scopesBridge?.subscribeToValue(() => {
+            dataTrailsApp.state.trail.publishEvent(new RefreshMetricsEvent());
+            dataTrailsApp.state.trail.checkDataSourceForOTelResources();
+          });
+
+          return () => {
+            scopesBridge?.setEnabled(false);
+            sub?.unsubscribe();
+          };
+        },
+      ],
     });
   }
 
   return dataTrailsApp;
-}
-
-function getStyles(theme: GrafanaTheme2) {
-  return {
-    customPage: css({
-      padding: theme.spacing(2, 3, 2, 3),
-      background: theme.isLight ? theme.colors.background.primary : theme.colors.background.canvas,
-      flexGrow: 1,
-      display: 'flex',
-      flexDirection: 'column',
-    }),
-  };
 }

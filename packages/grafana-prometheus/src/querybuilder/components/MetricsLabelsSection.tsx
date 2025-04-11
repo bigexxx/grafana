@@ -1,6 +1,8 @@
-import React, { useCallback } from 'react';
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/querybuilder/components/MetricsLabelsSection.tsx
+import { useCallback } from 'react';
 
-import { SelectableValue } from '@grafana/data';
+import { SelectableValue, TimeRange } from '@grafana/data';
+import { config } from '@grafana/runtime';
 
 import { PrometheusDatasource } from '../../datasource';
 import { getMetadataString } from '../../language_provider';
@@ -11,6 +13,7 @@ import { QueryBuilderLabelFilter } from '../shared/types';
 import { PromVisualQuery } from '../types';
 
 import { LabelFilters } from './LabelFilters';
+import { MetricCombobox } from './MetricCombobox';
 import { MetricSelect } from './MetricSelect';
 
 export interface MetricsLabelsSectionProps {
@@ -19,6 +22,7 @@ export interface MetricsLabelsSectionProps {
   onChange: (update: PromVisualQuery) => void;
   variableEditor?: boolean;
   onBlur?: () => void;
+  timeRange: TimeRange;
 }
 
 export function MetricsLabelsSection({
@@ -27,6 +31,7 @@ export function MetricsLabelsSection({
   onChange,
   onBlur,
   variableEditor,
+  timeRange,
 }: MetricsLabelsSectionProps) {
   // fixing the use of 'as' from refactoring
   // @ts-ignore
@@ -60,7 +65,7 @@ export function MetricsLabelsSection({
   const onGetLabelNames = async (forLabel: Partial<QueryBuilderLabelFilter>): Promise<SelectableValue[]> => {
     // If no metric we need to use a different method
     if (!query.metric) {
-      await datasource.languageProvider.fetchLabels();
+      await datasource.languageProvider.fetchLabels(timeRange);
       return datasource.languageProvider.getLabelKeys().map((k) => ({ value: k }));
     }
 
@@ -68,7 +73,7 @@ export function MetricsLabelsSection({
     labelsToConsider.push({ label: '__name__', op: '=', value: query.metric });
     const expr = promQueryModeller.renderLabels(labelsToConsider);
 
-    let labelsIndex: Record<string, string[]> = await datasource.languageProvider.fetchLabelsWithMatch(expr);
+    let labelsIndex: Record<string, string[]> = await datasource.languageProvider.fetchLabelsWithMatch(timeRange, expr);
 
     // filter out already used labels
     return Object.keys(labelsIndex)
@@ -121,7 +126,7 @@ export function MetricsLabelsSection({
     if (!forLabel.label) {
       return Promise.resolve([]);
     }
-    const result = datasource.languageProvider.fetchSeries(promQLExpression);
+    const result = datasource.languageProvider.fetchSeries(timeRange, promQLExpression);
     const forLabelInterpolated = datasource.interpolateString(forLabel.label);
     return result.then((result) => {
       // This query returns duplicate values, scrub them out
@@ -147,12 +152,12 @@ export function MetricsLabelsSection({
     if (!forLabel.label) {
       return Promise.resolve([]);
     }
-    return datasource.languageProvider.fetchSeriesValuesWithMatch(forLabel.label, promQLExpression).then((response) => {
-      return response.map((v) => ({
-        value: v,
-        label: v,
-      }));
-    });
+
+    const requestId = `[${datasource.uid}][${query.metric}][${forLabel.label}][${forLabel.op}]`;
+
+    return datasource.languageProvider
+      .fetchSeriesValuesWithMatch(timeRange, forLabel.label, promQLExpression, requestId)
+      .then((response) => response.map((v) => ({ value: v, label: v })));
   };
 
   /**
@@ -166,7 +171,7 @@ export function MetricsLabelsSection({
     }
     // If no metric is selected, we can get the raw list of labels
     if (!query.metric) {
-      return (await datasource.languageProvider.getLabelValues(forLabel.label)).map((v) => ({ value: v }));
+      return (await datasource.languageProvider.getLabelValues(timeRange, forLabel.label)).map((v) => ({ value: v }));
     }
 
     const labelsToConsider = query.labels.filter((x) => x !== forLabel);
@@ -188,12 +193,14 @@ export function MetricsLabelsSection({
   };
 
   const onGetMetrics = useCallback(() => {
-    return withTemplateVariableOptions(getMetrics(datasource, query));
-  }, [datasource, query, withTemplateVariableOptions]);
+    return withTemplateVariableOptions(getMetrics(datasource, query, timeRange));
+  }, [datasource, query, timeRange, withTemplateVariableOptions]);
+
+  const MetricSelectComponent = config.featureToggles.prometheusUsesCombobox ? MetricCombobox : MetricSelect;
 
   return (
     <>
-      <MetricSelect
+      <MetricSelectComponent
         query={query}
         onChange={onChange}
         onGetMetrics={onGetMetrics}
@@ -224,7 +231,8 @@ export function MetricsLabelsSection({
  */
 async function getMetrics(
   datasource: PrometheusDatasource,
-  query: PromVisualQuery
+  query: PromVisualQuery,
+  timeRange: TimeRange
 ): Promise<Array<{ value: string; description?: string }>> {
   // Makes sure we loaded the metadata for metrics. Usually this is done in the start() method of the provider but we
   // don't use it with the visual builder and there is no need to run all the start() setup anyway.
@@ -240,9 +248,9 @@ async function getMetrics(
   let metrics: string[];
   if (query.labels.length > 0) {
     const expr = promQueryModeller.renderLabels(query.labels);
-    metrics = (await datasource.languageProvider.getSeries(expr, true))['__name__'] ?? [];
+    metrics = (await datasource.languageProvider.getSeries(timeRange, expr, true))['__name__'] ?? [];
   } else {
-    metrics = (await datasource.languageProvider.getLabelValues('__name__')) ?? [];
+    metrics = (await datasource.languageProvider.getLabelValues(timeRange, '__name__')) ?? [];
   }
 
   return metrics.map((m) => ({

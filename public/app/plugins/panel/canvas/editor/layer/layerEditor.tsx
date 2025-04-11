@@ -1,6 +1,6 @@
 import { get as lodashGet } from 'lodash';
 
-import { NestedPanelOptions, NestedValueAccess } from '@grafana/data/src/utils/OptionsUIBuilders';
+import { NestedPanelOptions, NestedValueAccess } from '@grafana/data/internal';
 import { ElementState } from 'app/features/canvas/runtime/element';
 import { FrameState } from 'app/features/canvas/runtime/frame';
 import { Scene } from 'app/features/canvas/runtime/scene';
@@ -77,7 +77,9 @@ export function getLayerEditor(opts: InstanceState): NestedPanelOptions<LayerEdi
       });
 
       const ctx = { ...context, options };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/consistent-type-assertions
       optionBuilder.addBackground(builder as any, ctx);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/consistent-type-assertions
       optionBuilder.addBorder(builder as any, ctx);
 
       if (currentLayer && !currentLayer.isRoot()) {

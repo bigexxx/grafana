@@ -21,12 +21,14 @@ weight: 400
 
 # Configure enhanced LDAP integration
 
-The enhanced LDAP integration adds additional functionality on top of the [LDAP integration]({{< relref "../ldap" >}}) available in the open source edition of Grafana.
+The enhanced LDAP integration adds additional functionality on top of the [LDAP integration](../ldap/) available in the open source edition of Grafana.
 
-> **Note:** Available in [Grafana Enterprise]({{< relref "../../../../introduction/grafana-enterprise" >}}) and [Grafana Cloud](/docs/grafana-cloud).
-> If you are a Grafana Cloud customer, please [open a support ticket in the Cloud Portal](/profile/org#support) to request this feature.
+{{< admonition type="note" >}}
+Available in [Grafana Enterprise](../../../../introduction/grafana-enterprise/) and [Grafana Cloud](/docs/grafana-cloud).
+If you are a Grafana Cloud customer, please [open a support ticket in the Cloud Portal](/profile/org#support) to request this feature.
+{{< /admonition >}}
 
-> To control user access with role-based permissions, refer to [role-based access control]({{< relref "../../../../administration/roles-and-permissions/access-control" >}}).
+> To control user access with role-based permissions, refer to [role-based access control](../../../../administration/roles-and-permissions/access-control/).
 
 ## LDAP group synchronization for teams
 
@@ -39,7 +41,7 @@ Grafana keeps track of all synchronized users in teams, and you can see which us
 This mechanism allows Grafana to remove an existing synchronized user from a team when its LDAP group membership changes. This mechanism also allows you to manually add
 a user as member of a team, and it will not be removed when the user signs in. This gives you flexibility to combine LDAP group memberships and Grafana team memberships.
 
-[Learn more about team sync.]({{< relref "../../configure-team-sync" >}})
+[Learn more about team sync.](https://grafana.com/docs/grafana/<GRAFANA_VERSION>/setup-grafana/configure-security/configure-team-sync)
 
 <div class="clearfix"></div>
 
@@ -47,11 +49,11 @@ a user as member of a team, and it will not be removed when the user signs in. T
 
 In the open source version of Grafana, user data from LDAP is synchronized only during the login process when authenticating using LDAP.
 
-With active LDAP synchronization, available in Grafana Enterprise version 6.3 and later, you can configure Grafana to actively sync users with LDAP servers in the background. Only users that have logged into Grafana at least once are synchronized.
+With active LDAP synchronization, you can configure Grafana to actively sync users with LDAP servers in the background. Only users that have logged into Grafana at least once are synchronized.
 
 Users with updated role and team membership will need to refresh the page to get access to the new features.
 
-Removed users are automatically logged out and their account disabled. These accounts are displayed in the Server Admin > Users page with a `disabled` label. Disabled users keep their custom permissions on dashboards, folders, and data sources, so if you add them back in your LDAP database, they have access to the application with the same custom permissions as before.
+Removed users are automatically logged out and their account disabled. These accounts are displayed in the **Server Admin > Users** page with a `disabled` label. Disabled users keep their custom permissions on dashboards, folders, and data sources, so if you add them back in your LDAP database, they have access to the application with the same custom permissions as before.
 
 ```bash
 [auth.ldap]
@@ -72,9 +74,9 @@ sync_cron = "0 1 * * *" # This is default value (At 1 am every day)
 active_sync_enabled = true # enabled by default
 ```
 
-Single bind configuration (as in the [Single bind example]({{< relref "../ldap#single-bind-example" >}})) is not supported with active LDAP synchronization because Grafana needs user information to perform LDAP searches.
+Single bind configuration (as in the [Single bind example](../ldap/#single-bind-example)) is not supported with active LDAP synchronization because Grafana needs user information to perform LDAP searches.
 
-For the synchronization to work, the `servers.search_filter` and `servers.attributes.username` in the ldap.toml config file must match. By default, the `servers.attributes.username` is `cn`, so if you use another attribute as the search filter, you must also update the username attribute.
+For the synchronization to work, the `servers.search_filter` and `servers.attributes.username` in the `ldap.toml` configuration file must match. By default, the `servers.attributes.username` is `cn`, so if you use another attribute as the search filter, you must also update the username attribute.
 
 For example:
 

@@ -42,7 +42,7 @@ type RenderingService struct {
 
 	perRequestRenderKeyProvider renderKeyProvider
 	Cfg                         *setting.Cfg
-	features                    *featuremgmt.FeatureManager
+	features                    featuremgmt.FeatureToggles
 	RemoteCacheService          *remotecache.RemoteCache
 	RendererPluginManager       PluginManager
 }
@@ -57,7 +57,7 @@ type Plugin interface {
 	Version() string
 }
 
-func ProvideService(cfg *setting.Cfg, features *featuremgmt.FeatureManager, remoteCache *remotecache.RemoteCache, rm PluginManager) (*RenderingService, error) {
+func ProvideService(cfg *setting.Cfg, features featuremgmt.FeatureToggles, remoteCache *remotecache.RemoteCache, rm PluginManager) (*RenderingService, error) {
 	folders := []string{
 		cfg.ImagesDir,
 		cfg.CSVsDir,
@@ -81,19 +81,23 @@ func ProvideService(cfg *setting.Cfg, features *featuremgmt.FeatureManager, remo
 	var domain string
 
 	switch {
-	case cfg.RendererUrl != "":
-		// RendererCallbackUrl has already been passed, it won't generate an error.
+	case cfg.RendererCallbackUrl != "":
 		u, err := url.Parse(cfg.RendererCallbackUrl)
 		if err != nil {
+			logger.Warn("Image renderer callback url is not valid. " +
+				"Please provide a valid RendererCallbackUrl. " +
+				"Read more at https://grafana.com/docs/grafana/latest/administration/image_rendering/")
 			return nil, err
 		}
-
-		sanitizeURL = getSanitizerURL(cfg.RendererUrl)
 		domain = u.Hostname()
 	case cfg.HTTPAddr != setting.DefaultHTTPAddr:
 		domain = cfg.HTTPAddr
 	default:
 		domain = "localhost"
+	}
+
+	if cfg.RendererUrl != "" {
+		sanitizeURL = getSanitizerURL(cfg.RendererUrl)
 	}
 
 	var renderKeyProvider renderKeyProvider
@@ -125,8 +129,12 @@ func ProvideService(cfg *setting.Cfg, features *featuremgmt.FeatureManager, remo
 				semverConstraint: ">= 3.4.0",
 			},
 			{
-				name:             SvgSanitization,
+				name:             SVGSanitization,
 				semverConstraint: ">= 3.5.0",
+			},
+			{
+				name:             PDFRendering,
+				semverConstraint: ">= 3.10.0",
 			},
 		},
 		Cfg:                   cfg,
@@ -250,6 +258,7 @@ func (rs *RenderingService) renderUnavailableImage() *RenderResult {
 	}
 }
 
+// Render calls the grafana image renderer and returns Grafana resource as PNG or PDF
 func (rs *RenderingService) Render(ctx context.Context, renderType RenderType, opts Opts, session Session) (*RenderResult, error) {
 	startTime := time.Now()
 
@@ -260,14 +269,26 @@ func (rs *RenderingService) Render(ctx context.Context, renderType RenderType, o
 	result, err := rs.render(ctx, renderType, opts, renderKeyProvider)
 
 	elapsedTime := time.Since(startTime).Milliseconds()
-	saveMetrics(elapsedTime, err, RenderPNG)
+	saveMetrics(elapsedTime, err, renderType)
 
 	return result, err
 }
 
 func (rs *RenderingService) render(ctx context.Context, renderType RenderType, opts Opts, renderKeyProvider renderKeyProvider) (*RenderResult, error) {
+	logger := rs.log.FromContext(ctx)
+
+	if !rs.IsAvailable(ctx) {
+		logger.Warn("Could not render image, no image renderer found/installed. " +
+			"For image rendering support please install the grafana-image-renderer plugin. " +
+			"Read more at https://grafana.com/docs/grafana/latest/administration/image_rendering/")
+		if opts.ErrorRenderUnavailable {
+			return nil, ErrRenderUnavailable
+		}
+		return rs.renderUnavailableImage(), nil
+	}
+
 	if int(atomic.LoadInt32(&rs.inProgressCount)) > opts.ConcurrentLimit {
-		rs.log.Warn("Could not render image, hit the currency limit", "concurrencyLimit", opts.ConcurrentLimit, "path", opts.Path)
+		logger.Warn("Could not render image, hit the currency limit", "concurrencyLimit", opts.ConcurrentLimit, "path", opts.Path)
 		if opts.ErrorConcurrentLimitReached {
 			return nil, ErrConcurrentLimitReached
 		}
@@ -282,17 +303,22 @@ func (rs *RenderingService) render(ctx context.Context, renderType RenderType, o
 		}, nil
 	}
 
-	if !rs.IsAvailable(ctx) {
-		rs.log.Warn("Could not render image, no image renderer found/installed. " +
-			"For image rendering support please install the grafana-image-renderer plugin. " +
-			"Read more at https://grafana.com/docs/grafana/latest/administration/image_rendering/")
-		if opts.ErrorRenderUnavailable {
-			return nil, ErrRenderUnavailable
+	defer func() {
+		metrics.MRenderingQueue.Set(float64(atomic.AddInt32(&rs.inProgressCount, -1)))
+	}()
+	metrics.MRenderingQueue.Set(float64(atomic.AddInt32(&rs.inProgressCount, 1)))
+
+	if renderType == RenderPDF {
+		if !rs.features.IsEnabled(ctx, featuremgmt.FlagNewPDFRendering) {
+			return nil, fmt.Errorf("feature 'newPDFRendering' disabled")
 		}
-		return rs.renderUnavailableImage(), nil
+
+		if err := rs.IsCapabilitySupported(ctx, PDFRendering); err != nil {
+			return nil, err
+		}
 	}
 
-	rs.log.Info("Rendering", "path", opts.Path)
+	logger.Info("Rendering", "path", opts.Path, "userID", opts.UserID)
 	if math.IsInf(opts.DeviceScaleFactor, 0) || math.IsNaN(opts.DeviceScaleFactor) || opts.DeviceScaleFactor == 0 {
 		opts.DeviceScaleFactor = 1
 	}
@@ -303,12 +329,14 @@ func (rs *RenderingService) render(ctx context.Context, renderType RenderType, o
 
 	defer renderKeyProvider.afterRequest(ctx, opts.AuthOpts, renderKey)
 
-	defer func() {
-		metrics.MRenderingQueue.Set(float64(atomic.AddInt32(&rs.inProgressCount, -1)))
-	}()
+	res, err := rs.renderAction(ctx, renderType, renderKey, opts)
+	if err != nil {
+		logger.Error("Failed to render image", "path", opts.Path, "error", err)
+		return nil, err
+	}
+	logger.Debug("Successfully rendered image", "path", opts.Path)
 
-	metrics.MRenderingQueue.Set(float64(atomic.AddInt32(&rs.inProgressCount, 1)))
-	return rs.renderAction(ctx, renderType, renderKey, opts)
+	return res, nil
 }
 
 func (rs *RenderingService) RenderCSV(ctx context.Context, opts CSVOpts, session Session) (*RenderCSVResult, error) {
@@ -327,7 +355,7 @@ func (rs *RenderingService) RenderCSV(ctx context.Context, opts CSVOpts, session
 }
 
 func (rs *RenderingService) SanitizeSVG(ctx context.Context, req *SanitizeSVGRequest) (*SanitizeSVGResponse, error) {
-	capability, err := rs.HasCapability(ctx, SvgSanitization)
+	capability, err := rs.HasCapability(ctx, SVGSanitization)
 	if err != nil {
 		return nil, err
 	}
@@ -345,15 +373,17 @@ func (rs *RenderingService) SanitizeSVG(ctx context.Context, req *SanitizeSVGReq
 }
 
 func (rs *RenderingService) renderCSV(ctx context.Context, opts CSVOpts, renderKeyProvider renderKeyProvider) (*RenderCSVResult, error) {
-	if int(atomic.LoadInt32(&rs.inProgressCount)) > opts.ConcurrentLimit {
-		return nil, ErrConcurrentLimitReached
-	}
+	logger := rs.log.FromContext(ctx)
 
 	if !rs.IsAvailable(ctx) {
 		return nil, ErrRenderUnavailable
 	}
 
-	rs.log.Info("Rendering", "path", opts.Path)
+	if int(atomic.LoadInt32(&rs.inProgressCount)) > opts.ConcurrentLimit {
+		return nil, ErrConcurrentLimitReached
+	}
+
+	logger.Info("Rendering", "path", opts.Path)
 	renderKey, err := renderKeyProvider.get(ctx, opts.AuthOpts)
 	if err != nil {
 		return nil, err
@@ -392,8 +422,9 @@ func (rs *RenderingService) getNewFilePath(rt RenderType) (string, error) {
 	return filepath.Abs(filepath.Join(folder, fmt.Sprintf("%s.%s", rand, ext)))
 }
 
-func (rs *RenderingService) getURL(path string) string {
-	if rs.Cfg.RendererUrl != "" {
+// getGrafanaCallbackURL creates a URL to send to the image rendering as callback for rendering a Grafana resource
+func (rs *RenderingService) getGrafanaCallbackURL(path string) string {
+	if rs.Cfg.RendererUrl != "" || rs.Cfg.RendererCallbackUrl != "" {
 		// The backend rendering service can potentially be remote.
 		// So we need to use the root_url to ensure the rendering service
 		// can reach this Grafana instance.

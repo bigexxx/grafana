@@ -24,6 +24,7 @@ import {
   logRowsToReadableJson,
   mergeLogsVolumeDataFrames,
   sortLogsResult,
+  checkLogsSampled,
 } from './utils';
 
 describe('getLoglevel()', () => {
@@ -63,8 +64,30 @@ describe('getLogLevelFromKey()', () => {
   it('returns correct log level when level is capitalized', () => {
     expect(getLogLevelFromKey('INFO')).toBe(LogLevel.info);
   });
-  it('returns unknown log level when level is integer', () => {
-    expect(getLogLevelFromKey(1)).toBe(LogLevel.unknown);
+  describe('Numeric log levels', () => {
+    it('returns critical', () => {
+      expect(getLogLevelFromKey(0)).toBe(LogLevel.critical);
+      expect(getLogLevelFromKey('0')).toBe(LogLevel.critical);
+      expect(getLogLevelFromKey('1')).toBe(LogLevel.critical);
+      expect(getLogLevelFromKey('2')).toBe(LogLevel.critical);
+    });
+    it('returns error', () => {
+      expect(getLogLevelFromKey('3')).toBe(LogLevel.error);
+    });
+    it('returns warning', () => {
+      expect(getLogLevelFromKey('4')).toBe(LogLevel.warning);
+    });
+    it('returns info', () => {
+      expect(getLogLevelFromKey('5')).toBe(LogLevel.info);
+      expect(getLogLevelFromKey('6')).toBe(LogLevel.info);
+    });
+    it('returns debug', () => {
+      expect(getLogLevelFromKey('7')).toBe(LogLevel.debug);
+    });
+    it('returns unknown log level when level is an unexpected integer', () => {
+      expect(getLogLevelFromKey('8')).toBe(LogLevel.unknown);
+      expect(getLogLevelFromKey(8)).toBe(LogLevel.unknown);
+    });
   });
 });
 
@@ -218,8 +241,36 @@ describe('checkLogsError()', () => {
       foo: 'boo',
     } as Labels,
   } as LogRowModel;
-  test('should return correct error if error is present', () => {
-    expect(checkLogsError(log)).toStrictEqual({ hasError: true, errorMessage: 'Error Message' });
+  test('should return the error if present', () => {
+    expect(checkLogsError(log)).toStrictEqual('Error Message');
+  });
+  test('should return undefined otherwise', () => {
+    expect(checkLogsError({ ...log, labels: {} })).toStrictEqual(undefined);
+  });
+});
+
+describe('checkLogsSampled()', () => {
+  const log = {
+    labels: {
+      __adaptive_logs_sampled__: 'true',
+      foo: 'boo',
+    } as Labels,
+  } as LogRowModel;
+  test('should return a message if is sampled', () => {
+    expect(checkLogsSampled(log)).toStrictEqual('Logs like this one have been dropped by Adaptive Logs');
+  });
+  test('should return an interpolated message if is sampled', () => {
+    expect(
+      checkLogsSampled({
+        ...log,
+        labels: {
+          __adaptive_logs_sampled__: '10',
+        },
+      })
+    ).toStrictEqual('10% of logs like this one have been dropped by Adaptive Logs');
+  });
+  test('should return undefined otherwise', () => {
+    expect(checkLogsSampled({ ...log, labels: {} })).toStrictEqual(undefined);
   });
 });
 
@@ -305,13 +356,22 @@ describe('logRowsToReadableJson', () => {
   it('should format a single row', () => {
     const result = logRowsToReadableJson([testRow]);
 
-    expect(result).toEqual([{ line: 'test entry', timestamp: '123456789', fields: { foo: 'bar' } }]);
+    expect(result).toEqual([
+      { date: '1970-01-01T00:00:00.010Z', line: 'test entry', timestamp: '123456789', fields: { foo: 'bar' } },
+    ]);
   });
 
   it('should format a df field row', () => {
     const result = logRowsToReadableJson([testRow2]);
 
-    expect(result).toEqual([{ line: 'test entry', timestamp: '123456789', fields: { foo: 'bar', foo2: 'bar2' } }]);
+    expect(result).toEqual([
+      {
+        date: '1970-01-01T00:00:00.010Z',
+        line: 'test entry',
+        timestamp: '123456789',
+        fields: { foo: 'bar', foo2: 'bar2' },
+      },
+    ]);
   });
 });
 

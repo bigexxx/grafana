@@ -6,14 +6,17 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/log"
+	"github.com/grafana/grafana/pkg/services/accesscontrol/actest"
 	"github.com/grafana/grafana/pkg/services/apikey"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/serviceaccounts"
+	"github.com/grafana/grafana/pkg/tests/testsuite"
 )
 
 type FakeServiceAccountStore struct {
-	ExpectedServiceAccountID                *serviceaccounts.ServiceAccount
+	ExpectedServiceAccountID                int64
 	ExpectedServiceAccountDTO               *serviceaccounts.ServiceAccountDTO
 	ExpectedServiceAccountProfileDTO        *serviceaccounts.ServiceAccountProfileDTO
 	ExpectedSearchServiceAccountQueryResult *serviceaccounts.SearchOrgServiceAccountsResult
@@ -32,13 +35,13 @@ func newServiceAccountStoreFake() *FakeServiceAccountStore {
 }
 
 // CreateServiceAccount is a fake creating a service account.
-func (f *FakeServiceAccountStore) RetrieveServiceAccount(ctx context.Context, orgID, serviceAccountID int64) (*serviceaccounts.ServiceAccountProfileDTO, error) {
+func (f *FakeServiceAccountStore) RetrieveServiceAccount(ctx context.Context, query *serviceaccounts.GetServiceAccountQuery) (*serviceaccounts.ServiceAccountProfileDTO, error) {
 	return f.ExpectedServiceAccountProfileDTO, f.ExpectedError
 }
 
 // RetrieveServiceAccountIdByName is a fake retrieving a service account id by name.
 func (f *FakeServiceAccountStore) RetrieveServiceAccountIdByName(ctx context.Context, orgID int64, name string) (int64, error) {
-	return f.ExpectedServiceAccountID.Id, f.ExpectedError
+	return f.ExpectedServiceAccountID, f.ExpectedError
 }
 
 // CreateServiceAccount is a fake creating a service account.
@@ -115,9 +118,22 @@ func (f *SecretsCheckerFake) CheckTokens(ctx context.Context) error {
 	return f.ExpectedError
 }
 
+func TestMain(m *testing.M) {
+	testsuite.Run(m)
+}
+
 func TestProvideServiceAccount_DeleteServiceAccount(t *testing.T) {
 	storeMock := newServiceAccountStoreFake()
-	svc := ServiceAccountsService{storeMock, log.New("test"), log.New("background.test"), &SecretsCheckerFake{}, false, 0}
+	acSvc := actest.FakeService{}
+	pSvc := &actest.FakePermissionsService{}
+	svc := ServiceAccountsService{
+		acService:         acSvc,
+		permissions:       pSvc,
+		store:             storeMock,
+		db:                db.InitTestDB(t),
+		log:               log.NewNopLogger(),
+		secretScanEnabled: false,
+	}
 	testOrgId := 1
 
 	t.Run("should create service account", func(t *testing.T) {

@@ -9,7 +9,7 @@ export { PromQueryEditorByApp } from './components/PromQueryEditorByApp';
 export { MonacoQueryFieldLazy } from './components/monaco-query-field/MonacoQueryFieldLazy';
 export { AnnotationQueryEditor } from './components/AnnotationQueryEditor';
 export { PromCheatSheet } from './components/PromCheatSheet';
-export { PrometheusMetricsBrowser } from './components/PrometheusMetricsBrowser';
+export { PrometheusMetricsBrowser } from './components/metrics-browser/PrometheusMetricsBrowser';
 export { PromExemplarField } from './components/PromExemplarField';
 export { PromExploreExtraField } from './components/PromExploreExtraField';
 export { PromQueryEditorForAlerting } from './components/PromQueryEditorForAlerting';
@@ -55,18 +55,17 @@ export { PromQueryEditorSelector } from './querybuilder/components/PromQueryEdit
 export { PromQueryLegendEditor } from './querybuilder/components/PromQueryLegendEditor';
 export { QueryPreview } from './querybuilder/components/QueryPreview';
 export { MetricsModal } from './querybuilder/components/metrics-modal/MetricsModal';
-export { PromQail } from './querybuilder/components/promQail/PromQail';
 
 // SRC/
 // Main export
-export { PrometheusDatasource } from './datasource';
+export { PrometheusDatasource, InstantQueryRefIdIndex } from './datasource';
 // The parts
 export { addLabelToQuery } from './add_label_to_query';
 export { type QueryEditorMode, type PromQueryFormat, type Prometheus } from './dataquery';
 export { PrometheusMetricFindQuery } from './metric_find_query';
 export { promqlGrammar } from './promql';
 export { getQueryHints, getInitHints } from './query_hints';
-export { transformV2, transformDFToTable } from './result_transformer';
+export { transformV2, transformDFToTable, parseSampleValue, sortSeriesByLabel } from './result_transformer';
 export {
   type PromQuery,
   type PrometheusCacheLevel,
@@ -85,3 +84,11 @@ export {
   type StandardPromVariableQuery,
 } from './types';
 export { PrometheusVariableSupport } from './variables';
+
+// For Metrics Drilldown
+export { default as PromQlLanguageProvider } from './language_provider';
+export { getPrometheusTime } from './language_utils';
+export { isValidLegacyName, utf8Support, wrapUtf8Filters } from './utf8_support';
+export { buildVisualQueryFromString } from './querybuilder/parsing';
+export { PromQueryModeller } from './querybuilder/PromQueryModeller';
+export { type QueryBuilderLabelFilter } from './querybuilder/shared/types';

@@ -1,13 +1,13 @@
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/components/VariableQueryEditor.test.tsx
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React from 'react';
 
 import { dateTime, TimeRange } from '@grafana/data';
 
 import { PrometheusDatasource } from '../datasource';
-import { selectOptionInTest } from '../gcopypaste/test/helpers/selectOptionInTest';
 import PrometheusLanguageProvider from '../language_provider';
 import { migrateVariableEditorBackToVariableSupport } from '../migrations/variableMigration';
+import { selectOptionInTest } from '../test/helpers/selectOptionInTest';
 import { PromVariableQuery, PromVariableQueryType, StandardPromVariableQuery } from '../types';
 
 import { PromVariableQueryEditor, Props, variableMigration } from './VariableQueryEditor';
@@ -144,7 +144,6 @@ describe('PromVariableQueryEditor', () => {
           getLabelValues: jest.fn().mockImplementation(() => ['that']),
           fetchLabelsWithMatch: jest.fn().mockImplementation(() => Promise.resolve({ those: 'those' })),
         } as Partial<PrometheusLanguageProvider> as PrometheusLanguageProvider,
-        getInitHints: () => [],
         getDebounceTimeInMilliseconds: jest.fn(),
         getTagKeys: jest.fn().mockImplementation(() => Promise.resolve(['this'])),
         getVariables: jest.fn().mockImplementation(() => []),
@@ -195,7 +194,7 @@ describe('PromVariableQueryEditor', () => {
     });
   });
 
-  test('Calls onChange for label_names, label_values, metrics, query result and and classic query.', async () => {
+  test('Calls onChange for label_names, label_values, metrics, query result and classic query.', async () => {
     const onChange = jest.fn();
 
     props.query = {
@@ -265,6 +264,8 @@ describe('PromVariableQueryEditor', () => {
     const labelSelect = screen.getByLabelText('label-select');
     await userEvent.type(labelSelect, 'this');
     await selectOptionInTest(labelSelect, 'this');
+    //display label in label select
+    await waitFor(() => expect(screen.getByText('this')).toBeInTheDocument());
 
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith({

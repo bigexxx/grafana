@@ -12,19 +12,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grafana/grafana-azure-sdk-go/azcredentials"
+	"github.com/grafana/grafana-azure-sdk-go/v2/azcredentials"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	mssql "github.com/microsoft/go-mssqldb"
-	_ "github.com/microsoft/go-mssqldb/azuread"
+	"github.com/microsoft/go-mssqldb/azuread"
+	_ "github.com/microsoft/go-mssqldb/integratedauth/krb5"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana/pkg/setting"
+	"github.com/grafana/grafana/pkg/tsdb/mssql/kerberos"
+	"github.com/grafana/grafana/pkg/tsdb/mssql/sqleng"
 	"github.com/grafana/grafana/pkg/tsdb/mssql/utils"
-	"github.com/grafana/grafana/pkg/tsdb/sqleng"
 	"github.com/grafana/grafana/pkg/util"
 )
 
@@ -34,15 +36,19 @@ type Service struct {
 }
 
 const (
-	azureAuthentication     = "Azure AD Authentication"
-	windowsAuthentication   = "Windows Authentication"
-	sqlServerAuthentication = "SQL Server Authentication"
+	azureAuthentication         = "Azure AD Authentication"
+	windowsAuthentication       = "Windows Authentication"
+	sqlServerAuthentication     = "SQL Server Authentication"
+	kerberosRaw                 = "Windows AD: Username + password"
+	kerberosKeytab              = "Windows AD: Keytab"
+	kerberosCredentialCache     = "Windows AD: Credential cache"      // #nosec G101
+	kerberosCredentialCacheFile = "Windows AD: Credential cache file" // #nosec G101
 )
 
 func ProvideService(cfg *setting.Cfg) *Service {
 	logger := backend.NewLoggerWith("logger", "tsdb.mssql")
 	return &Service{
-		im:     datasource.NewInstanceManager(newInstanceSettings(cfg, logger)),
+		im:     datasource.NewInstanceManager(NewInstanceSettings(cfg, logger)),
 		logger: logger,
 	}
 }
@@ -64,12 +70,83 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 	return dsHandler.QueryData(ctx, req)
 }
 
-func newInstanceSettings(cfg *setting.Cfg, logger log.Logger) datasource.InstanceFactoryFunc {
+func newMSSQL(ctx context.Context, driverName string, userFacingDefaultError string, rowLimit int64, dsInfo sqleng.DataSourceInfo, cnnstr string, logger log.Logger, settings backend.DataSourceInstanceSettings) (*sql.DB, *sqleng.DataSourceHandler, error) {
+	var connector *mssql.Connector
+	var err error
+	if driverName == "azuresql" {
+		connector, err = azuread.NewConnector(cnnstr)
+	} else {
+		connector, err = mssql.NewConnector(cnnstr)
+	}
+
+	if err != nil {
+		logger.Error("mssql connector creation failed", "error", err)
+		return nil, nil, fmt.Errorf("mssql connector creation failed")
+	}
+
+	proxyClient, err := settings.ProxyClient(ctx)
+	if err != nil {
+		logger.Error("mssql proxy creation failed", "error", err)
+		return nil, nil, fmt.Errorf("mssql proxy creation failed")
+	}
+
+	if proxyClient.SecureSocksProxyEnabled() {
+		dialer, err := proxyClient.NewSecureSocksProxyContextDialer()
+		if err != nil {
+			logger.Error("mssql proxy creation failed", "error", err)
+			return nil, nil, fmt.Errorf("mssql proxy creation failed")
+		}
+		URL, err := ParseURL(dsInfo.URL, logger)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		mssqlDialer, err := newMSSQLProxyDialer(URL.Hostname(), dialer)
+		if err != nil {
+			return nil, nil, err
+		}
+		// update the mssql dialer with the proxy dialer
+		connector.Dialer = (mssqlDialer)
+	}
+
+	config := sqleng.DataPluginConfiguration{
+		DSInfo:            dsInfo,
+		MetricColumnTypes: []string{"VARCHAR", "CHAR", "NVARCHAR", "NCHAR"},
+		RowLimit:          rowLimit,
+	}
+
+	queryResultTransformer := mssqlQueryResultTransformer{
+		userError: userFacingDefaultError,
+	}
+
+	db := sql.OpenDB(connector)
+
+	db.SetMaxOpenConns(config.DSInfo.JsonData.MaxOpenConns)
+	db.SetMaxIdleConns(config.DSInfo.JsonData.MaxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(config.DSInfo.JsonData.ConnMaxLifetime) * time.Second)
+
+	handler, err := sqleng.NewQueryDataHandler(userFacingDefaultError, db, config, &queryResultTransformer, newMssqlMacroEngine(),
+		logger)
+	if err != nil {
+		logger.Error("Failed connecting to Postgres", "err", err)
+		return nil, nil, err
+	}
+
+	logger.Debug("Successfully connected to Postgres")
+	return db, handler, nil
+}
+
+func NewInstanceSettings(cfg *setting.Cfg, logger log.Logger) datasource.InstanceFactoryFunc {
 	return func(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+		grafCfg := backend.GrafanaConfigFromContext(ctx)
+		sqlCfg, err := grafCfg.SQL()
+		if err != nil {
+			return nil, err
+		}
 		jsonData := sqleng.JsonData{
-			MaxOpenConns:      cfg.SqlDatasourceMaxOpenConnsDefault,
-			MaxIdleConns:      cfg.SqlDatasourceMaxIdleConnsDefault,
-			ConnMaxLifetime:   cfg.SqlDatasourceMaxConnLifetimeDefault,
+			MaxOpenConns:      sqlCfg.DefaultMaxOpenConns,
+			MaxIdleConns:      sqlCfg.DefaultMaxIdleConns,
+			ConnMaxLifetime:   sqlCfg.DefaultMaxConnLifetimeSeconds,
 			Encrypt:           "false",
 			ConnectionTimeout: 0,
 			SecureDSProxy:     false,
@@ -78,6 +155,12 @@ func newInstanceSettings(cfg *setting.Cfg, logger log.Logger) datasource.Instanc
 		if err != nil {
 			return nil, fmt.Errorf("error reading azure credentials")
 		}
+
+		kerberosAuth, err := kerberos.GetKerberosSettings(settings)
+		if err != nil {
+			return nil, fmt.Errorf("error getting kerberos settings: %w", err)
+		}
+
 		err = json.Unmarshal(settings.JSONData, &jsonData)
 		if err != nil {
 			return nil, fmt.Errorf("error reading settings: %w", err)
@@ -98,60 +181,30 @@ func newInstanceSettings(cfg *setting.Cfg, logger log.Logger) datasource.Instanc
 			UID:                     settings.UID,
 			DecryptedSecureJSONData: settings.DecryptedSecureJSONData,
 		}
-		cnnstr, err := generateConnectionString(dsInfo, cfg, azureCredentials, logger)
+		cnnstr, err := generateConnectionString(dsInfo, cfg.Azure.ManagedIdentityClientId, cfg.Azure.AzureEntraPasswordCredentialsEnabled, azureCredentials, kerberosAuth, logger)
 		if err != nil {
 			return nil, err
 		}
 
-		if cfg.Env == setting.Dev {
-			logger.Debug("GetEngine", "connection", cnnstr)
-		}
 		driverName := "mssql"
 		if jsonData.AuthenticationType == azureAuthentication {
 			driverName = "azuresql"
 		}
 
-		proxyClient, err := settings.ProxyClient(ctx)
+		userFacingDefaultError, err := grafCfg.UserFacingDefaultError()
 		if err != nil {
 			return nil, err
 		}
 
-		// register a new proxy driver if the secure socks proxy is enabled
-		if proxyClient.SecureSocksProxyEnabled() {
-			dialer, err := proxyClient.NewSecureSocksProxyContextDialer()
-			if err != nil {
-				return nil, err
-			}
-			URL, err := ParseURL(dsInfo.URL, logger)
-			if err != nil {
-				return nil, err
-			}
-			driverName, err = createMSSQLProxyDriver(cnnstr, URL.Hostname(), dialer)
-			if err != nil {
-				return nil, err
-			}
-		}
+		_, handler, err := newMSSQL(ctx, driverName, userFacingDefaultError, sqlCfg.RowLimit, dsInfo, cnnstr, logger, settings)
 
-		config := sqleng.DataPluginConfiguration{
-			DSInfo:            dsInfo,
-			MetricColumnTypes: []string{"VARCHAR", "CHAR", "NVARCHAR", "NCHAR"},
-			RowLimit:          cfg.DataProxyRowLimit,
-		}
-
-		queryResultTransformer := mssqlQueryResultTransformer{
-			userError: cfg.UserFacingDefaultError,
-		}
-
-		db, err := sql.Open(driverName, cnnstr)
 		if err != nil {
+			logger.Error("Failed connecting to MSSQL", "err", err)
 			return nil, err
 		}
 
-		db.SetMaxOpenConns(config.DSInfo.JsonData.MaxOpenConns)
-		db.SetMaxIdleConns(config.DSInfo.JsonData.MaxIdleConns)
-		db.SetConnMaxLifetime(time.Duration(config.DSInfo.JsonData.ConnMaxLifetime) * time.Second)
-
-		return sqleng.NewQueryDataHandler(cfg.UserFacingDefaultError, db, config, &queryResultTransformer, newMssqlMacroEngine(), logger)
+		logger.Debug("Successfully connected to MSSQL")
+		return handler, nil
 	}
 }
 
@@ -184,7 +237,7 @@ func ParseURL(u string, logger DebugOnlyLogger) (*url.URL, error) {
 	}, nil
 }
 
-func generateConnectionString(dsInfo sqleng.DataSourceInfo, cfg *setting.Cfg, azureCredentials azcredentials.AzureCredentials, logger log.Logger) (string, error) {
+func generateConnectionString(dsInfo sqleng.DataSourceInfo, azureManagedIdentityClientId string, azureEntraPasswordCredentialsEnabled bool, azureCredentials azcredentials.AzureCredentials, kerberosAuth kerberos.KerberosAuth, logger log.Logger) (string, error) {
 	const dfltPort = "0"
 	var addr util.NetworkAddress
 	if dsInfo.URL != "" {
@@ -222,13 +275,15 @@ func generateConnectionString(dsInfo sqleng.DataSourceInfo, cfg *setting.Cfg, az
 
 	switch dsInfo.JsonData.AuthenticationType {
 	case azureAuthentication:
-		azureCredentialDSNFragment, err := getAzureCredentialDSNFragment(azureCredentials, cfg)
+		azureCredentialDSNFragment, err := getAzureCredentialDSNFragment(azureCredentials, azureManagedIdentityClientId, azureEntraPasswordCredentialsEnabled)
 		if err != nil {
 			return "", err
 		}
 		connStr += azureCredentialDSNFragment
 	case windowsAuthentication:
 		// No user id or password. We're using windows single sign on.
+	case kerberosRaw, kerberosKeytab, kerberosCredentialCacheFile, kerberosCredentialCache:
+		connStr = kerberos.Krb5ParseAuthCredentials(addr.Host, addr.Port, dsInfo.Database, dsInfo.User, dsInfo.DecryptedSecureJSONData["password"], kerberosAuth)
 	default:
 		connStr += fmt.Sprintf("user id=%s;password=%s;", dsInfo.User, dsInfo.DecryptedSecureJSONData["password"])
 	}
@@ -237,7 +292,8 @@ func generateConnectionString(dsInfo sqleng.DataSourceInfo, cfg *setting.Cfg, az
 	if addr.Port != "0" {
 		connStr += fmt.Sprintf("port=%s;", addr.Port)
 	}
-	if encrypt == "true" {
+	switch encrypt {
+	case "true":
 		connStr += fmt.Sprintf("encrypt=%s;TrustServerCertificate=%t;", encrypt, tlsSkipVerify)
 		if hostNameInCertificate != "" {
 			connStr += fmt.Sprintf("hostNameInCertificate=%s;", hostNameInCertificate)
@@ -246,7 +302,7 @@ func generateConnectionString(dsInfo sqleng.DataSourceInfo, cfg *setting.Cfg, az
 		if certificate != "" {
 			connStr += fmt.Sprintf("certificate=%s;", certificate)
 		}
-	} else if encrypt == "disable" {
+	case "disable":
 		connStr += fmt.Sprintf("encrypt=%s;", dsInfo.JsonData.Encrypt)
 	}
 
@@ -257,12 +313,12 @@ func generateConnectionString(dsInfo sqleng.DataSourceInfo, cfg *setting.Cfg, az
 	return connStr, nil
 }
 
-func getAzureCredentialDSNFragment(azureCredentials azcredentials.AzureCredentials, cfg *setting.Cfg) (string, error) {
+func getAzureCredentialDSNFragment(azureCredentials azcredentials.AzureCredentials, azureManagedIdentityClientId string, azureEntraPasswordCredentialsEnabled bool) (string, error) {
 	connStr := ""
 	switch c := azureCredentials.(type) {
 	case *azcredentials.AzureManagedIdentityCredentials:
-		if cfg.Azure.ManagedIdentityClientId != "" {
-			connStr += fmt.Sprintf("user id=%s;", cfg.Azure.ManagedIdentityClientId)
+		if azureManagedIdentityClientId != "" {
+			connStr += fmt.Sprintf("user id=%s;", azureManagedIdentityClientId)
 		}
 		connStr += fmt.Sprintf("fedauth=%s;",
 			"ActiveDirectoryManagedIdentity")
@@ -273,6 +329,17 @@ func getAzureCredentialDSNFragment(azureCredentials azcredentials.AzureCredentia
 			c.ClientSecret,
 			"ActiveDirectoryApplication",
 		)
+	case *azcredentials.AzureEntraPasswordCredentials:
+		if azureEntraPasswordCredentialsEnabled {
+			connStr += fmt.Sprintf("user id=%s;password=%s;applicationclientid=%s;fedauth=%s;",
+				c.UserId,
+				c.Password,
+				c.ClientId,
+				"ActiveDirectoryPassword",
+			)
+		} else {
+			return "", fmt.Errorf("azure entra password authentication is not enabled")
+		}
 	default:
 		return "", fmt.Errorf("unsupported azure authentication type")
 	}
@@ -301,13 +368,7 @@ func (s *Service) CheckHealth(ctx context.Context, req *backend.CheckHealthReque
 		return nil, err
 	}
 
-	err = dsHandler.Ping()
-
-	if err != nil {
-		return &backend.CheckHealthResult{Status: backend.HealthStatusError, Message: dsHandler.TransformQueryError(s.logger, err).Error()}, nil
-	}
-
-	return &backend.CheckHealthResult{Status: backend.HealthStatusOk, Message: "Database Connection OK"}, nil
+	return dsHandler.CheckHealth(ctx, req)
 }
 
 func (t *mssqlQueryResultTransformer) GetConverterList() []sqlutil.StringConverter {
@@ -386,6 +447,21 @@ func (t *mssqlQueryResultTransformer) GetConverterList() []sqlutil.StringConvert
 					}
 					v := uuid.String()
 					return &v, nil
+				},
+			},
+		},
+		{
+			Name:           "handle SQL_VARIANT",
+			InputScanKind:  reflect.Pointer,
+			InputTypeName:  "SQL_VARIANT",
+			ConversionFunc: func(in *string) (*string, error) { return in, nil },
+			Replacer: &sqlutil.StringFieldReplacer{
+				OutputFieldType: data.FieldTypeNullableString,
+				ReplaceFunc: func(in *string) (any, error) {
+					if in == nil {
+						return nil, nil
+					}
+					return in, nil
 				},
 			},
 		},

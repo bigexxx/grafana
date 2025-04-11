@@ -34,7 +34,7 @@ func (e *cloudWatchExecutor) executeAnnotationQuery(ctx context.Context, pluginC
 	if model.Period != nil && *model.Period != "" {
 		p, err := strconv.ParseInt(*model.Period, 10, 64)
 		if err != nil {
-			return nil, err
+			return nil, backend.DownstreamError(fmt.Errorf("query period must be an int"))
 		}
 		period = p
 	}
@@ -52,7 +52,8 @@ func (e *cloudWatchExecutor) executeAnnotationQuery(ctx context.Context, pluginC
 
 	cli, err := e.getCWClient(ctx, pluginCtx, model.Region)
 	if err != nil {
-		return nil, err
+		result.Responses[query.RefID] = backend.ErrorResponseWithErrorSource(fmt.Errorf("%v: %w", "failed to get client", err))
+		return result, nil
 	}
 
 	var alarmNames []*string
@@ -74,25 +75,22 @@ func (e *cloudWatchExecutor) executeAnnotationQuery(ctx context.Context, pluginC
 		}
 		resp, err := cli.DescribeAlarms(params)
 		if err != nil {
-			return nil, fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarms", err)
+			result.Responses[query.RefID] = backend.ErrorResponseWithErrorSource(backend.DownstreamError(fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarms", err)))
+			return result, nil
 		}
 		alarmNames = filterAlarms(resp, model.Namespace, metricName, dimensions, statistic, period)
 	} else {
 		if model.Region == "" || model.Namespace == "" || metricName == "" || statistic == "" {
-			return result, errors.New("invalid annotations query")
+			return result, backend.DownstreamError(errors.New("invalid annotations query"))
 		}
 
 		var qd []*cloudwatch.Dimension
 		for k, v := range dimensions {
-			if vv, ok := v.([]any); ok {
-				for _, vvv := range vv {
-					if vvvv, ok := vvv.(string); ok {
-						qd = append(qd, &cloudwatch.Dimension{
-							Name:  aws.String(k),
-							Value: aws.String(vvvv),
-						})
-					}
-				}
+			for _, vvv := range v.ArrayOfString {
+				qd = append(qd, &cloudwatch.Dimension{
+					Name:  aws.String(k),
+					Value: aws.String(vvv),
+				})
 			}
 		}
 		params := &cloudwatch.DescribeAlarmsForMetricInput{
@@ -104,7 +102,8 @@ func (e *cloudWatchExecutor) executeAnnotationQuery(ctx context.Context, pluginC
 		}
 		resp, err := cli.DescribeAlarmsForMetric(params)
 		if err != nil {
-			return nil, fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarmsForMetric", err)
+			result.Responses[query.RefID] = backend.ErrorResponseWithErrorSource(backend.DownstreamError(fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarmsForMetric", err)))
+			return result, nil
 		}
 		for _, alarm := range resp.MetricAlarms {
 			alarmNames = append(alarmNames, alarm.AlarmName)
@@ -121,7 +120,8 @@ func (e *cloudWatchExecutor) executeAnnotationQuery(ctx context.Context, pluginC
 		}
 		resp, err := cli.DescribeAlarmHistory(params)
 		if err != nil {
-			return nil, fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarmHistory", err)
+			result.Responses[query.RefID] = backend.ErrorResponseWithErrorSource(backend.DownstreamError(fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarmHistory", err)))
+			return result, nil
 		}
 		for _, history := range resp.AlarmHistoryItems {
 			annotations = append(annotations, &annotationEvent{
@@ -162,7 +162,7 @@ func transformAnnotationToTable(annotations []*annotationEvent, query backend.Da
 }
 
 func filterAlarms(alarms *cloudwatch.DescribeAlarmsOutput, namespace string, metricName string,
-	dimensions map[string]any, statistic string, period int64) []*string {
+	dimensions dataquery.Dimensions, statistic string, period int64) []*string {
 	alarmNames := make([]*string, 0)
 
 	for _, alarm := range alarms.MetricAlarms {

@@ -4,7 +4,8 @@ import { mapSet } from 'app/core/utils/set';
 import { stringifyPanelModel } from 'app/features/dashboard/state/PanelModel';
 
 import { safeStringifyValue } from '../../../core/utils/explore';
-import { DashboardModel, PanelModel } from '../../dashboard/state';
+import { DashboardModel } from '../../dashboard/state/DashboardModel';
+import { PanelModel } from '../../dashboard/state/PanelModel';
 import { variableAdapters } from '../adapters';
 import { isAdHoc } from '../guard';
 import { VariableModel } from '../types';
@@ -69,7 +70,7 @@ export function getVariableName(expression: string) {
   return variableName;
 }
 
-export const getUnknownVariableStrings = (variables: VariableModel[], model: any) => {
+export const getUnknownVariableStrings = (variables: VariableModel[], model: DashboardModel) => {
   variableRegex.lastIndex = 0;
   const unknownVariableNames: string[] = [];
   const modelAsString = safeStringifyValue(model, 2);
@@ -124,7 +125,7 @@ const validVariableNames: Record<string, RegExp[]> = {
 };
 
 export const getPropsWithVariable = (variableId: string, parent: { key: string; value: any }, result: any) => {
-  const stringValues = Object.keys(parent.value).reduce<Record<string, any>>((all, key) => {
+  const stringValues = Object.keys(parent.value).reduce<Record<string, string>>((all, key) => {
     const value = parent.value[key];
     if (!value || typeof value !== 'string') {
       return all;
@@ -150,7 +151,7 @@ export const getPropsWithVariable = (variableId: string, parent: { key: string; 
     return all;
   }, {});
 
-  const objectValues = Object.keys(parent.value).reduce<Record<string, any>>((all, key) => {
+  const objectValues = Object.keys(parent.value).reduce<Record<string, object>>((all, key) => {
     const value = parent.value[key];
     if (value && typeof value === 'object' && Object.keys(value).length) {
       let id = value.title || value.name || value.id || key;
@@ -342,7 +343,7 @@ export const transformUsagesToNetwork = (usages: VariableUsageTree[]): UsagesToN
 };
 
 const countLeaves = (object: object): number => {
-  const total = Object.values(object).reduce((count: number, value: any) => {
+  const total = Object.values(object).reduce<number>((count, value) => {
     if (typeof value === 'object') {
       return count + countLeaves(value);
     }

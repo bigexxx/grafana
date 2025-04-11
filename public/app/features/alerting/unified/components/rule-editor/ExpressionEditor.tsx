@@ -1,13 +1,17 @@
 import { css } from '@emotion/css';
 import { noop } from 'lodash';
-import React, { useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useAsync } from 'react-use';
 
-import { CoreApp, DataQuery, DataSourcePluginContextProvider, GrafanaTheme2, LoadingState } from '@grafana/data';
+import { CoreApp, DataSourcePluginContextProvider, GrafanaTheme2, LoadingState } from '@grafana/data';
+import { PromQuery } from '@grafana/prometheus';
 import { getDataSourceSrv } from '@grafana/runtime';
+import { DataQuery } from '@grafana/schema';
 import { Alert, Button, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 import { LokiQuery } from 'app/plugins/datasource/loki/types';
-import { PromQuery } from 'app/plugins/datasource/prometheus/types';
+
+import { isSupportedExternalRulesSourceType } from '../../utils/datasource';
 
 import { CloudAlertPreview } from './CloudAlertPreview';
 import { usePreview } from './PreviewRule';
@@ -90,11 +94,17 @@ export const ExpressionEditor = ({
             onClick={onRunQueriesClick}
             disabled={alertPreview?.data.state === LoadingState.Loading}
           >
-            Preview alerts
+            <Trans i18nKey="alerting.expression-editor.preview-alerts">Preview alerts</Trans>
           </Button>
           {previewLoaded && !previewHasAlerts && (
-            <Alert title="Alerts preview" severity="info" className={styles.previewAlert}>
-              There are no firing alerts for your query.
+            <Alert
+              title={t('alerting.expression-editor.title-alerts-preview', 'Alerts preview')}
+              severity="info"
+              className={styles.previewAlert}
+            >
+              <Trans i18nKey="alerting.expression-editor.there-firing-alerts-query">
+                There are no firing alerts for your query.
+              </Trans>
             </Alert>
           )}
           {previewHasAlerts && <CloudAlertPreview preview={previewDataFrame} />}
@@ -105,13 +115,13 @@ export const ExpressionEditor = ({
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  preview: css`
-    padding: ${theme.spacing(2, 0)};
-    max-width: ${theme.breakpoints.values.xl}px;
-  `,
-  previewAlert: css`
-    margin: ${theme.spacing(1, 0)};
-  `,
+  preview: css({
+    padding: theme.spacing(2, 0),
+    maxWidth: `${theme.breakpoints.values.xl}px`,
+  }),
+  previewAlert: css({
+    margin: theme.spacing(1, 0),
+  }),
 });
 
 type QueryMappers<T extends DataQuery = DataQuery> = {
@@ -122,16 +132,17 @@ type QueryMappers<T extends DataQuery = DataQuery> = {
 export function useQueryMappers(dataSourceName: string): QueryMappers {
   return useMemo(() => {
     const settings = getDataSourceSrv().getInstanceSettings(dataSourceName);
-
-    switch (settings?.type) {
-      case 'loki':
-      case 'prometheus':
-        return {
-          mapToValue: (query: DataQuery) => (query as PromQuery | LokiQuery).expr,
-          mapToQuery: (existing: DataQuery, value: string | undefined) => ({ ...existing, expr: value }),
-        };
-      default:
-        throw new Error(`${dataSourceName} is not supported as an expression editor`);
+    if (!settings) {
+      throw new Error(`Datasource ${dataSourceName} not found`);
     }
+
+    if (!isSupportedExternalRulesSourceType(settings.type)) {
+      throw new Error(`${settings.type} is not supported as an expression editor`);
+    }
+
+    return {
+      mapToValue: (query: DataQuery) => (query as PromQuery | LokiQuery).expr,
+      mapToQuery: (existing: DataQuery, value: string | undefined) => ({ ...existing, expr: value }),
+    };
   }, [dataSourceName]);
 }

@@ -1,4 +1,4 @@
-import React from 'react';
+import { ChangeEvent } from 'react';
 
 import {
   DataTransformerID,
@@ -9,8 +9,9 @@ import {
   StandardEditorsRegistryItem,
   TransformerCategory,
 } from '@grafana/data';
-import { InlineField, InlineFieldRow, Select, InlineSwitch } from '@grafana/ui';
-import { FieldNamePicker } from '@grafana/ui/src/components/MatchersUI/FieldNamePicker';
+import { InlineField, InlineFieldRow, Select, InlineSwitch, Input, Combobox, ComboboxOption } from '@grafana/ui';
+import { FieldNamePicker } from '@grafana/ui/internal';
+import { t } from 'app/core/internationalization';
 
 import { getTransformationContent } from '../docs/getTransformationContent';
 
@@ -31,7 +32,7 @@ const fieldNamePickerSettings: StandardEditorsRegistryItem<string, FieldNamePick
 
 export const extractFieldsTransformerEditor = ({
   input,
-  options,
+  options = { delimiter: ',' },
   onChange,
 }: TransformerUIProps<ExtractFieldsOptions>) => {
   const onPickSourceField = (source?: string) => {
@@ -52,6 +53,20 @@ export const extractFieldsTransformerEditor = ({
     onChange({
       ...options,
       jsonPaths,
+    });
+  };
+
+  const onRegexpChange = (e: ChangeEvent<HTMLInputElement>) => {
+    onChange({
+      ...options,
+      regExp: e.target.value,
+    });
+  };
+
+  const onDelimiterChange = (val: ComboboxOption) => {
+    onChange({
+      ...options,
+      delimiter: val.value,
     });
   };
 
@@ -78,7 +93,7 @@ export const extractFieldsTransformerEditor = ({
   return (
     <div>
       <InlineFieldRow>
-        <InlineField label={'Source'} labelWidth={16}>
+        <InlineField label={t('transformers.extract-fields-transformer-editor.label-source', 'Source')} labelWidth={16}>
           <FieldNamePicker
             context={{ data: input }}
             value={options.source ?? ''}
@@ -88,25 +103,70 @@ export const extractFieldsTransformerEditor = ({
         </InlineField>
       </InlineFieldRow>
       <InlineFieldRow>
-        <InlineField label={'Format'} labelWidth={16}>
+        <InlineField label={t('transformers.extract-fields-transformer-editor.label-format', 'Format')} labelWidth={16}>
           <Select
             value={format.current[0] as any}
             options={format.options as any}
             onChange={onFormatChange}
             width={24}
-            placeholder={'Auto'}
+            placeholder={t('transformers.extract-fields-transformer-editor.placeholder-auto', 'Auto')}
           />
         </InlineField>
       </InlineFieldRow>
-      {options.format === 'json' && <JSONPathEditor options={options.jsonPaths ?? []} onChange={onJSONPathsChange} />}
+      {options.format === FieldExtractorID.RegExp && (
+        <InlineFieldRow>
+          <InlineField
+            // eslint-disable-next-line @grafana/no-untranslated-strings
+            label="RegExp"
+            labelWidth={16}
+            interactive={true}
+            tooltip="Example: /(?<NewField>.*)/"
+          >
+            <Input
+              // eslint-disable-next-line @grafana/no-untranslated-strings
+              placeholder="/(?<NewField>.*)/"
+              value={options.regExp}
+              onChange={onRegexpChange}
+            />
+          </InlineField>
+        </InlineFieldRow>
+      )}
+      {options.format === FieldExtractorID.JSON && (
+        <JSONPathEditor options={options.jsonPaths ?? []} onChange={onJSONPathsChange} />
+      )}
+      {options.format === FieldExtractorID.Delimiter && (
+        <InlineFieldRow>
+          <InlineField
+            label={t('transformers.extract-fields-transformer-editor.label-delimiter', 'Delimiter')}
+            labelWidth={16}
+          >
+            <Combobox
+              value={options.delimiter}
+              options={[{ value: ',' }, { value: ';' }, { value: '|' }]}
+              onChange={onDelimiterChange}
+              placeholder={t(
+                'transformers.extract-fields-transformer-editor.placeholder-select-delimiter',
+                'Select delimiter...'
+              )}
+              width={24}
+            />
+          </InlineField>
+        </InlineFieldRow>
+      )}
       <InlineFieldRow>
-        <InlineField label={'Replace all fields'} labelWidth={16}>
+        <InlineField
+          label={t('transformers.extract-fields-transformer-editor.label-replace-all-fields', 'Replace all fields')}
+          labelWidth={16}
+        >
           <InlineSwitch value={options.replace ?? false} onChange={onToggleReplace} />
         </InlineField>
       </InlineFieldRow>
       {options.replace && (
         <InlineFieldRow>
-          <InlineField label={'Keep time'} labelWidth={16}>
+          <InlineField
+            label={t('transformers.extract-fields-transformer-editor.label-keep-time', 'Keep time')}
+            labelWidth={16}
+          >
             <InlineSwitch value={options.keepTime ?? false} onChange={onToggleKeepTime} />
           </InlineField>
         </InlineFieldRow>

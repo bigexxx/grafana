@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/grafana/grafana/pkg/services/accesscontrol/actest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -12,8 +13,18 @@ import (
 )
 
 func Test_UsageStats(t *testing.T) {
+	acSvc := actest.FakeService{}
+	pSvc := actest.FakePermissionsService{}
 	storeMock := newServiceAccountStoreFake()
-	svc := ServiceAccountsService{storeMock, log.New("test"), log.New("background-test"), &SecretsCheckerFake{}, true, 5}
+	svc := ServiceAccountsService{
+		acService:          acSvc,
+		permissions:        &pSvc,
+		store:              storeMock,
+		log:                log.NewNopLogger(),
+		secretScanService:  &SecretsCheckerFake{},
+		secretScanEnabled:  true,
+		secretScanInterval: 5,
+	}
 	err := svc.DeleteServiceAccount(context.Background(), 1, 1)
 	require.NoError(t, err)
 

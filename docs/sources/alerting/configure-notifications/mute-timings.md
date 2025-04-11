@@ -1,8 +1,8 @@
 ---
 aliases:
-  - ../notifications/mute-timings/ # /docs/grafana/latest/alerting/notifications/mute-timings/
-  - ../unified-alerting/notifications/mute-timings/ # /docs/grafana/latest/alerting/unified-alerting/notifications/mute-timings/
-  - ../manage-notifications/mute-timings/ # /docs/grafana/latest/alerting/manage-notifications/mute-timings/
+  - ../notifications/mute-timings/ # /docs/grafana/<GRAFANA_VERSION>/alerting/notifications/mute-timings/
+  - ../unified-alerting/notifications/mute-timings/ # /docs/grafana/<GRAFANA_VERSION>/alerting/unified-alerting/notifications/mute-timings/
+  - ../manage-notifications/mute-timings/ # /docs/grafana/<GRAFANA_VERSION>/alerting/manage-notifications/mute-timings/
 canonical: /docs/grafana/latest/alerting/configure-notifications/mute-timings/
 description: Create mute timings to prevent alerts from firing during a specific and reoccurring period of time
 keywords:
@@ -18,25 +18,36 @@ labels:
     - enterprise
     - oss
 title: Configure mute timings
-weight: 450
+weight: 430
+refs:
+  alertmanager-architecture:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/configure-notifications/#alertmanager-architecture
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/configure-notifications/#alertmanager-architecture
+  shared-silences:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/configure-notifications/create-silence/
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/configure-notifications/create-silence/
+  shared-mute-timings:
+    - pattern: /docs/grafana/
+      destination: /docs/grafana/<GRAFANA_VERSION>/alerting/configure-notifications/mute-timings/
+    - pattern: /docs/grafana-cloud/
+      destination: /docs/grafana-cloud/alerting-and-irm/alerting/configure-notifications/mute-timings/
 ---
 
 # Configure mute timings
 
-A mute timing is a recurring interval of time when no new notifications for a policy are generated or sent. Use them to prevent alerts from firing a specific and reoccurring period, for example, a regular maintenance period.
+A mute timing is a recurring interval that stops notifications for one or multiple notification policies during a specified period. It suppresses notifications but does not interrupt alert evaluation.
 
-Similar to silences, mute timings do not prevent alert rules from being evaluated, nor do they stop alert instances from being shown in the user interface. They only prevent notifications from being created.
+Use mute timings to temporarily pause notifications for a specific recurring period, such as a regular maintenance window or weekends.
 
-You can configure Grafana managed mute timings as well as mute timings for an [external Alertmanager data source][datasources/alertmanager]. For more information, refer to [Alertmanager documentation][fundamentals/alertmanager].
+{{< admonition type="note" >}}
+Mute timings are assigned to a [specific Alertmanager](ref:alertmanager-architecture) and only suppress notifications for alerts managed by that Alertmanager.
+{{< /admonition >}}
 
-## Mute timings vs silences
-
-The following table highlights the key differences between mute timings and silences.
-
-| Mute timing                                        | Silence                                                                      |
-| -------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Uses time interval definitions that can reoccur    | Has a fixed start and end time                                               |
-| Is created and then added to notification policies | Uses labels to match against an alert to determine whether to silence or not |
+{{< docs/shared lookup="alerts/mute-timings-vs-silences.md" source="grafana" version="<GRAFANA_VERSION>" >}}
 
 ## Add mute timings
 
@@ -59,6 +70,8 @@ The following table highlights the key differences between mute timings and sile
 
 A time interval is a specific duration during which alerts are suppressed. The duration typically consists of a specific time range and the days of the week, month, or year.
 
+A mute timing can contain multiple time intervals.
+
 Supported time interval options are:
 
 - Time range: The time inclusive of the start and exclusive of the end time (in UTC if no location has been selected, otherwise local time).
@@ -70,9 +83,13 @@ Supported time interval options are:
 
 All fields are lists; to match the field, at least one list element must be satisfied. Fields also support ranges using `:` (e.g., `monday:thursday`).
 
-If a field is left blank, any moment of time will match the field. For an instant of time to match a complete time interval, all fields must match. A mute timing can contain multiple time intervals.
+If a field is left blank, any moment of time matches the field. For an instant of time to match a complete time interval, all fields must match.
 
-If you want to specify an exact duration, specify all the options. For example, if you wanted to create a time interval for the first Monday of the month, for March, June, September, and December, between the hours of 12:00 and 24:00 UTC your time interval specification would be:
+If you want to specify an exact duration, specify all the options.
+
+**Example**
+
+If you wanted to create a time interval for the first Monday of the month, for March, June, September, and December, between the hours of 12:00 and 24:00 UTC your time interval specification would be:
 
 - Time range:
   - Start time: `12:00`
@@ -80,11 +97,3 @@ If you want to specify an exact duration, specify all the options. For example, 
 - Days of the week: `monday`
 - Months: `3, 6, 9, 12`
 - Days of the month: `1:7`
-
-{{% docs/reference %}}
-[datasources/alertmanager]: "/docs/grafana/ -> /docs/grafana/<GRAFANA_VERSION>/datasources/alertmanager"
-[datasources/alertmanager]: "/docs/grafana-cloud/ -> /docs/grafana-cloud/connect-externally-hosted/data-sources/alertmanager"
-
-[fundamentals/alertmanager]: "/docs/grafana/ -> /docs/grafana/<GRAFANA_VERSION>/alerting/fundamentals/alertmanager"
-[fundamentals/alertmanager]: "/docs/grafana-cloud/ -> /docs/grafana-cloud/alerting-and-irm/alerting/fundamentals/alertmanager"
-{{% /docs/reference %}}

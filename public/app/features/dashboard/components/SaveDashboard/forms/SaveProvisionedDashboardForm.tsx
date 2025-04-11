@@ -1,8 +1,9 @@
 import { css } from '@emotion/css';
 import { saveAs } from 'file-saver';
-import React, { useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { Button, ClipboardButton, HorizontalGroup, TextArea, Stack } from '@grafana/ui';
+import { Trans } from 'app/core/internationalization';
 
 import { SaveDashboardFormProps } from '../types';
 
@@ -52,13 +53,15 @@ export const SaveProvisionedDashboardForm = ({ dashboard, onCancel }: Omit<SaveD
         />
         <HorizontalGroup>
           <Button variant="secondary" onClick={onCancel} fill="outline">
-            Cancel
+            <Trans i18nKey="dashboard.save-provisioned-dashboard-form.cancel">Cancel</Trans>
           </Button>
           <ClipboardButton icon="copy" getText={() => dashboardJSON}>
-            Copy JSON to clipboard
+            <Trans i18nKey="dashboard.save-provisioned-dashboard-form.copy-json-to-clipboard">
+              Copy JSON to clipboard
+            </Trans>
           </ClipboardButton>
           <Button type="submit" onClick={saveToFile}>
-            Save JSON to file
+            <Trans i18nKey="dashboard.save-provisioned-dashboard-form.save-json-to-file">Save JSON to file</Trans>
           </Button>
         </HorizontalGroup>
       </Stack>
@@ -67,11 +70,11 @@ export const SaveProvisionedDashboardForm = ({ dashboard, onCancel }: Omit<SaveD
 };
 
 const styles = {
-  json: css`
-    height: 400px;
-    width: 100%;
-    overflow: auto;
-    resize: none;
-    font-family: monospace;
-  `,
+  json: css({
+    height: '400px',
+    width: '100%',
+    overflow: 'auto',
+    resize: 'none',
+    fontFamily: 'monospace',
+  }),
 };

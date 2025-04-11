@@ -13,7 +13,6 @@ import (
 
 	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/plugins/manager/fakes"
-	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/util"
 )
 
@@ -51,6 +50,16 @@ func TestFinder_Find(t *testing.T) {
 							Dependencies: plugins.Dependencies{
 								GrafanaVersion: "*",
 								Plugins:        []plugins.Dependency{},
+								Extensions: plugins.ExtensionsDependencies{
+									ExposedComponents: []string{},
+								},
+							},
+							Extensions: plugins.Extensions{
+								AddedLinks:        []plugins.AddedLink{},
+								AddedComponents:   []plugins.AddedComponent{},
+								AddedFunctions:    []plugins.AddedFunction{},
+								ExposedComponents: []plugins.ExposedComponent{},
+								ExtensionPoints:   []plugins.ExtensionPoint{},
 							},
 							State:      plugins.ReleaseStateAlpha,
 							Backend:    true,
@@ -83,6 +92,17 @@ func TestFinder_Find(t *testing.T) {
 							Dependencies: plugins.Dependencies{
 								GrafanaVersion: "*",
 								Plugins:        []plugins.Dependency{},
+								Extensions: plugins.ExtensionsDependencies{
+									ExposedComponents: []string{},
+								},
+							},
+							Extensions: plugins.Extensions{
+								AddedLinks:      []plugins.AddedLink{},
+								AddedComponents: []plugins.AddedComponent{},
+								AddedFunctions:  []plugins.AddedFunction{},
+
+								ExposedComponents: []plugins.ExposedComponent{},
+								ExtensionPoints:   []plugins.ExtensionPoint{},
 							},
 						},
 						FS: mustNewStaticFSForTests(t, filepath.Join(testData, "duplicate-plugins/nested")),
@@ -105,6 +125,17 @@ func TestFinder_Find(t *testing.T) {
 								Dependencies: plugins.Dependencies{
 									GrafanaVersion: "*",
 									Plugins:        []plugins.Dependency{},
+									Extensions: plugins.ExtensionsDependencies{
+										ExposedComponents: []string{},
+									},
+								},
+								Extensions: plugins.Extensions{
+									AddedLinks:      []plugins.AddedLink{},
+									AddedComponents: []plugins.AddedComponent{},
+									AddedFunctions:  []plugins.AddedFunction{},
+
+									ExposedComponents: []plugins.ExposedComponent{},
+									ExtensionPoints:   []plugins.ExtensionPoint{},
 								},
 							},
 							FS: mustNewStaticFSForTests(t, filepath.Join(testData, "duplicate-plugins/nested/nested")),
@@ -148,25 +179,38 @@ func TestFinder_Find(t *testing.T) {
 							Dependencies: plugins.Dependencies{
 								GrafanaVersion: "3.x.x",
 								Plugins: []plugins.Dependency{
-									{ID: "graphite", Type: "datasource", Name: "Graphite", Version: "1.0.0"},
-									{ID: "graph", Type: "panel", Name: "Graph", Version: "1.0.0"},
+									{ID: "graphite", Type: "datasource", Name: "Graphite"},
+									{ID: "graph", Type: "panel", Name: "Graph"},
+								},
+								Extensions: plugins.ExtensionsDependencies{
+									ExposedComponents: []string{},
 								},
 							},
 							Includes: []*plugins.Includes{
 								{
-									Name: "Nginx Connections",
-									Path: "dashboards/connections.json",
-									Type: "dashboard",
-									Role: "Viewer",
+									Name:   "Nginx Connections",
+									Path:   "dashboards/connections.json",
+									Type:   "dashboard",
+									Role:   "Viewer",
+									Action: "plugins.app:access",
 								},
 								{
-									Name: "Nginx Memory",
-									Path: "dashboards/memory.json",
-									Type: "dashboard",
-									Role: "Viewer",
+									Name:   "Nginx Memory",
+									Path:   "dashboards/memory.json",
+									Type:   "dashboard",
+									Role:   "Viewer",
+									Action: "plugins.app:access",
 								},
-								{Name: "Nginx Panel", Type: "panel", Role: "Viewer"},
-								{Name: "Nginx Datasource", Type: "datasource", Role: "Viewer"},
+								{Name: "Nginx Panel", Type: "panel", Role: "Viewer", Action: "plugins.app:access"},
+								{Name: "Nginx Datasource", Type: "datasource", Role: "Viewer", Action: "plugins.app:access"},
+							},
+							Extensions: plugins.Extensions{
+								AddedLinks:      []plugins.AddedLink{},
+								AddedComponents: []plugins.AddedComponent{},
+								AddedFunctions:  []plugins.AddedFunction{},
+
+								ExposedComponents: []plugins.ExposedComponent{},
+								ExtensionPoints:   []plugins.ExtensionPoint{},
 							},
 						},
 						FS: mustNewStaticFSForTests(t, filepath.Join(testData, "includes-symlinks")),
@@ -196,6 +240,17 @@ func TestFinder_Find(t *testing.T) {
 							Dependencies: plugins.Dependencies{
 								GrafanaVersion: "*",
 								Plugins:        []plugins.Dependency{},
+								Extensions: plugins.ExtensionsDependencies{
+									ExposedComponents: []string{},
+								},
+							},
+							Extensions: plugins.Extensions{
+								AddedLinks:      []plugins.AddedLink{},
+								AddedComponents: []plugins.AddedComponent{},
+								AddedFunctions:  []plugins.AddedFunction{},
+
+								ExposedComponents: []plugins.ExposedComponent{},
+								ExtensionPoints:   []plugins.ExtensionPoint{},
 							},
 						},
 						FS: mustNewStaticFSForTests(t, filepath.Join(testData, "duplicate-plugins/nested")),
@@ -218,6 +273,17 @@ func TestFinder_Find(t *testing.T) {
 								Dependencies: plugins.Dependencies{
 									GrafanaVersion: "*",
 									Plugins:        []plugins.Dependency{},
+									Extensions: plugins.ExtensionsDependencies{
+										ExposedComponents: []string{},
+									},
+								},
+								Extensions: plugins.Extensions{
+									AddedLinks:      []plugins.AddedLink{},
+									AddedComponents: []plugins.AddedComponent{},
+									AddedFunctions:  []plugins.AddedFunction{},
+
+									ExposedComponents: []plugins.ExposedComponent{},
+									ExtensionPoints:   []plugins.ExtensionPoint{},
 								},
 							},
 							FS: mustNewStaticFSForTests(t, filepath.Join(testData, "duplicate-plugins/nested/nested")),
@@ -240,6 +306,17 @@ func TestFinder_Find(t *testing.T) {
 							Dependencies: plugins.Dependencies{
 								GrafanaVersion: "*",
 								Plugins:        []plugins.Dependency{},
+								Extensions: plugins.ExtensionsDependencies{
+									ExposedComponents: []string{},
+								},
+							},
+							Extensions: plugins.Extensions{
+								AddedLinks:      []plugins.AddedLink{},
+								AddedComponents: []plugins.AddedComponent{},
+								AddedFunctions:  []plugins.AddedFunction{},
+
+								ExposedComponents: []plugins.ExposedComponent{},
+								ExtensionPoints:   []plugins.ExtensionPoint{},
 							},
 							State:   plugins.ReleaseStateAlpha,
 							Backend: true,
@@ -271,6 +348,17 @@ func TestFinder_Find(t *testing.T) {
 							Dependencies: plugins.Dependencies{
 								GrafanaVersion: "*",
 								Plugins:        []plugins.Dependency{},
+								Extensions: plugins.ExtensionsDependencies{
+									ExposedComponents: []string{},
+								},
+							},
+							Extensions: plugins.Extensions{
+								AddedLinks:      []plugins.AddedLink{},
+								AddedComponents: []plugins.AddedComponent{},
+								AddedFunctions:  []plugins.AddedFunction{},
+
+								ExposedComponents: []plugins.ExposedComponent{},
+								ExtensionPoints:   []plugins.ExtensionPoint{},
 							},
 							State:      plugins.ReleaseStateAlpha,
 							Backend:    true,
@@ -284,7 +372,7 @@ func TestFinder_Find(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := NewLocalFinder(false, featuremgmt.WithFeatures(featuremgmt.FlagExternalCorePlugins))
+			f := NewLocalFinder(false)
 			pluginBundles, err := f.Find(context.Background(), &fakes.FakePluginSource{
 				PluginClassFunc: func(ctx context.Context) plugins.Class {
 					return tc.pluginClass
@@ -320,7 +408,7 @@ func TestFinder_getAbsPluginJSONPaths(t *testing.T) {
 			walk = origWalk
 		})
 
-		finder := NewLocalFinder(false, featuremgmt.WithFeatures())
+		finder := NewLocalFinder(false)
 		paths, err := finder.getAbsPluginJSONPaths("test")
 		require.NoError(t, err)
 		require.Empty(t, paths)
@@ -335,7 +423,7 @@ func TestFinder_getAbsPluginJSONPaths(t *testing.T) {
 			walk = origWalk
 		})
 
-		finder := NewLocalFinder(false, featuremgmt.WithFeatures())
+		finder := NewLocalFinder(false)
 		paths, err := finder.getAbsPluginJSONPaths("test")
 		require.NoError(t, err)
 		require.Empty(t, paths)
@@ -350,7 +438,7 @@ func TestFinder_getAbsPluginJSONPaths(t *testing.T) {
 			walk = origWalk
 		})
 
-		finder := NewLocalFinder(false, featuremgmt.WithFeatures())
+		finder := NewLocalFinder(false)
 		paths, err := finder.getAbsPluginJSONPaths("test")
 		require.Error(t, err)
 		require.Empty(t, paths)

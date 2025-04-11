@@ -1,10 +1,11 @@
-import { PluginMeta, patchArrayVectorProrotypeMethods } from '@grafana/data';
+import { PluginType, patchArrayVectorProrotypeMethods } from '@grafana/data';
+import { config } from '@grafana/runtime';
 
 import { transformPluginSourceForCDN } from '../cdn/utils';
 import { resolveWithCache } from '../loader/cache';
 import { isHostedOnCDN, resolveModulePath } from '../loader/utils';
 
-import { SandboxEnvironment } from './types';
+import { SandboxEnvironment, SandboxPluginMeta } from './types';
 
 function isSameDomainAsHost(url: string): boolean {
   const locationUrl = new URL(window.location.href);
@@ -12,7 +13,7 @@ function isSameDomainAsHost(url: string): boolean {
   return locationUrl.host === paramUrl.host;
 }
 
-export async function loadScriptIntoSandbox(url: string, meta: PluginMeta, sandboxEnv: SandboxEnvironment) {
+export async function loadScriptIntoSandbox(url: string, sandboxEnv: SandboxEnvironment) {
   let scriptCode = '';
 
   // same-domain
@@ -46,12 +47,17 @@ export async function loadScriptIntoSandbox(url: string, meta: PluginMeta, sandb
   sandboxEnv.evaluate(scriptCode);
 }
 
-export async function getPluginCode(meta: PluginMeta): Promise<string> {
+export async function getPluginCode(meta: SandboxPluginMeta): Promise<string> {
   if (isHostedOnCDN(meta.module)) {
     // Load plugin from CDN, no need for "resolveWithCache" as CDN URLs already include the version
     const url = meta.module;
     const response = await fetch(url);
+
     let pluginCode = await response.text();
+    if (!verifySRI(pluginCode, meta.moduleHash)) {
+      throw new Error('Invalid SRI for plugin module file');
+    }
+
     pluginCode = transformPluginSourceForCDN({
       url,
       source: pluginCode,
@@ -65,7 +71,12 @@ export async function getPluginCode(meta: PluginMeta): Promise<string> {
     // to ensure correct cached version is served for local plugins
     const pluginCodeUrl = resolveWithCache(modulePath);
     const response = await fetch(pluginCodeUrl);
+
     let pluginCode = await response.text();
+    if (!verifySRI(pluginCode, meta.moduleHash)) {
+      throw new Error('Invalid SRI for plugin module file');
+    }
+
     pluginCode = transformPluginSourceForCDN({
       url: pluginCodeUrl,
       source: pluginCode,
@@ -75,6 +86,27 @@ export async function getPluginCode(meta: PluginMeta): Promise<string> {
     pluginCode = patchPluginAPIs(pluginCode);
     return pluginCode;
   }
+}
+
+async function verifySRI(pluginCode: string, moduleHash?: string): Promise<boolean> {
+  if (!config.featureToggles.pluginsSriChecks) {
+    return true;
+  }
+
+  if (!moduleHash || moduleHash.length === 0) {
+    return true;
+  }
+
+  const [algorithm, _] = moduleHash.split('-');
+  const cleanAlgorithm = algorithm.replace('sha', 'SHA-');
+
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pluginCode);
+
+  const digest = await crypto.subtle.digest(cleanAlgorithm, data);
+  const actualHash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+
+  return `${algorithm}-${actualHash}` === moduleHash;
 }
 
 function patchPluginAPIs(pluginCode: string): string {
@@ -87,4 +119,35 @@ export function patchSandboxEnvironmentPrototype(sandboxEnvironment: SandboxEnvi
   sandboxEnvironment.evaluate(
     `${patchArrayVectorProrotypeMethods.toString()};${patchArrayVectorProrotypeMethods.name}()`
   );
+}
+
+export function getPluginLoadData(pluginId: string): SandboxPluginMeta {
+  // find it in datasources
+  for (const datasource of Object.values(config.datasources)) {
+    if (datasource.type === pluginId) {
+      return datasource.meta;
+    }
+  }
+
+  //find it in panels
+  for (const panel of Object.values(config.panels)) {
+    if (panel.id === pluginId) {
+      return panel;
+    }
+  }
+
+  //find it in apps
+  //the information inside the apps object is more limited
+  for (const app of Object.values(config.apps)) {
+    if (app.id === pluginId) {
+      return {
+        id: pluginId,
+        type: PluginType.app,
+        module: app.path,
+        moduleHash: app.moduleHash,
+      };
+    }
+  }
+
+  throw new Error(`Could not find plugin ${pluginId}`);
 }

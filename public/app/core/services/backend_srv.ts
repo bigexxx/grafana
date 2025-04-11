@@ -15,24 +15,20 @@ import {
 } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 
-import { AppEvents, DataQueryErrorType } from '@grafana/data';
+import { AppEvents, DataQueryErrorType, deprecationWarning } from '@grafana/data';
 import { BackendSrv as BackendService, BackendSrvRequest, config, FetchError, FetchResponse } from '@grafana/runtime';
 import appEvents from 'app/core/app_events';
 import { getConfig } from 'app/core/config';
 import { getSessionExpiry, hasSessionExpiry } from 'app/core/utils/auth';
 import { loadUrlToken } from 'app/core/utils/urlToken';
-import { DashboardModel } from 'app/features/dashboard/state';
+import { getDashboardAPI } from 'app/features/dashboard/api/dashboard_api';
+import { DashboardModel } from 'app/features/dashboard/state/DashboardModel';
 import { DashboardSearchItem } from 'app/features/search/types';
 import { TokenRevokedModal } from 'app/features/users/TokenRevokedModal';
 import { DashboardDTO, FolderDTO } from 'app/types';
 
 import { ShowModalReactEvent } from '../../types/events';
-import {
-  isContentTypeApplicationJson,
-  parseInitFromOptions,
-  parseResponseBody,
-  parseUrlFromOptions,
-} from '../utils/fetch';
+import { isContentTypeJson, parseInitFromOptions, parseResponseBody, parseUrlFromOptions } from '../utils/fetch';
 import { isDataQuery, isLocalUrl } from '../utils/query';
 
 import { FetchQueue } from './FetchQueue';
@@ -107,7 +103,7 @@ export class BackendSrv implements BackendService {
     }
   }
 
-  async request<T = any>(options: BackendSrvRequest): Promise<T> {
+  async request<T = unknown>(options: BackendSrvRequest): Promise<T> {
     return await lastValueFrom(this.fetch<T>(options).pipe(map((response: FetchResponse<T>) => response.data)));
   }
 
@@ -142,6 +138,84 @@ export class BackendSrv implements BackendService {
 
         // When subscriptions is unsubscribed all the implicitly added subscriptions above are also unsubscribed.
         subscriptions.unsubscribe();
+      };
+    });
+  }
+
+  chunkRequestId = 1;
+
+  chunked(options: BackendSrvRequest): Observable<FetchResponse<Uint8Array | undefined>> {
+    const requestId = options.requestId ?? `chunked-${this.chunkRequestId++}`;
+    const controller = new AbortController();
+    const url = parseUrlFromOptions(options);
+    const init = parseInitFromOptions({
+      ...options,
+      requestId,
+      abortSignal: controller.signal,
+    });
+
+    return new Observable((observer) => {
+      let done = false;
+      // Calling fromFetch explicitly avoids the request queue
+      const sub = this.dependencies.fromFetch(url, init).subscribe({
+        next: (response) => {
+          const rsp = {
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok,
+            headers: response.headers,
+            url: response.url,
+            type: response.type,
+            redirected: response.redirected,
+            config: options,
+            traceId: response.headers.get(GRAFANA_TRACEID_HEADER) ?? undefined,
+            data: undefined,
+          };
+
+          if (!response.body) {
+            observer.next(rsp);
+            observer.complete();
+            return;
+          }
+
+          const reader = response.body.getReader();
+          async function process() {
+            while (reader && !done) {
+              if (controller.signal.aborted) {
+                reader.cancel(controller.signal.reason);
+                console.log(requestId, 'signal.aborted');
+                return;
+              }
+              const chunk = await reader.read();
+              observer.next({
+                ...rsp,
+                data: chunk.value,
+              });
+              if (chunk.done) {
+                done = true;
+                console.log(requestId, 'done');
+              }
+            }
+          }
+          process()
+            .then(() => {
+              console.log(requestId, 'complete');
+              observer.complete();
+            }) // runs in background
+            .catch((e) => {
+              console.log(requestId, 'catch', e);
+              observer.error(e);
+            }); // from abort
+        },
+        error: (e) => {
+          observer.error(e);
+        },
+      });
+
+      return function unsubscribe() {
+        console.log(requestId, 'unsubscribe');
+        controller.abort('unsubscribe');
+        sub.unsubscribe();
       };
     });
   }
@@ -181,8 +255,8 @@ export class BackendSrv implements BackendService {
     this.inFlightRequests.next(CANCEL_ALL_REQUESTS_REQUEST_ID);
   }
 
-  async datasourceRequest(options: BackendSrvRequest): Promise<any> {
-    return lastValueFrom(this.fetch(options));
+  async datasourceRequest<T = unknown>(options: BackendSrvRequest) {
+    return lastValueFrom(this.fetch<T>(options));
   }
 
   private parseRequestOptions(options: BackendSrvRequest): BackendSrvRequest {
@@ -228,7 +302,7 @@ export class BackendSrv implements BackendService {
       mergeMap(async (response) => {
         const { status, statusText, ok, headers, url, type, redirected } = response;
 
-        const responseType = options.responseType ?? (isContentTypeApplicationJson(headers) ? 'json' : undefined);
+        const responseType = options.responseType ?? (isContentTypeJson(headers) ? 'json' : undefined);
 
         const data = await parseResponseBody<T>(response, responseType);
         const fetchResponse: FetchResponse<T> = {
@@ -273,6 +347,16 @@ export class BackendSrv implements BackendService {
   }
 
   showErrorAlert(config: BackendSrvRequest, err: FetchError) {
+    // do not show non-user error alerts for api keys or render tokens, they are used for kiosk mode and reporting and can't react to error pop-ups
+    if (
+      (err.status < 400 || err.status >= 500) &&
+      this.dependencies.contextSrv.isSignedIn &&
+      (this.dependencies.contextSrv.user.authenticatedBy === 'apikey' ||
+        this.dependencies.contextSrv.user.authenticatedBy === 'render')
+    ) {
+      return;
+    }
+
     if (config.showErrorAlert === false) {
       return;
     }
@@ -371,7 +455,7 @@ export class BackendSrv implements BackendService {
 
     return (inputStream) =>
       inputStream.pipe(
-        retryWhen((attempts: Observable<any>) =>
+        retryWhen((attempts) =>
           attempts.pipe(
             mergeMap((error, i) => {
               const firstAttempt = i === 0 && options.retry === 0;
@@ -386,6 +470,7 @@ export class BackendSrv implements BackendService {
                       },
                     })
                   );
+                  this.dependencies.contextSrv.setRedirectToUrl();
                   return throwError(() => error);
                 }
 
@@ -508,12 +593,16 @@ export class BackendSrv implements BackendService {
   }
 
   /** @deprecated */
-  search(query: any): Promise<DashboardSearchItem[]> {
+  search(query: Parameters<typeof this.get>[1]): Promise<DashboardSearchItem[]> {
     return this.get('/api/search', query);
   }
 
+  /** @deprecated */
   getDashboardByUid(uid: string): Promise<DashboardDTO> {
-    return this.get<DashboardDTO>(`/api/dashboards/uid/${uid}`);
+    // NOTE: When this is removed, we can also remove most instances of:
+    // jest.mock('app/features/live/dashboard/dashboardWatcher
+    deprecationWarning('backend_srv', 'getDashboardByUid(uid)', 'getDashboardAPI().getDashboardDTO(uid)');
+    return getDashboardAPI('v1').getDashboardDTO(uid);
   }
 
   validateDashboard(dashboard: DashboardModel): Promise<ValidateDashboardResponse> {
@@ -522,7 +611,7 @@ export class BackendSrv implements BackendService {
     //  config.featureToggles.showDashboardValidationWarnings
     return Promise.resolve({
       isValid: false,
-      message: 'dashboard validation is supported',
+      message: 'dashboard validation is not supported',
     });
   }
 

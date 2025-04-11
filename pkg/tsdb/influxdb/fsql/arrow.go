@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"runtime/debug"
 	"time"
 
-	"github.com/apache/arrow/go/v15/arrow"
-	"github.com/apache/arrow/go/v15/arrow/array"
-	"github.com/apache/arrow/go/v15/arrow/scalar"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/scalar"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
@@ -151,6 +152,9 @@ func newField(f arrow.Field) *data.Field {
 		return newDataField[time.Time](f)
 	case arrow.DURATION:
 		return newDataField[int64](f)
+	case arrow.LIST:
+		nestedType := f.Type.(*arrow.ListType).ElemField()
+		return newField(nestedType)
 	default:
 		return newDataField[json.RawMessage](f)
 	}
@@ -166,6 +170,8 @@ func newDataField[T any](f arrow.Field) *data.Field {
 }
 
 // copyData copies the contents of an Arrow column into a Data Frame field.
+//
+//nolint:gocyclo
 func copyData(field *data.Field, col arrow.Array) error {
 	defer func() {
 		if r := recover(); r != nil {
@@ -174,7 +180,6 @@ func copyData(field *data.Field, col arrow.Array) error {
 	}()
 
 	colData := col.Data()
-
 	switch col.DataType().ID() {
 	case arrow.TIMESTAMP:
 		v := array.NewTimestampData(colData)
@@ -221,6 +226,19 @@ func copyData(field *data.Field, col arrow.Array) error {
 			}
 			field.Append(json.RawMessage(b))
 		}
+	case arrow.LIST:
+		v := array.NewListData(colData)
+		for i := 0; i < v.Len(); i++ {
+			sc, err := scalar.GetScalar(v, i)
+			if err != nil {
+				return err
+			}
+
+			err = copyData(field, sc.(*scalar.List).Value)
+			if err != nil {
+				return err
+			}
+		}
 	case arrow.STRING:
 		copyBasic[string](field, array.NewStringData(colData))
 	case arrow.UINT8:
@@ -248,7 +266,8 @@ func copyData(field *data.Field, col arrow.Array) error {
 	case arrow.DURATION:
 		copyBasic[int64](field, array.NewInt64Data(colData))
 	default:
-		fmt.Printf("datatype %s is unhandled", col.DataType().ID())
+		// FIXME: Should this return an error instead?
+		slog.Error("datatype is unhandled", "type", col.DataType().ID())
 	}
 
 	return nil

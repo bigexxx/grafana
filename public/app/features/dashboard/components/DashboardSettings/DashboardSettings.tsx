@@ -1,14 +1,14 @@
 import * as H from 'history';
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom-v5-compat';
 
 import { locationUtil, NavModel, NavModelItem } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { locationService } from '@grafana/runtime';
-import { Button, ToolbarButtonRow } from '@grafana/ui';
+import { Button, Stack, Text, ToolbarButtonRow } from '@grafana/ui';
 import { AppChromeUpdate } from 'app/core/components/AppChrome/AppChromeUpdate';
 import { Page } from 'app/core/components/Page/Page';
-import { t } from 'app/core/internationalization';
+import { t, Trans } from 'app/core/internationalization';
 import { contextSrv } from 'app/core/services/context_srv';
 import { AccessControlAction } from 'app/types';
 import { DashboardMetaChangedEvent } from 'app/types/events';
@@ -53,7 +53,7 @@ export function DashboardSettings({ dashboard, editview, pageNav, sectionNav }: 
   const canSave = dashboard.meta.canSave;
   const location = useLocation();
   const editIndex = getEditIndex(location);
-  const subSectionNav = getSectionNav(pageNav, sectionNav, pages, currentPage, location);
+  const subSectionNav = getSectionNav(pageNav, sectionNav, pages, currentPage, location, dashboard.uid);
   const size = 'sm';
 
   const actions = [
@@ -65,7 +65,7 @@ export function DashboardSettings({ dashboard, editview, pageNav, sectionNav }: 
       size={size}
       onClick={onClose}
     >
-      Close
+      <Trans i18nKey="dashboard.dashboard-settings.actions.close">Close</Trans>
     </Button>,
     canSaveAs && (
       <SaveDashboardAsButton
@@ -134,7 +134,7 @@ function getSettingsPages(dashboard: DashboardModel) {
     });
   }
 
-  if (dashboard.id && dashboard.meta.canSave) {
+  if (dashboard.uid && dashboard.meta.canSave) {
     pages.push({
       title: t('dashboard-settings.versions.title', 'Versions'),
       id: 'versions',
@@ -145,7 +145,7 @@ function getSettingsPages(dashboard: DashboardModel) {
 
   const permissionsTitle = t('dashboard-settings.permissions.title', 'Permissions');
 
-  if (dashboard.id && dashboard.meta.canAdmin) {
+  if (dashboard.uid && dashboard.meta.canAdmin) {
     if (contextSrv.hasPermission(AccessControlAction.DashboardsPermissionsRead)) {
       pages.push({
         title: permissionsTitle,
@@ -178,7 +178,8 @@ function getSectionNav(
   sectionNav: NavModel,
   pages: SettingsPage[],
   currentPage: SettingsPage,
-  location: H.Location
+  location: H.Location,
+  dashboardUid: string
 ): NavModel {
   const main: NavModelItem = {
     text: t('dashboard-settings.settings.title', 'Settings'),
@@ -191,14 +192,14 @@ function getSectionNav(
   main.children = pages.map((page) => ({
     text: page.title,
     icon: page.icon,
-    id: page.id,
+    id: `${dashboardUid}/${page.id}`,
     url: locationUtil.getUrlForPartial(location, { editview: page.id, editIndex: null }),
     active: page === currentPage,
     parentItem: main,
     subTitle: page.subTitle,
   }));
 
-  const pageNavWithSectionParent = applySectionAsParent(pageNav, sectionNav.node);
+  const pageNavWithSectionParent = applySectionAsParent(pageNav, sectionNav.main);
 
   main.parentItem = pageNavWithSectionParent;
 
@@ -211,10 +212,14 @@ function getSectionNav(
 function MakeEditable({ dashboard, sectionNav }: SettingsPageProps) {
   return (
     <Page navModel={sectionNav}>
-      <div className="dashboard-settings__header">Dashboard not editable</div>
-      <Button type="submit" onClick={() => dashboard.makeEditable()}>
-        Make editable
-      </Button>
+      <Stack direction="column" gap={2} alignItems="flex-start">
+        <Text variant="h3">
+          <Trans i18nKey="dashboard.make-editable.dashboard-not-editable">Dashboard not editable</Trans>
+        </Text>
+        <Button type="submit" onClick={() => dashboard.makeEditable()}>
+          <Trans i18nKey="dashboard.make-editable.make-editable">Make editable</Trans>
+        </Button>
+      </Stack>
     </Page>
   );
 }

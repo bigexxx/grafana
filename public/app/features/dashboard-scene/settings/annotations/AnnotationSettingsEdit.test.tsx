@@ -1,6 +1,5 @@
 import { act, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React from 'react';
 import { of } from 'rxjs';
 
 import {
@@ -31,19 +30,6 @@ const promDatasource = mockDataSource({
 
 jest.mock('@grafana/runtime', () => ({
   ...jest.requireActual('@grafana/runtime'),
-  getAngularLoader: () => ({
-    load: () => ({
-      destroy: jest.fn(),
-      digest: jest.fn(),
-      getScope: () => ({
-        $watch: jest.fn(),
-      }),
-    }),
-  }),
-}));
-
-jest.mock('@grafana/runtime/src/services/dataSourceSrv', () => ({
-  ...jest.requireActual('@grafana/runtime/src/services/dataSourceSrv'),
   getDataSourceSrv: () => ({
     get: async () => ({
       ...defaultDatasource,
@@ -57,8 +43,6 @@ jest.mock('@grafana/runtime/src/services/dataSourceSrv', () => ({
     getInstanceSettings: () => ({ ...defaultDatasource }),
   }),
 }));
-
-jest.mock('./AngularEditorLoader', () => ({ AngularEditorLoader: () => 'mocked AngularEditorLoader' }));
 
 const runRequestMock = jest.fn().mockReturnValue(
   of<PanelData>({

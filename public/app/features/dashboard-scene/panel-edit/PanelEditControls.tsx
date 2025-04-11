@@ -1,8 +1,6 @@
-import React from 'react';
-
 import { selectors } from '@grafana/e2e-selectors';
-import { config } from '@grafana/runtime';
 import { InlineSwitch } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { PanelEditor } from './PanelEditor';
 
@@ -11,20 +9,21 @@ export interface Props {
 }
 
 export function PanelEditControls({ panelEditor }: Props) {
-  const vizManager = panelEditor.state.vizManager;
-  const { panel, tableView } = vizManager.useState();
-  const skipDataQuery = config.panels[panel.state.pluginId].skipDataQuery;
+  const { tableView, dataPane } = panelEditor.useState();
 
   return (
     <>
-      {!skipDataQuery && (
+      {dataPane && (
         <InlineSwitch
-          label="Table view"
+          label={t('dashboard-scene.panel-edit-controls.table-view-label-table-view', 'Table view')}
           showLabel={true}
           id="table-view"
           value={tableView ? true : false}
-          onClick={() => vizManager.toggleTableView()}
-          aria-label="toggle-table-view"
+          onClick={panelEditor.onToggleTableView}
+          aria-label={t(
+            'dashboard-scene.panel-edit-controls.table-view-aria-label-toggletableview',
+            'Toggle table view'
+          )}
           data-testid={selectors.components.PanelEditor.toggleTableView}
         />
       )}

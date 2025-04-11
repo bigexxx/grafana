@@ -9,7 +9,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
 	typesv1 "github.com/grafana/pyroscope/api/gen/proto/go/types/v1"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	querierv1 "github.com/grafana/pyroscope/api/gen/proto/go/querier/v1"
 	"github.com/grafana/pyroscope/api/gen/proto/go/querier/v1/querierv1connect"
 	"go.opentelemetry.io/otel/attribute"
@@ -98,7 +98,7 @@ func (c *PyroscopeClient) ProfileTypes(ctx context.Context, start int64, end int
 	}
 }
 
-func (c *PyroscopeClient) GetSeries(ctx context.Context, profileTypeID string, labelSelector string, start int64, end int64, groupBy []string, step float64) (*SeriesResponse, error) {
+func (c *PyroscopeClient) GetSeries(ctx context.Context, profileTypeID string, labelSelector string, start int64, end int64, groupBy []string, limit *int64, step float64) (*SeriesResponse, error) {
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.pyroscope.GetSeries", trace.WithAttributes(attribute.String("profileTypeID", profileTypeID), attribute.String("labelSelector", labelSelector)))
 	defer span.End()
 	req := connect.NewRequest(&querierv1.SelectSeriesRequest{
@@ -108,6 +108,7 @@ func (c *PyroscopeClient) GetSeries(ctx context.Context, profileTypeID string, l
 		End:           end,
 		Step:          step,
 		GroupBy:       groupBy,
+		Limit:         limit,
 	})
 
 	resp, err := c.connectClient.SelectSeries(ctx, req)
@@ -256,6 +257,10 @@ func (c *PyroscopeClient) LabelNames(ctx context.Context, labelSelector string, 
 		return nil, fmt.Errorf("error sending LabelNames request %v", err)
 	}
 
+	if resp.Msg.Names == nil {
+		return []string{}, nil
+	}
+
 	var filtered []string
 	for _, label := range resp.Msg.Names {
 		if !isPrivateLabel(label) {
@@ -280,6 +285,9 @@ func (c *PyroscopeClient) LabelValues(ctx context.Context, label string, labelSe
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return nil, err
+	}
+	if resp.Msg.Names == nil {
+		return []string{}, nil
 	}
 	return resp.Msg.Names, nil
 }

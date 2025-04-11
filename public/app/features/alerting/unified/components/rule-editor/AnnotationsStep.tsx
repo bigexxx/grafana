@@ -1,19 +1,21 @@
 import { css, cx } from '@emotion/css';
 import { produce } from 'immer';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFieldArray, useFormContext } from 'react-hook-form';
 import { useToggle } from 'react-use';
 
 import { GrafanaTheme2 } from '@grafana/data';
-import { Button, Field, Input, Text, TextArea, useStyles2, Stack } from '@grafana/ui';
+import { Button, Field, Input, Stack, Text, TextArea, useStyles2 } from '@grafana/ui';
+import { Trans, t } from 'app/core/internationalization';
 
-import { DashboardModel } from '../../../../dashboard/state';
+import { DashboardModel } from '../../../../dashboard/state/DashboardModel';
 import { RuleFormValues } from '../../types/rule-form';
 import { Annotation, annotationLabels } from '../../utils/constants';
+import { isGrafanaManagedRuleByType } from '../../utils/rules';
 
 import AnnotationHeaderField from './AnnotationHeaderField';
 import DashboardAnnotationField from './DashboardAnnotationField';
-import { DashboardPicker, getVisualPanels, PanelDTO } from './DashboardPicker';
+import { DashboardPicker, PanelDTO, getVisualPanels } from './DashboardPicker';
 import { NeedHelpInfo } from './NeedHelpInfo';
 import { RuleEditorSection } from './RuleEditorSection';
 import { useDashboardQuery } from './useDashboardQuery';
@@ -30,6 +32,7 @@ const AnnotationsStep = () => {
     setValue,
   } = useFormContext<RuleFormValues>();
   const annotations = watch('annotations');
+  const type = watch('type');
 
   const { fields, append, remove } = useFieldArray({ control, name: 'annotations' });
 
@@ -90,22 +93,50 @@ const AnnotationsStep = () => {
 
   function getAnnotationsSectionDescription() {
     return (
-      <Stack direction="row" gap={0.5} alignItems="baseline">
+      <Stack direction="row" gap={0.5} alignItems="center">
         <Text variant="bodySmall" color="secondary">
-          Add more context in your notification messages.
+          <Trans i18nKey="alerting.annotations.description">Add more context to your alert notifications.</Trans>
         </Text>
         <NeedHelpInfo
-          contentText={`Annotations add metadata to provide more information on the alert in your alert notification messages. 
-          For example, add a Summary annotation to tell you which value caused the alert to fire or which server it happened on. 
-          Annotations can contain a combination of text and template code.`}
-          title="Annotations"
+          externalLink={
+            'https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rules/annotation-label/#annotations'
+          }
+          linkText={`Read about annotations`}
+          contentText={
+            <>
+              <p>
+                {t(
+                  'alerting.rule-form.annotations.description1',
+                  'Annotations add additional information to alerts, helping alert responders identify and address potential issues.'
+                )}
+              </p>
+              <p>
+                {t(
+                  'alerting.rule-form.annotations.description2',
+                  'For example, add a Summary annotation to tell you which value caused the alert to fire or which server it happened on.'
+                )}
+              </p>
+              {t(
+                'alerting.rule-form.annotations.description3',
+                'Annotations can contain a combination of text and template code, which is used to include data from queries.'
+              )}
+            </>
+          }
+          title={t('alerting.annotations-step.get-annotations-section-description.title-annotations', 'Annotations')}
         />
       </Stack>
     );
   }
+  // when using Grafana managed rules, the annotations step is the 6th step, as we have an additional step for the configure labels and notifications
+  const step = isGrafanaManagedRuleByType(type) ? 6 : 5;
 
   return (
-    <RuleEditorSection stepNo={5} title="Add annotations" description={getAnnotationsSectionDescription()} fullWidth>
+    <RuleEditorSection
+      stepNo={step}
+      title={t('alerting.annotations.title', 'Configure notification message')}
+      description={getAnnotationsSectionDescription()}
+      fullWidth
+    >
       <Stack direction="column" gap={1}>
         {fields.map((annotationField, index: number) => {
           const isUrl = annotations[index]?.key?.toLocaleLowerCase().endsWith('url');
@@ -120,6 +151,7 @@ const AnnotationsStep = () => {
                   annotations={annotations}
                   annotation={annotation}
                   index={index}
+                  labelId={`annotation-${index}`}
                 />
                 {selectedDashboardUid && selectedPanelId && annotationField.key === Annotation.dashboardUID && (
                   <DashboardAnnotationField
@@ -144,6 +176,7 @@ const AnnotationsStep = () => {
                     >
                       <ValueInputComponent
                         data-testid={`annotation-value-${index}`}
+                        id={`annotation-${index}`}
                         className={cx(styles.annotationValueInput, { [styles.textarea]: !isUrl })}
                         {...register(`annotations.${index}.value`)}
                         placeholder={
@@ -159,7 +192,7 @@ const AnnotationsStep = () => {
                       <Button
                         type="button"
                         className={styles.deleteAnnotationButton}
-                        aria-label="delete annotation"
+                        aria-label={t('alerting.annotations-step.aria-label-delete-annotation', 'delete annotation')}
                         icon="trash-alt"
                         variant="secondary"
                         onClick={() => remove(index)}
@@ -181,11 +214,11 @@ const AnnotationsStep = () => {
                 append({ key: '', value: '' });
               }}
             >
-              Add custom annotation
+              <Trans i18nKey="alerting.annotations-step.add-custom-annotation">Add custom annotation</Trans>
             </Button>
             {!selectedDashboard && (
               <Button type="button" variant="secondary" icon="dashboard" onClick={() => setShowPanelSelector(true)}>
-                Link dashboard and panel
+                <Trans i18nKey="alerting.annotations-step.link-dashboard-and-panel">Link dashboard and panel</Trans>
               </Button>
             )}
           </div>
@@ -205,50 +238,50 @@ const AnnotationsStep = () => {
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  annotationValueInput: css`
-    width: 394px;
-  `,
-  textarea: css`
-    height: 76px;
-  `,
-  addAnnotationsButtonContainer: css`
-    margin-top: ${theme.spacing(1)};
-    gap: ${theme.spacing(1)};
-    display: flex;
-  `,
-  field: css`
-    margin-bottom: ${theme.spacing(0.5)};
-  `,
-  flexRow: css`
-    display: flex;
-    flex-direction: row;
-    justify-content: flex-start;
-  `,
-  flexRowItemMargin: css`
-    margin-top: ${theme.spacing(1)};
-  `,
-  deleteAnnotationButton: css`
-    display: inline-block;
-    margin-top: 10px;
-    margin-left: 10px;
-  `,
+  annotationValueInput: css({
+    width: '394px',
+  }),
+  textarea: css({
+    height: '76px',
+  }),
+  addAnnotationsButtonContainer: css({
+    marginTop: theme.spacing(1),
+    gap: theme.spacing(1),
+    display: 'flex',
+  }),
+  field: css({
+    marginBottom: theme.spacing(0.5),
+  }),
+  flexRow: css({
+    display: 'flex',
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  }),
+  flexRowItemMargin: css({
+    marginTop: theme.spacing(1),
+  }),
+  deleteAnnotationButton: css({
+    display: 'inline-block',
+    marginTop: '10px',
+    marginLeft: '10px',
+  }),
 
-  annotationTitle: css`
-    color: ${theme.colors.text.primary};
-    margin-bottom: 3px;
-  `,
+  annotationTitle: css({
+    color: theme.colors.text.primary,
+    marginBottom: '3px',
+  }),
 
-  annotationContainer: css`
-    margin-top: 5px;
-  `,
+  annotationContainer: css({
+    marginTop: '5px',
+  }),
 
-  annotationDescription: css`
-    color: ${theme.colors.text.secondary};
-  `,
+  annotationDescription: css({
+    color: theme.colors.text.secondary,
+  }),
 
-  annotationValueContainer: css`
-    display: flex;
-  `,
+  annotationValueContainer: css({
+    display: 'flex',
+  }),
 });
 
 export default AnnotationsStep;

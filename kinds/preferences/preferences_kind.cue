@@ -27,11 +27,17 @@ lineage: schemas: [{
 			// Selected language (beta)
 			language?: string
 
+			// Selected locale (beta)
+			locale?: string
+
 			// Explore query history preferences
 			queryHistory?: #QueryHistoryPreference
 
 			// Cookie preferences
 			cookiePreferences?: #CookiePreferences
+
+			// Navigation preferences
+			navbar?: #NavbarPreference
 		} @cuetsy(kind="interface")
 
 		#QueryHistoryPreference: {
@@ -43,6 +49,10 @@ lineage: schemas: [{
 			analytics?: {}
 			performance?: {}
 			functional?: {}
+		} @cuetsy(kind="interface")
+
+		#NavbarPreference: {
+			bookmarkUrls: [...string]
 		} @cuetsy(kind="interface")
 	}
 }]

@@ -1,10 +1,13 @@
-import React, { FormEvent, useCallback, useEffect, useState } from 'react';
+// Core Grafana history https://github.com/grafana/grafana/blob/v11.0.0-preview/public/app/plugins/datasource/prometheus/components/VariableQueryEditor.tsx
+import debounce from 'debounce-promise';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 
-import { QueryEditorProps, SelectableValue } from '@grafana/data';
+import { getDefaultTimeRange, QueryEditorProps, SelectableValue, toOption } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
-import { InlineField, InlineFieldRow, Input, Select, TextArea } from '@grafana/ui';
+import { AsyncSelect, InlineField, InlineFieldRow, Input, Select, TextArea } from '@grafana/ui';
 
 import { PrometheusDatasource } from '../datasource';
+import { truncateResult } from '../language_utils';
 import {
   migrateVariableEditorBackToVariableSupport,
   migrateVariableQueryToEditor,
@@ -55,7 +58,20 @@ export const PromVariableQueryEditor = ({ onChange, query, datasource, range }: 
   const [classicQuery, setClassicQuery] = useState('');
 
   // list of label names for label_values(), /api/v1/labels, contains the same results as label_names() function
-  const [labelOptions, setLabelOptions] = useState<Array<SelectableValue<string>>>([]);
+  const [truncatedLabelOptions, setTruncatedLabelOptions] = useState<Array<SelectableValue<string>>>([]);
+  const [allLabelOptions, setAllLabelOptions] = useState<Array<SelectableValue<string>>>([]);
+
+  /**
+   * Set the both allLabels and truncatedLabels
+   *
+   * @param names
+   * @param variables
+   */
+  function setLabels(names: SelectableValue[], variables: SelectableValue[]) {
+    setAllLabelOptions([...variables, ...names]);
+    const truncatedNames = truncateResult(names);
+    setTruncatedLabelOptions([...variables, ...truncatedNames]);
+  }
 
   // label filters have been added as a filter for metrics in label values query type
   const [labelFilters, setLabelFilters] = useState<QueryBuilderLabelFilter[]>([]);
@@ -95,24 +111,31 @@ export const PromVariableQueryEditor = ({ onChange, query, datasource, range }: 
       return;
     }
     const variables = datasource.getVariables().map((variable: string) => ({ label: variable, value: variable }));
+    let timeRange = range;
+    if (!timeRange) {
+      timeRange = getDefaultTimeRange();
+    }
+
     if (!metric) {
       // get all the labels
-      datasource.getTagKeys({ filters: [] }).then((labelNames: Array<{ text: string }>) => {
+      datasource.getTagKeys({ timeRange, filters: [] }).then((labelNames: Array<{ text: string }>) => {
         const names = labelNames.map(({ text }) => ({ label: text, value: text }));
-        setLabelOptions([...variables, ...names]);
+        setLabels(names, variables);
       });
     } else {
       // fetch the labels filtered by the metric
       const labelToConsider = [{ label: '__name__', op: '=', value: metric }];
       const expr = promQueryModeller.renderLabels(labelToConsider);
 
-      datasource.languageProvider.fetchLabelsWithMatch(expr).then((labelsIndex: Record<string, string[]>) => {
-        const labelNames = Object.keys(labelsIndex);
-        const names = labelNames.map((value) => ({ label: value, value: value }));
-        setLabelOptions([...variables, ...names]);
-      });
+      datasource.languageProvider
+        .fetchLabelsWithMatch(timeRange, expr)
+        .then((labelsIndex: Record<string, string[]>) => {
+          const labelNames = Object.keys(labelsIndex);
+          const names = labelNames.map((value) => ({ label: value, value: value }));
+          setLabels(names, variables);
+        });
     }
-  }, [datasource, qryType, metric]);
+  }, [datasource, qryType, metric, range]);
 
   const onChangeWithVariableString = (
     updateVar: { [key: string]: QueryType | string },
@@ -219,6 +242,18 @@ export const PromVariableQueryEditor = ({ onChange, query, datasource, range }: 
     return { metric: metric, labels: labelFilters, operations: [] };
   }, [metric, labelFilters]);
 
+  /**
+   * Debounce a search through all the labels possible and truncate by .
+   */
+  const labelNamesSearch = debounce((query: string) => {
+    // we limit the select to show 1000 options,
+    // but we still search through all the possible options
+    const results = allLabelOptions.filter((label) => {
+      return label.value?.includes(query);
+    });
+    return truncateResult(results);
+  }, 300);
+
   return (
     <>
       <InlineFieldRow>
@@ -255,14 +290,15 @@ export const PromVariableQueryEditor = ({ onChange, query, datasource, range }: 
                 </div>
               }
             >
-              <Select
+              <AsyncSelect
                 aria-label="label-select"
                 onChange={onLabelChange}
-                value={label}
-                options={labelOptions}
+                value={label ? toOption(label) : null}
+                defaultOptions={truncatedLabelOptions}
                 width={25}
                 allowCustomValue
                 isClearable={true}
+                loadOptions={labelNamesSearch}
                 data-testid={selectors.components.DataSource.Prometheus.variableQueryEditor.labelValues.labelSelect}
               />
             </InlineField>
@@ -273,6 +309,7 @@ export const PromVariableQueryEditor = ({ onChange, query, datasource, range }: 
             datasource={datasource}
             onChange={metricsLabelsChange}
             variableEditor={true}
+            timeRange={range ?? getDefaultTimeRange()}
           />
         </>
       )}
@@ -368,7 +405,7 @@ export const PromVariableQueryEditor = ({ onChange, query, datasource, range }: 
             labelWidth={20}
             tooltip={
               <div>
-                Enter enter a metric with labels, only a metric or only labels, i.e.
+                Enter a metric with labels, only a metric or only labels, i.e.
                 go_goroutines&#123;instance=&quot;localhost:9090&quot;&#125;, go_goroutines, or
                 &#123;instance=&quot;localhost:9090&quot;&#125;. Returns a list of time series associated with the
                 entered data.

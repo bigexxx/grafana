@@ -55,12 +55,8 @@ func ProvideApi(
 	}
 
 	// register endpoints if the feature is enabled
-	if features.IsEnabledGlobally(featuremgmt.FlagPublicDashboards) && cfg.PublicDashboardsEnabled {
+	if cfg.PublicDashboardsEnabled {
 		api.RegisterAPIEndpoints()
-	}
-
-	if !features.IsEnabledGlobally(featuremgmt.FlagPublicDashboards) {
-		api.log.Warn("[Deprecated] The publicDashboards feature toggle will be removed in Grafana v11. To disable the public dashboards feature, use the public_dashboards.enabled setting.")
 	}
 
 	return api
@@ -126,7 +122,7 @@ func (api *Api) ListPublicDashboards(c *contextmodel.ReqContext) response.Respon
 	}
 
 	resp, err := api.PublicDashboardService.FindAllWithPagination(c.Req.Context(), &PublicDashboardListQuery{
-		OrgID: c.SignedInUser.GetOrgID(),
+		OrgID: c.GetOrgID(),
 		Query: c.Query("query"),
 		Page:  page,
 		Limit: perPage,
@@ -157,7 +153,7 @@ func (api *Api) GetPublicDashboard(c *contextmodel.ReqContext) response.Response
 		return response.Err(ErrPublicDashboardIdentifierNotSet.Errorf("GetPublicDashboard: no dashboard Uid for public dashboard specified"))
 	}
 
-	pd, err := api.PublicDashboardService.FindByDashboardUid(c.Req.Context(), c.SignedInUser.GetOrgID(), dashboardUid)
+	pd, err := api.PublicDashboardService.FindByDashboardUid(c.Req.Context(), c.GetOrgID(), dashboardUid)
 	if err != nil {
 		return response.Err(err)
 	}
@@ -209,7 +205,7 @@ func (api *Api) CreatePublicDashboard(c *contextmodel.ReqContext) response.Respo
 	// Always set the orgID and userID from the session
 	dto := &SavePublicDashboardDTO{
 		UserId:          c.UserID,
-		OrgID:           c.SignedInUser.GetOrgID(),
+		OrgID:           c.GetOrgID(),
 		DashboardUid:    dashboardUid,
 		PublicDashboard: pdDTO,
 	}
@@ -257,7 +253,7 @@ func (api *Api) UpdatePublicDashboard(c *contextmodel.ReqContext) response.Respo
 	dto := SavePublicDashboardDTO{
 		Uid:             uid,
 		UserId:          c.UserID,
-		OrgID:           c.SignedInUser.GetOrgID(),
+		OrgID:           c.GetOrgID(),
 		DashboardUid:    dashboardUid,
 		PublicDashboard: pdDTO,
 	}
@@ -297,20 +293,16 @@ func (api *Api) DeletePublicDashboard(c *contextmodel.ReqContext) response.Respo
 		return response.Err(err)
 	}
 
-	return response.JSON(http.StatusOK, nil)
+	return response.Empty(http.StatusOK)
 }
 
 // Copied from pkg/api/metrics.go
 func toJsonStreamingResponse(ctx context.Context, features featuremgmt.FeatureToggles, qdr *backend.QueryDataResponse) response.Response {
-	statusWhenError := http.StatusBadRequest
-	if features.IsEnabled(ctx, featuremgmt.FlagDatasourceQueryMultiStatus) {
-		statusWhenError = http.StatusMultiStatus
-	}
-
 	statusCode := http.StatusOK
 	for _, res := range qdr.Responses {
 		if res.Error != nil {
-			statusCode = statusWhenError
+			statusCode = http.StatusBadRequest
+			break
 		}
 	}
 
